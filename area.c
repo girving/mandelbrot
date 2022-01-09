@@ -129,7 +129,7 @@ void area(arb_t mu, const arb_poly_t f, const int prec) {
 }
 
 /* Known areas, computed with precision 2000 */
-const int known_ks = 14+1;
+const int known_ks = 15+1;
 const char* known_areas[known_ks] = {
   "3.1415926535897932385 +/- 3.74e-20",  /* k 0 */
   "3.1415926535897932385 +/- 3.74e-20",  /* k 1 */
@@ -146,6 +146,7 @@ const char* known_areas[known_ks] = {
   "1.8346557326261556582 +/- 3.03e-20",  /* k 12 */
   "1.8061788858565225232 +/- 4.46e-20",  /* k 13 */
   "1.7863897165519852571 +/- 2.07e-20",  /* k 14 */
+  "1.7668376741940830366 +/- 2.45e-20",  /* k 15 */
 };
 
 int main() {
