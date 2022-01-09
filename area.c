@@ -3,6 +3,13 @@
 #include <arb.h>
 #include <arb_poly.h>
 
+void safe_poly_mullow(arb_poly_t C, const arb_poly_t A, const arb_poly_t B, slong n, slong prec) {
+  if (n <= 0)
+    arb_poly_zero(C);
+  else
+    arb_poly_mullow(C, A, B, n, prec);
+}
+
 void escape(arb_poly_t h, arb_poly_t dh, const int k, const arb_poly_t f, const arb_poly_t df, const int prec) {
   /* h = escape(k, z*f)^(2^-k) in mandelbrot-area-cupy.ipynb notation */
   const int n = 1 << k;
@@ -47,10 +54,7 @@ void escape(arb_poly_t h, arb_poly_t dh, const int k, const arb_poly_t f, const 
 
     /* log_h = log_h + (1/p) log(1 + z^(p-1)exp(t)) */
     arb_poly_exp_series(s, t, n-(p-1), prec);           /* s = exp(t) */
-    if (dn <= p-1)                                      /* ds = exp(t) dt */
-      arb_poly_zero(ds);
-    else
-      arb_poly_mullow(ds, s, dt, dn-(p-1), prec);
+    safe_poly_mullow(ds, s, dt, dn-(p-1), prec);        /* ds = exp(t) dt */
     arb_poly_shift_left(s, s, p-1);                     /* s = z^(p-1) exp(t) */
     arb_poly_shift_left(ds, ds, p-1);                   /* ds = z^(p-1) exp(t) dt */
     arb_poly_log1p_series(t, s, n, prec);               /* t = log(1 + z^(p-1) exp(t)) */
@@ -123,15 +127,46 @@ void area(arb_t mu, const arb_poly_t f, const int prec) {
   /* Clear temporary */
   arb_clear(t);
 }
+
+// Read back a known area into an interval containing the original value */
+void parse_known_area(arb_t x, const char* s, const int prec) {
+  arb_set_str(x, s, prec); 
+  mag_t m;
+  mag_init(m);
+  mag_set_d(m, 0.000000002);
+  arb_add_error_mag(x, m);
+  mag_clear(m);
+}
+
+/* Known areas, computed with precision 1000 */
+const int known_ks = 14+1;
+const char* known_areas[known_ks] = {
+  "3.141592654 +/- 1.8665e-301",  /* k 0 */
+  "3.141592654 +/- 1.8665e-301",  /* k 1 */
+  "2.699806187 +/- 1.2728e-300",  /* k 2 */ 
+  "2.463654039 +/- 1.1136e-299",  /* k 3 */
+  "2.308922157 +/- 3.6564e-297",  /* k 4 */
+  "2.186396961 +/- 9.8971e-294",  /* k 5 */
+  "2.111784356 +/- 1.8079e-288",  /* k 6 */
+  "2.029097992 +/- 2.5454e-281",  /* k 7 */
+  "1.979385925 +/- 1.8357e-271",  /* k 8 */
+  "1.927716223 +/- 5.5777e-253",  /* k 9 */
+  "1.895943076 +/- 1.7466e-228",  /* k 10 */
+  "1.854656777 +/- 4.0471e-197",  /* k 11 */
+  "1.834655733 +/- 1.2285e-157",  /* k 12 */
+  "1.806178886 +/- 1.0916e-108",  /* k 13 */
+  "1.786389717 +/- 4.2303e-49",  /* k 14 */
+};
   
 int main() {
   const int prec = 200;
   printf("prec %d\n\n", prec);
 
   /* Prepare temporaries */
-  arb_t a, mu, F0;
+  arb_t a, mu, known, F0;
   arb_init(a);
   arb_init(mu);
+  arb_init(known);
   arb_init(F0);
   arb_poly_t f, df, F, dF;
   arb_poly_init(f);
@@ -183,6 +218,17 @@ int main() {
       printf("  f = ");
       arb_poly_printd(f, 3);
       printf("\n");
+    }
+
+    /* Check against known results */
+    if (k < known_ks) {
+      parse_known_area(known, known_areas[k], prec);
+      if (!arb_overlaps(mu, known)) {
+        printf("  ERROR: No overlap with known area ");
+        arb_printd(known, 10);
+        printf("\n");
+        exit(1);
+      }
     }
   }
 
