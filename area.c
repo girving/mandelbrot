@@ -202,13 +202,13 @@ int main() {
     /* Report results */
     area(mu, f, prec);
     arb_get_rad_arb(r, mu);
-    printf("  mu ");
+    printf("  mu = ");
     arb_printn(mu, 20, 0);
     printf(" (radius ");
     arf_printd(arb_midref(r), 3);
-    printf(")\n  F0 ");
+    printf(")\n  F = [");
     arb_printd(F0, 3);
-    printf("\n");
+    printf("]z^%d + O(z^%d)\n", dp, dp+1);
     if (k < 4) {
       printf("  f = ");
       arb_poly_printd(f, 3);
