@@ -150,16 +150,15 @@ const char* known_areas[known_ks] = {
 };
 
 int main() {
-  const int prec = 2000;
+  const int prec = 300;
   printf("prec %d\n\n", prec);
 
   /* Prepare temporaries */
-  arb_t a, mu, known, F0, r;
+  arb_t a, mu, known, F0;
   arb_init(a);
   arb_init(mu);
   arb_init(known);
   arb_init(F0);
-  arb_init(r);
   arb_poly_t f, df, F, dF;
   arb_poly_init(f);
   arb_poly_init(df);
@@ -201,12 +200,11 @@ int main() {
 
     /* Report results */
     area(mu, f, prec);
-    arb_get_rad_arb(r, mu);
     printf("  mu = ");
+    arb_printd(mu, 10);
+    printf(" ");
     arb_printn(mu, 20, 0);
-    printf(" (radius ");
-    arf_printd(arb_midref(r), 3);
-    printf(")\n  F = [");
+    printf("\n  F = [");
     arb_printd(F0, 3);
     printf("]z^%d + O(z^%d)\n", dp, dp+1);
     if (k < 4) {
@@ -232,7 +230,6 @@ int main() {
   arb_clear(mu);
   arb_clear(F0);
   arb_clear(known);
-  arb_clear(r);
   arb_poly_clear(f);
   arb_poly_clear(df);
   arb_poly_clear(F);
