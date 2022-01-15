@@ -1,3 +1,6 @@
-area
-area.dSYM
 .ipynb_checkpoints
+bazel-bin
+bazel-mandelbrot
+bazel-out
+bazel-testlogs
+area.dSYM
