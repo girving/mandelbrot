@@ -135,7 +135,7 @@ void area(arb_t mu, const Poly& f, const int prec) {
 void toplevel() {
   const int prec = 200;
   const int repeats = 2;
-  printf("prec %d\n\n", prec);
+  print("prec = %d (%d digits)\n\n", prec, int(prec*log10(2)));
 
   // f = 1
   Poly f(1);
@@ -156,8 +156,8 @@ void toplevel() {
       if (refine) {
         // Newton update all terms
         poly_mid(f0, f);
-        implicit(ignore, dF, k, f0, df, p, p, prec);
         implicit(F, ignore, k, f0, df, p, 0, prec);
+        implicit(ignore, dF, k, f, df, p, p, prec);
         arb_poly_div_series(F, F, dF, p, prec);
         poly_intersect_sub(f, f0, F, p, prec);
       } else {
