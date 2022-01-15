@@ -3,6 +3,7 @@
 #include "known.h"
 #include "poly.h"
 #include "print.h"
+#include "wall_time.h"
 namespace mandelbrot {
 
 using std::min;
@@ -148,6 +149,7 @@ void toplevel() {
     print("\nk %d:", k);
     for (int refine = 0; refine < repeats; refine++) {
       print("  refine %d:", refine);
+      const auto start = wall_time();
       const int p = 1 << k;
       const int dp = refine ? p : p / 2;
 
@@ -167,6 +169,7 @@ void toplevel() {
         F <<= dp;
         arb_poly_sub_series(f, f, F, p, prec);
       }
+      const auto elapsed = wall_time() - start;
 
       // Report results
       Arb mu;
@@ -175,6 +178,7 @@ void toplevel() {
       if (k < 4)
         print("    f = %.3g", f);
       if (0) stats(f, "f");
+      print("    time = %.3g s", elapsed.seconds());
 
       // Check against known results
       if (k < known_ks) {

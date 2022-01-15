@@ -9,6 +9,7 @@ cc_binary(
       "poly.h",
       "poly.cc",
       "print.h",
+      "wall_time.h",
     ],
     copts = ["-std=c++20", "-Wall", "-Werror"],
     deps = [
