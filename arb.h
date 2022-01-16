@@ -12,6 +12,7 @@ struct Arb {
 
   Arb() { arb_init(x); }
   Arb(const Arb& a) = delete;
+  explicit Arb(const arb_t a) { arb_init(x); arb_set(x, a); }
   Arb(Arb&& a) { *x = *a.x; arb_init(a.x); }
   ~Arb() { arb_clear(x); }
 

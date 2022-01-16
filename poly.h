@@ -47,5 +47,16 @@ template<class... Args> void stats(const Poly& f, const char* fmt, const Args&..
 }
 
 void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, const int n, const int prec);
+void poly_mid(Poly& mid, const Poly& f);
+
+// C = intersection(C, A - B)
+void poly_intersect_sub(Poly& C, const Poly& A, const Poly& B, const slong n, const slong prec);
+
+// Strengthened Newton iteration (arb + one more Newton step)
+void poly_inv_refine(Poly& y, const Poly& x, const slong n, const slong prec);
+void poly_div_refine(Poly& y, const Poly& a, const Poly& b, const slong n, const slong prec);
+void poly_log_refine(Poly& y, const Poly& x, const slong n, const slong prec);
+void poly_log1p_refine(Poly& y, const Poly& x, const slong n, const slong prec);
+void poly_exp_refine(Poly& y, const Poly& x, const slong n, const slong prec);
 
 }  // namespace mandelbrot

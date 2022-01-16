@@ -5,6 +5,8 @@ cc_binary(
     srcs = [
       "arb.h",
       "arb.cc",
+      "arf.h",
+      "arf.cc",
       "area.cc",
       "poly.h",
       "poly.cc",
