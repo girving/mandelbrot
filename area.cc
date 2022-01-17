@@ -24,63 +24,42 @@ void poly_linear_sub_si_2exp(Poly& C, const slong a, const Poly& A, const slong 
   }
 }
 
-void escape(Poly& h, Poly& dh, const int k, const Poly& f, const Poly& df,
+// h = log escape(k, z*e^-g)^(2^-k) in mandelbrot-area-cupy.ipynb notation
+void escape(Poly& h, Poly& dh, const int k, const Poly& g, const Poly& dg,
             const int n, const int dn, const int prec) {
-  // h = escape(k, z*f)^(2^-k) in mandelbrot-area-cupy.ipynb notation
   const bool verbose = false;
 
-  // Handle h = 1 base case specially to avoid log(0)
-  if (k == 0) {
-    arb_poly_one(h);
-    arb_poly_zero(dh);
-    return;
-  }
+  // Base case
+  arb_poly_zero(h);
+  arb_poly_zero(dh);
 
-  // log_f = log(f)
-  Poly log_f, dlog_f;
-  poly_log_refine(log_f, f, n, prec);
-  poly_div_refine(dlog_f, df, f, dn, prec);
-
-  Poly log_h, dlog_h, t, dt, s, ds, u;
+  Poly t, dt, s, ds, u;
   for (int i = 1; i <= k; i++) {
     const int p = 1 << i;
 
-    // t = (p-1)*log_f - p*log_h
-    poly_linear_sub_si_2exp(t, p-1, log_f, i, log_h, prec);
-    poly_linear_sub_si_2exp(dt, p-1, dlog_f, i, dlog_h, prec);
+    // t = (1-p)g - p h
+    poly_linear_sub_si_2exp(t, 1-p, g, i, h, prec);
+    poly_linear_sub_si_2exp(dt, 1-p, dg, i, dh, prec);
     if (verbose) stats(t, "linear %d", i);
 
-    // log_h = log_h + (1/p) log(1 + z^(p-1)exp(t))
-    poly_log1p_exp_shift_refine(s, t, p-1, n-(p-1), prec);     // s = z^(1-p) log(1 + z^(p-1) exp(t))
-    poly_sub_shift_series(u, t, s, p-1, dn-(p-1), prec);       // u = t - z^(p-1) s
-    poly_exp_refine(t, u, dn-(p-1), prec);                     // u = exp(t - z^(p-1) s)
-    safe_poly_mullow(ds, t, dt, dn-(p-1), prec);               // ds = exp(t - z^(p-1) s) dt
-    arb_poly_scalar_mul_2exp_si(s, s, -i);                     // s /= p
-    arb_poly_scalar_mul_2exp_si(ds, ds, -i);                   // ds /= p
-    poly_add_shift_series(log_h, log_h, s, p-1, n, prec);      // log_h += z^(p-1) s
-    poly_add_shift_series(dlog_h, dlog_h, ds, p-1, dn, prec);  // dlog_h += z^(p-1) ds
+    // h += (1/p) log(1 + z^(p-1)exp(t))
+    poly_log1p_exp_shift_refine(s, t, p-1, n-(p-1), prec);  // s = z^(1-p) log(1 + z^(p-1) exp(t))
+    poly_sub_shift_series(u, t, s, p-1, dn-(p-1), prec);    // u = t - z^(p-1) s
+    poly_exp_refine(t, u, dn-(p-1), prec);                  // u = exp(t - z^(p-1) s)
+    safe_poly_mullow(ds, t, dt, dn-(p-1), prec);            // ds = exp(t - z^(p-1) s) dt
+    arb_poly_scalar_mul_2exp_si(s, s, -i);                  // s /= p
+    arb_poly_scalar_mul_2exp_si(ds, ds, -i);                // ds /= p
+    poly_add_shift_series(h, h, s, p-1, n, prec);           // h += z^(p-1) s
+    poly_add_shift_series(dh, dh, ds, p-1, dn, prec);       // dh += z^(p-1) ds
   }
-
-  // h = exp(log_h)
-  poly_exp_refine(h, log_h, n, prec);
-  arb_poly_mullow(dh, h, dlog_h, dn, prec);
 }
 
-void implicit(Poly& F, Poly& dF, const int k, const Poly& f, const Poly& df,
+// escape(k, g) + g
+void implicit(Poly& F, Poly& dF, const int k, const Poly& g, const Poly& dg,
               const int n, const int dn, const int prec) {
-  // escape(k, z/f) - 1/f
-
-  // fi = 1 / f
-  Poly fi, dfi;
-  poly_inv_refine(fi, f, n, prec);
-  arb_poly_mullow(dfi, fi, fi, dn, prec);
-  arb_poly_mullow(dfi, dfi, df, dn, prec);
-  arb_poly_neg(dfi, dfi);
-
-  // escape(k, fi) - fi
-  escape(F, dF, k, fi, dfi, n, dn, prec);
-  arb_poly_sub_series(F, F, fi, n, prec);
-  arb_poly_sub_series(dF, dF, dfi, dn, prec);
+  escape(F, dF, k, g, dg, n, dn, prec);
+  arb_poly_add_series(F, F, g, n, prec);
+  arb_poly_add_series(dF, dF, dg, dn, prec);
 }
 
 void area(arb_t mu, const Poly& f, const int prec) {
@@ -102,14 +81,14 @@ void toplevel() {
   const int repeats = 2;
   print("prec = %d (%d digits)\n\n", prec, int(prec*log10(2)));
 
-  // f = 1
-  Poly f(1);
-  print("k 0:\n  f = %.3g", f);
+  // f = 1, so g = log f = 0
+  Poly g;
+  print("k 0:\n  f = 1\n  g = 0");
 
-  // df = 1
-  Poly df(1);
+  // dg = 1
+  const Poly dg(1);
 
-  Poly f0, F, dF, ignore;
+  Poly g0, F, dF, ignore;
   for (int k = 1; k <= 14; k++) {
     print("\nk %d:", k);
     for (int refine = 0; refine < repeats; refine++) {
@@ -120,28 +99,32 @@ void toplevel() {
 
       if (refine) {
         // Newton update all terms
-        poly_mid(f0, f);
-        implicit(F, ignore, k, f0, df, p, 0, prec);
-        implicit(ignore, dF, k, f, df, p, p, prec);
+        poly_mid(g0, g);
+        implicit(F, ignore, k, g0, dg, p, 0, prec);
+        implicit(ignore, dF, k, g, dg, p, p, prec);
         poly_div_refine(F, F, dF, p, prec);
-        poly_intersect_sub(f, f0, F, p, prec);
+        poly_intersect_sub(g, g0, F, p, prec);
       } else {
         // Newton update only the high terms
-        implicit(F, dF, k, f, df, p, dp, prec);
+        implicit(F, dF, k, g, dg, p, dp, prec);
         F.assert_low_zero(dp);
         F >>= dp;
         poly_div_refine(F, F, dF, dp, prec);
         F <<= dp;
-        arb_poly_sub_series(f, f, F, p, prec);
+        arb_poly_sub_series(g, g, F, p, prec);
       }
       const auto elapsed = wall_time() - start;
 
       // Report results
+      Poly f;
+      poly_exp_refine(f, g, p, prec);
       Arb mu;
       area(mu, f, prec);
       print("    mu = %.10g %s", mu, mu.safe(20));
-      if (k < 4)
+      if (k < 4) {
         print("    f = %.3g", f);
+        print("    g = %.3g", g);
+      }
       if (0) stats(f, "f");
       print("    time = %.3g s", elapsed.seconds());
 

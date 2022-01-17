@@ -167,8 +167,6 @@ void poly_add_arb(Poly& f, const Arb& a, const slong prec) {
 
 // h = f + z^s g
 void poly_add_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const int n, const int prec) {
-  if (n <= 0)
-    return;
   if (n <= s) {
     safe_poly_set_trunc(h, f, n);
     return;
@@ -179,13 +177,16 @@ void poly_add_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s,
   if (!h.alias(f))
     for (int i = s-1; i >= 0; i--)
       arb_set(h.x->coeffs + i, f[i]);
+  else {
+    const int hn = h.length();
+    for (int i = s-1; i >= hn; i--)
+      arb_zero(h.x->coeffs + i);
+  }
   _arb_poly_set_length(h, n);
 }
 
 // h = f - z^s g
 void poly_sub_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const int n, const int prec) {
-  if (n <= 0)
-    return;
   if (n <= s) {
     safe_poly_set_trunc(h, f, n);
     return;
@@ -196,6 +197,11 @@ void poly_sub_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s,
   if (!h.alias(f))
     for (int i = s-1; i >= 0; i--)
       arb_set(h.x->coeffs + i, f[i]);
+  else {
+    const int hn = h.length();
+    for (int i = s-1; i >= hn; i--)
+      arb_zero(h.x->coeffs + i);
+  }
   _arb_poly_set_length(h, n);
 }
 
