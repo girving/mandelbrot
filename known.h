@@ -28,3 +28,13 @@ const char* known_areas[known_ks] = {
 //   16jan2022, prec 200, Newton refinement:
 //     k 11 refine, 5.65 s: mu = 1.854656777 +/- 1.2799e-37
 //     k 12 refine, 13.9 s: mu = 1.834655733 +/- 9.6986e-33
+//   17jan2022, prec 200, log1p_exp_shift:
+//     k 11 refine, 20.0 s: mu = 1.854656777 +/- 2.3030e-45
+//     k 12 refine, 61.5 s: mu = 1.834655733 +/- 7.6881e-43
+//     k 13 refine, 169 s:  mu = 1.806178886 +/- 4.6439e-40
+//     k 14 refine, 422 s:  mu = 1.786389717 +/- 3.9121e-37
+//   17jan2022, prec 200, poly_inv_refine → f(y0)/f'(y):
+//     k 11 refine, 25.1 s: mu = 1.854656777 +/- 1.1026e-45
+//     k 12 refine, 72.4 s: mu = 1.834655733 +/- 3.3779e-43
+//     k 13 refine, 206 s:  mu = 1.806178886 +/- 1.8539e-40
+//     k 14 refine, 694 s:  mu = 1.786389717 +/- 1.4147e-37

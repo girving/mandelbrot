@@ -6,6 +6,7 @@
 #include "print.h"
 namespace mandelbrot {
 
+using std::max;
 using std::swap;
 
 struct Poly {
@@ -36,6 +37,7 @@ struct Poly {
   string stats() const;
   friend std::ostream& operator<<(std::ostream& out, const Poly& f);
   void assert_low_zero(const slong n) const;
+  bool alias(const Poly& f) const { return +x == +f.x; }
 
   // Shifts
   void operator<<=(const slong n) { arb_poly_shift_left(x, x, n); }
@@ -48,6 +50,16 @@ template<class... Args> void stats(const Poly& f, const char* fmt, const Args&..
 
 void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, const int n, const int prec);
 void poly_mid(Poly& mid, const Poly& f);
+void poly_add_arb(Poly& f, const Arb& a, const slong prec);
+bool overlaps(const Poly& f, const Poly& g);
+
+static inline void safe_poly_set_trunc(Poly& f, const Poly& g, const slong n) {
+  arb_poly_set_trunc(f, g, max(slong(0), n));
+}
+
+// h = f +/- z^s g
+void poly_add_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const int n, const int prec);
+void poly_sub_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const int n, const int prec);
 
 // C = intersection(C, A - B)
 void poly_intersect_sub(Poly& C, const Poly& A, const Poly& B, const slong n, const slong prec);
@@ -58,5 +70,13 @@ void poly_div_refine(Poly& y, const Poly& a, const Poly& b, const slong n, const
 void poly_log_refine(Poly& y, const Poly& x, const slong n, const slong prec);
 void poly_log1p_refine(Poly& y, const Poly& x, const slong n, const slong prec);
 void poly_exp_refine(Poly& y, const Poly& x, const slong n, const slong prec);
+
+// Shifted versions of log1p, expm1, log1p_exp
+//   log1p_shift: y = z^-s log(1 + z^s x) + O(z^n)
+//   expm1_shift: y = z^-s (exp(az^s x) - 1) + O(z^n) with |a| = 1
+//   log1p_exp_shift: y = z^-s log (1 + z^s e^x) + O(z^n)
+void poly_log1p_shift_refine(Poly& y, const Poly& x, const slong s, const slong n, const slong prec);
+void poly_expm1_shift_refine(Poly& y, const Poly& x, const slong a, const slong s, const slong n, const slong prec);
+void poly_log1p_exp_shift_refine(Poly& y, const Poly& x, const slong s, const slong n, const slong prec);
 
 }  // namespace mandelbrot

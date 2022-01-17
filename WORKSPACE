@@ -13,3 +13,13 @@ http_archive(
     strip_prefix = "tinyformat-3a33bbf65442432277eee079e83d3e8fac51730c",
     build_file = "//third_party:tinyformat.BUILD",
 )
+
+http_archive(
+    name = "com_google_googletest",
+    urls = [
+        "https://github.com/google/googletest/archive/d175c8bf823e709d570772b038757fadf63bc632.tar.gz",
+    ],
+    sha256 = "39a708e81cf68af02ca20cad879d1dbd055364f3ae5588a5743c919a51d7ad46",
+    strip_prefix = "googletest-d175c8bf823e709d570772b038757fadf63bc632",
+    build_file = "//third_party:googletest.BUILD",
+)

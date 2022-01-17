@@ -41,7 +41,7 @@ void escape(Poly& h, Poly& dh, const int k, const Poly& f, const Poly& df,
   poly_log_refine(log_f, f, n, prec);
   poly_div_refine(dlog_f, df, f, dn, prec);
 
-  Poly log_h, dlog_h, t, dt, s, ds;
+  Poly log_h, dlog_h, t, dt, s, ds, u;
   for (int i = 1; i <= k; i++) {
     const int p = 1 << i;
 
@@ -51,21 +51,14 @@ void escape(Poly& h, Poly& dh, const int k, const Poly& f, const Poly& df,
     if (verbose) stats(t, "linear %d", i);
 
     // log_h = log_h + (1/p) log(1 + z^(p-1)exp(t))
-    poly_exp_refine(s, t, n-(p-1), prec);               // s = exp(t)
-    if (verbose) stats(s, "exp(t) %d", i);
-    safe_poly_mullow(ds, s, dt, dn-(p-1), prec);        // ds = exp(t) dt
-    arb_poly_shift_left(s, s, p-1);                     // s = z^(p-1) exp(t)
-    arb_poly_shift_left(ds, ds, p-1);                   // ds = z^(p-1) exp(t) dt
-    poly_log1p_refine(t, s, n, prec);                   // t = log(1 + z^(p-1) exp(t))
-    if (verbose) stats(t, "log1p %d", i);
-    arb_poly_add_si(s, s, 1, prec);                     // s = 1 + z^(p-1) exp(t)
-    poly_div_refine(dt, ds, s, dn, prec);               // dt = d/df log(1 + z^(p-1) exp(t))
-    arb_poly_scalar_mul_2exp_si(t, t, -i);              // t /= p
-    arb_poly_scalar_mul_2exp_si(dt, dt, -i);            // dt /= p
-    if (verbose) stats(t, "delta %d", i);
-    arb_poly_add_series(log_h, log_h, t, n, prec);      // log_h += t
-    arb_poly_add_series(dlog_h, dlog_h, dt, dn, prec);  // dlog_h += dt
-    if (verbose) stats(log_h, "log_h %d", i);
+    poly_log1p_exp_shift_refine(s, t, p-1, n-(p-1), prec);     // s = z^(1-p) log(1 + z^(p-1) exp(t))
+    poly_sub_shift_series(u, t, s, p-1, dn-(p-1), prec);       // u = t - z^(p-1) s
+    poly_exp_refine(t, u, dn-(p-1), prec);                     // u = exp(t - z^(p-1) s)
+    safe_poly_mullow(ds, t, dt, dn-(p-1), prec);               // ds = exp(t - z^(p-1) s) dt
+    arb_poly_scalar_mul_2exp_si(s, s, -i);                     // s /= p
+    arb_poly_scalar_mul_2exp_si(ds, ds, -i);                   // ds /= p
+    poly_add_shift_series(log_h, log_h, s, p-1, n, prec);      // log_h += z^(p-1) s
+    poly_add_shift_series(dlog_h, dlog_h, ds, p-1, dn, prec);  // dlog_h += z^(p-1) ds
   }
 
   // h = exp(log_h)
@@ -117,7 +110,7 @@ void toplevel() {
   Poly df(1);
 
   Poly f0, F, dF, ignore;
-  for (int k = 1; k < 13; k++) {
+  for (int k = 1; k <= 14; k++) {
     print("\nk %d:", k);
     for (int refine = 0; refine < repeats; refine++) {
       print("  refine %d:", refine);
