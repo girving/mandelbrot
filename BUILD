@@ -23,7 +23,7 @@ cc_library(
     copts = ["-std=c++20", "-Wall", "-Werror"],
     deps = [
         ":known",
-        "//third_party/arb",
+        "@arb//:arb",
         "@tinyformat//:tinyformat",
     ],
 )
