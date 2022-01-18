@@ -1,6 +1,6 @@
 // C++ interface to arf_t
 
-#include "arf.h"
+#include "arf-cc.h"
 #include "tinyformat.h"
 namespace mandelbrot {
 

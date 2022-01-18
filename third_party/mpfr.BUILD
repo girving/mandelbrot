@@ -22,8 +22,11 @@ cc_library(
         "src/round_raw_generic.c",
         "src/sub1sp1_extracted.c",
     ]),
-    hdrs = glob(["src/*.h"]) + [
+    hdrs = glob(["src/**/*.h"]) + [
+        "src/jyn_asympt.c",
+        "src/lngamma.c",
         "src/mparam.h",
+        "src/round_raw_generic.c",
     ],
     includes = ["src"],
     copts = [

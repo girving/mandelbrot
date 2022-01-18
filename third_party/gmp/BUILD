@@ -9,14 +9,23 @@ genrule(
     outs = ["gmp.h"],
     cmd = select({
         "@bazel_tools//src/conditions:darwin": "ln -s `brew --prefix`/include/gmp.h $(OUTS)",
-        "//conditions:default": "ln -s /usr/include/gmp.h $(OUTS)",
+        "//conditions:default": "\n".join([
+            "if [ -e /usr/include/gmp.h ]; then",
+            "  ln -s /usr/include/gmp.h $(OUTS)",
+            "elif [ -e /usr/include/x86_64-linux-gnu/gmp.h ]; then",
+            "  ln -s /usr/include/x86_64-linux-gnu/gmp.h $(OUTS)",
+            "fi",
+        ]),
     }),
 )
 
 genrule(
     name = "dylib",
     outs = ["libgmp-link.dylib"],
-    cmd = "ln -s `brew --prefix`/lib/libgmp.dylib $(OUTS)",
+    cmd = select({
+        "@bazel_tools//src/conditions:darwin": "ln -s `brew --prefix`/lib/libgmp.dylib $(OUTS)",
+        "//conditions:default": "touch $(OUTS)",
+    }),
 )
 
 genrule(
@@ -24,7 +33,13 @@ genrule(
     outs = ["libgmp-link.so"],
     cmd = select({
         "@bazel_tools//src/conditions:darwin": "touch $(OUTS)",
-        "//conditions:default": "ln -s `brew --prefix`/lib/libgmp.so $(OUTS)",
+        "//conditions:default": "\n".join([
+            "if [ -e /usr/lib/libgmp.so ]; then",
+            "  ln -s /usr/lib/libgmp.so $(OUTS)",
+            "elif [ -e /usr/lib/x86_64-linux-gnu/libgmp.so ]; then",
+            "  ln -s /usr/lib/x86_64-linux-gnu/libgmp.so $(OUTS)",
+            "fi",
+        ]),
     }),
 )
 

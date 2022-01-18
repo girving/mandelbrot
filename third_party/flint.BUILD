@@ -40,12 +40,22 @@ cc_library(
         "fft_tuning.h",
         "fmpz/link/fmpz_single.c",
     ],
-    hdrs = glob(["*.h"]) + [
+    hdrs = glob([
+        "*.h",
+        "*_templates/*.c",
+    ]) + [
         "fmpz-conversions.h",
     ],
     includes = ["."],
     include_prefix = "flint",
-    copts = ["-Wall", "-Werror", "-Wno-shift-negative-value"],
+    copts = [
+        "-Wall",
+        "-Werror",
+        "-Wno-shift-negative-value",
+    ] + select({
+        "@bazel_tools//src/conditions:darwin": [],
+        "//conditions:default": ["-Wno-unused-but-set-variable"],
+    }),
     deps = [
         "@mpfr//:mpfr",
         "@mandelbrot//third_party:flint-config",

@@ -13,6 +13,14 @@ cc_library(
     ]),
     hdrs = glob(["*.h"]),
     includes = ["."],
+    copts = [
+        "-Wall",
+        "-Werror",
+    ] + select({
+        "@bazel_tools//src/conditions:darwin": [],
+        "//conditions:default": ["-Wno-builtin-declaration-mismatch"],
+    }),
+    linkopts = ["-lpthread"],
     deps = [
         "@flint//:flint",
     ],

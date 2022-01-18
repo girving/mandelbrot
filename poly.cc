@@ -1,7 +1,7 @@
 // C++ interface with arb_poly_t
 
 #include "poly.h"
-#include "arf.h"
+#include "arf-cc.h"
 #include "tinyformat.h"
 #include <vector>
 namespace mandelbrot {

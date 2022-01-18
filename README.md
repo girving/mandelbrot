@@ -14,3 +14,14 @@ and the area of the Mandelbrot set is
     𝜇(M) ≤ 1.68288
 
 Here we try to compute more terms.
+
+## Dependencies
+
+We depend on `bazel` and `gmp` manually, and `arb`, `flint`, and `mpfr` automatically via `bazel`.  To install the manual dependencies:
+
+    # On Mac
+    brew install bazel gmp
+
+    # On Linux
+    # Install bazel via https://docs.bazel.build/versions/main/install-ubuntu.html
+    sudo apt-get install libgmp3-dev

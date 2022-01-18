@@ -2,7 +2,7 @@
 #pragma once
 
 #include <arb_poly.h>
-#include "arb.h"
+#include "arb-cc.h"
 #include "print.h"
 namespace mandelbrot {
 

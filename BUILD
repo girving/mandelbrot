@@ -10,17 +10,17 @@ cc_library(
 cc_library(
     name = "mandelbrot",
     srcs = [
-      "arb.h",
-      "arb.cc",
-      "arf.h",
-      "arf.cc",
+      "arb-cc.h",
+      "arb-cc.cc",
+      "arf-cc.h",
+      "arf-cc.cc",
       "poly.h",
       "poly.cc",
       "print.h",
       "rand.h",
       "wall_time.h",
     ],
-    copts = ["-std=c++20", "-Wall", "-Werror"],
+    copts = ["-std=c++2a", "-Wall", "-Werror"],
     deps = [
         ":known",
         "@arb//:arb",
@@ -31,7 +31,7 @@ cc_library(
 cc_binary(
     name = "area",
     srcs = ["area.cc"],
-    copts = ["-std=c++20", "-Wall", "-Werror"],
+    copts = ["-std=c++2a", "-Wall", "-Werror"],
     deps = [
         ":known",
         ":mandelbrot",
