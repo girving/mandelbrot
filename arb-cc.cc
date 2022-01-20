@@ -1,10 +1,8 @@
 // C++ interface to arb_t
 
 #include "arb-cc.h"
-#include "tinyformat.h"
+#include <iostream>
 namespace mandelbrot {
-
-using tinyformat::format;
 
 std::ostream& operator<<(std::ostream& out, const Arb& a) {
   char* buffer;

@@ -2,7 +2,8 @@
 
 #include "poly.h"
 #include "arf-cc.h"
-#include "tinyformat.h"
+#include "debug.h"
+#include "format.h"
 #include <vector>
 namespace mandelbrot {
 
@@ -12,7 +13,6 @@ using std::numeric_limits;
 using std::ostream;
 using std::runtime_error;
 using std::vector;
-using tinyformat::format;
 
 arb_srcptr Poly::operator[](const slong n) const {
   static Arb zero;
@@ -21,13 +21,13 @@ arb_srcptr Poly::operator[](const slong n) const {
 }
 
 string Poly::stats() const {
-  const int prec = 200;
+  const slong prec = 200;
   Arf lo, hi, t;
   arf_pos_inf(lo);
   arf_neg_inf(hi);
   double radius = -numeric_limits<double>::infinity();
   const auto n = length();
-  for (int i = 0; i < n; i++) {
+  for (slong i = 0; i < n; i++) {
     const auto c = (*this)[i];
     arb_get_lbound_arf(t, c, prec);
     arf_min(lo, lo, t);
@@ -38,7 +38,7 @@ string Poly::stats() const {
   return format("degree %d, coeffs [%.3g,%.3g], radius %g", degree(), lo, hi, radius);
 }
 
-void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, const int n, const int prec) {
+void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, const slong n, const slong prec) {
   if (n > 0)
     arb_poly_mullow(fg, f, g, n, prec);
   else
@@ -46,14 +46,13 @@ void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, con
 }
 
 void Poly::assert_low_zero(const slong n) const {
-  for (int i = 0; i < n; i++)
-    if (!arb_contains_si((*this)[i], 0))
-      throw std::runtime_error("low terms are not zero");
+  for (slong i = 0; i < n; i++)
+    slow_assert(arb_contains_si((*this)[i], 0), "low terms are not zero");
 }
 
 bool overlaps(const Poly& f, const Poly& g) {
-  const int n = max(f.length(), g.length());
-  for (int i = 0; i < n; i++)
+  const slong n = max(f.length(), g.length());
+  for (slong i = 0; i < n; i++)
     if (!arb_overlaps(f[i], g[i]))
       return false;
   return true;
@@ -73,7 +72,7 @@ ostream& operator<<(ostream& out, const Poly& f) {
 void poly_mid(Poly& mid, const Poly& f) {
   const slong n = f.length();
   arb_poly_fit_length(mid, n);
-  for (int i = 0; i < n; i++)
+  for (slong i = 0; i < n; i++)
     arb_get_mid_arb(mid.x->coeffs + i, f[i]);
   _arb_poly_set_length(mid, n);
 }
@@ -83,11 +82,10 @@ void poly_intersect_sub(Poly& C, const Poly& A, const Poly& B, slong n, const sl
   n = min(n, max(A.length(), B.length()));
   _arb_poly_set_length(C, n);
   Arb t;
-  for (int i = 0; i < n; i++) {
+  for (slong i = 0; i < n; i++) {
     arb_sub(t, A[i], B[i], prec);
     auto c = C.mutable_at(i);
-    if (!arb_overlaps(c, t))
-      throw runtime_error(format("poly_intersect_sub: i %d, c %.10g, t %.10g", i, Arb(c), t));
+    slow_assert(arb_overlaps(c, t), "i %d, c %.10g, t %.10g", i, Arb(c), t);
     arb_intersection(c, c, t, prec);
   }
 }
@@ -166,40 +164,40 @@ void poly_add_arb(Poly& f, const Arb& a, const slong prec) {
 }
 
 // h = f + z^s g
-void poly_add_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const int n, const int prec) {
+void poly_add_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const slong n, const slong prec) {
   if (n <= s) {
     safe_poly_set_trunc(h, f, n);
     return;
   }
   arb_poly_fit_length(h, n);
-  for (int i = n-1; i >= s; i--)
+  for (slong i = n-1; i >= s; i--)
     arb_add(h.x->coeffs + i, f[i], g[i - s], prec);
   if (!h.alias(f))
-    for (int i = s-1; i >= 0; i--)
+    for (slong i = s-1; i >= 0; i--)
       arb_set(h.x->coeffs + i, f[i]);
   else {
-    const int hn = h.length();
-    for (int i = s-1; i >= hn; i--)
+    const slong hn = h.length();
+    for (slong i = s-1; i >= hn; i--)
       arb_zero(h.x->coeffs + i);
   }
   _arb_poly_set_length(h, n);
 }
 
 // h = f - z^s g
-void poly_sub_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const int n, const int prec) {
+void poly_sub_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const slong n, const slong prec) {
   if (n <= s) {
     safe_poly_set_trunc(h, f, n);
     return;
   }
   arb_poly_fit_length(h, n);
-  for (int i = n-1; i >= s; i--)
+  for (slong i = n-1; i >= s; i--)
     arb_sub(h.x->coeffs + i, f[i], g[i - s], prec);
   if (!h.alias(f))
-    for (int i = s-1; i >= 0; i--)
+    for (slong i = s-1; i >= 0; i--)
       arb_set(h.x->coeffs + i, f[i]);
   else {
-    const int hn = h.length();
-    for (int i = s-1; i >= hn; i--)
+    const slong hn = h.length();
+    for (slong i = s-1; i >= hn; i--)
       arb_zero(h.x->coeffs + i);
   }
   _arb_poly_set_length(h, n);
@@ -217,8 +215,7 @@ void poly_log_refine(Poly& y, const Poly& x, const slong n, const slong prec) {
   // Grab constant term
   Arb c;
   arb_set(c, x[0]);
-  if (!arb_is_positive(c))
-    throw runtime_error(format("poly_log_refine: possibly negative constant term %.3g", c));
+  slow_assert(arb_is_positive(c), "possibly negative constant term %.3g", c);
   const bool one = arb_equal_si(c, 1);
 
   // log via y' = x'/x
@@ -241,14 +238,13 @@ void poly_log1p_refine(Poly& y, const Poly& x, const slong n, const slong prec) 
   } else if (skip_refine) {
     arb_poly_log1p_series(y, x, n, prec);
     return;
-  } else if (!arb_contains_si(x[0], 0))
-    throw runtime_error("poly_log1p_refine: expected 0 constant term");
-  else if (y.alias(x)) {
+  } else if (y.alias(x)) {
     Poly t;
     poly_log1p_refine(t, x, n, prec);
     y = t;
     return;
   }
+  slow_assert(arb_contains_si(x[0], 0), "expected 0 constant term");
   arb_poly_add_si(y, x, 1, prec);
   poly_log_refine(y, y, n, prec);
 }
@@ -285,8 +281,9 @@ void poly_log1p_shift_refine(Poly& y, const Poly& x, const slong s, const slong 
   if (n <= 0) {
     arb_poly_truncate(y, 0);
     return;
-  } else if (s < 1)
-    throw runtime_error("poly_log1p_shift_refine: need s >= 1");
+  }
+  slow_assert(s >= 1);
+
   // t = 1 + z^s x
   Poly t;
   arb_poly_shift_left(t, x, s);
@@ -294,14 +291,14 @@ void poly_log1p_shift_refine(Poly& y, const Poly& x, const slong s, const slong 
   arb_poly_add_si(t, t, 1, prec);
   // y = D_n x
   arb_poly_fit_length(y, n);
-  for (int i = 0; i < n; i++)
+  for (slong i = 0; i < n; i++)
     arb_mul_si(y.x->coeffs+i, x[i], s+i, prec);
   _arb_poly_set_length(y, n);
   // y = y / t
   poly_div_refine(y, y, t, n, prec);
   // y = J_n y
-  const int m = y.length();
-  for (int i = 0; i < m; i++) {
+  const slong m = y.length();
+  for (slong i = 0; i < m; i++) {
     auto yi = y.mutable_at(i);
     arb_div_si(yi, yi, s+i, prec);
   }
@@ -315,15 +312,15 @@ template<class Step> static inline void newton_iterate(const slong n0, const slo
     ms.push_back(m);
 
   // Newton iterate
-  int m0 = n0;
-  for (int i = ms.size()-1; i >= 0; i--) {
+  slong m0 = n0;
+  for (slong i = ms.size()-1; i >= 0; i--) {
     const slong m = ms[i];
     step(m0, m);
     m0 = m;
   }
 }
 
-// y = z^-s (exp(z^s x) - 1) + O(z^n)
+// y = z^-s (exp(az^s x) - 1) + O(z^n)
 void poly_expm1_shift_refine(Poly& y, const Poly& x, const slong a, const slong s, const slong n, slong prec) {
   if (n <= 0) {
     arb_poly_truncate(y, 0);
@@ -333,10 +330,9 @@ void poly_expm1_shift_refine(Poly& y, const Poly& x, const slong a, const slong 
     poly_expm1_shift_refine(t, x, a, s, n, prec);
     y = t;
     return;
-  } else if (abs(a) != 1)
-    throw runtime_error(format("poly_expm1_shift_refine: expected |a| = 1, got a = %d", a));
-  else if (s < 1)
-    throw runtime_error(format("poly_expm1_shift_refine: need s >= 1, got %d", s));
+  }
+  slow_assert(abs(a) == 1, "expected |a| = 1, got a = %d", a);
+  slow_assert(s >= 1, "need s >= 1, got %d", s);
   // y = z^-s (exp(az^s x) - 1)
   // log1p(y, s) = z^-s log(1 + z^s (z^-s (exp(az^s x) - 1)))
   //             = z^-s log(1 + exp(az^s x) - 1)
@@ -353,7 +349,7 @@ void poly_expm1_shift_refine(Poly& y, const Poly& x, const slong a, const slong 
     arb_poly_neg(y, y);
 
   Poly t, u;
-  const auto delta = [a, s, prec, &x, &t, &u](Poly& dy, const Poly& y0, const Poly& y, const int m0, const int m) {
+  const auto delta = [a,s,prec,&x,&t,&u](Poly& dy, const Poly& y0, const Poly& y, const slong m0, const slong m) {
     // t = log1p(y0) - ax
     poly_log1p_shift_refine(t, y0, s, m, prec);
     (a > 0 ? arb_poly_sub_series : arb_poly_add_series)(t, t, x, m, prec);  // t -= ax
@@ -370,7 +366,7 @@ void poly_expm1_shift_refine(Poly& y, const Poly& x, const slong a, const slong 
 
   // Approximate all coefficients
   Poly dy;
-  newton_iterate(1, n, [&delta, &y, &dy, prec](const int m0, const int m) {
+  newton_iterate(1, n, [&delta, &y, &dy, prec](const slong m0, const slong m) {
     delta(dy, y, y, m0, m);
     arb_poly_sub_series(y, y, dy, m, prec);
   });
@@ -418,7 +414,7 @@ void poly_log1p_exp_shift_refine(Poly& y, const Poly& x, const slong s, const sl
   }
 
   Poly t, e;
-  const auto delta = [s, prec, &x, &t, &e](Poly& dy, const Poly& y, const int m0, const int m) {
+  const auto delta = [s, prec, &x, &t, &e](Poly& dy, const Poly& y, const slong m0, const slong m) {
     // dy = expm1(-y, s)
     poly_expm1_shift_refine(dy, y, -1, s, m, prec);
     // e = exp(x - z^s y)
@@ -433,7 +429,7 @@ void poly_log1p_exp_shift_refine(Poly& y, const Poly& x, const slong s, const sl
 
   // Approximate all coefficients
   Poly dy;
-  newton_iterate(1, n, [&delta, &y, &dy, prec](const int m0, const int m) {
+  newton_iterate(1, n, [&delta, &y, &dy, prec](const slong m0, const slong m) {
     delta(dy, y, m0, m);
     arb_poly_sub_series(y, y, dy, m, prec);
   });
@@ -447,7 +443,7 @@ void poly_log1p_exp_shift_refine(Poly& y, const Poly& x, const slong s, const sl
     // dy *= e^(z^s (y-y0))
     arb_poly_zero(t);
     arb_poly_fit_length(t, n);
-    for (int i = 0; i < n-s; i++) {
+    for (slong i = 0; i < n-s; i++) {
       const auto& r = arb_radref(y[i]);
       arb_set_interval_neg_pos_mag(t.x->coeffs + i + s, r, r, prec);
     }

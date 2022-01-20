@@ -1,5 +1,6 @@
 // Mandelbrot area via Arb
 
+#include "debug.h"
 #include "known.h"
 #include "poly.h"
 #include "print.h"
@@ -11,7 +12,7 @@ using std::max;
 using std::runtime_error;
 
 // C = a*A - 2^(log2_b)*B
-void poly_linear_sub_si_2exp(Poly& C, const slong a, const Poly& A, const slong log2_b, const Poly& B, slong prec) {
+void poly_linear_sub_si_2exp(Poly& C, slong a, const Poly& A, const slong log2_b, const Poly& B, slong prec) {
   const auto n = max(A.length(), B.length());
   arb_poly_zero(C);
   arb_poly_fit_length(C, n);
@@ -64,9 +65,9 @@ void implicit(Poly& F, Poly& dF, const int k, const Poly& g, const Poly& dg,
 
 void area(arb_t mu, const Poly& f, const int prec) {
   arb_zero(mu);
-  const int n = f.length();
+  const auto n = f.length();
   Arb t;
-  for (int i = 0; i < n; i++) {
+  for (slong i = 0; i < n; i++) {
     // mu += (1-i) f[i]^2
     arb_poly_get_coeff_arb(t, f, i);
     arb_sqr(t, t, prec);
@@ -76,9 +77,7 @@ void area(arb_t mu, const Poly& f, const int prec) {
   arb_mul(mu, mu, t, prec);
 }
 
-void toplevel() {
-  const int prec = 200;
-  const int repeats = 2;
+void areas(const int max_k, const int prec) {
   print("prec = %d (%d digits)\n\n", prec, int(prec*log10(2)));
 
   // f = 1, so g = log f = 0
@@ -89,9 +88,9 @@ void toplevel() {
   const Poly dg(1);
 
   Poly g0, F, dF, ignore;
-  for (int k = 1; k <= 14; k++) {
+  for (int k = 1; k <= max_k; k++) {
     print("\nk %d:", k);
-    for (int refine = 0; refine < repeats; refine++) {
+    for (int refine = 0; refine < 2; refine++) {
       print("  refine %d:", refine);
       const auto start = wall_time();
       const int p = 1 << k;
@@ -132,21 +131,10 @@ void toplevel() {
       if (k < known_ks) {
         Arb known;
         arb_set_str(known, known_areas[k], prec);
-        if (!arb_overlaps(mu, known))
-          throw runtime_error(format("No overlap with known area %.20g", known));
+        slow_assert(arb_overlaps(mu, known), "No overlap with known area %.20g", known);
       }
     }
   }
 }
 
 }  // namespace mandelbrot
-
-int main() {
-  try {
-    mandelbrot::toplevel();
-  } catch (const std::exception& e) {
-    std::cerr << "error: " << e.what() << std::endl;
-    return 1;
-  }
-  return 0;
-}

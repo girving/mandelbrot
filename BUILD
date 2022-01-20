@@ -1,45 +1,82 @@
 package(default_visibility = ["//visibility:public"])
 load("//:mandelbrot.bzl", "cc_tests")
+load("//:mandelbrot.bzl", "copts")
 
 cc_library(
     name = "known",
     hdrs = ["known.h"],
-    copts = ["-Wall", "-Werror"],
+    copts = copts,
 )
 
 cc_library(
-    name = "mandelbrot",
+    name = "base",
+    srcs = [
+      "debug.h",
+      "debug.cc",
+      "format.h",
+      "print.h",
+      "wall_time.h",
+    ],
+    copts = copts,
+    deps = [
+        "@tinyformat//:tinyformat",
+    ],
+)
+
+cc_library(
+    name = "area-arb",
     srcs = [
       "arb-cc.h",
       "arb-cc.cc",
       "arf-cc.h",
       "arf-cc.cc",
+      "area.h",
+      "area.cc",
       "poly.h",
       "poly.cc",
-      "print.h",
       "rand.h",
-      "wall_time.h",
     ],
-    copts = ["-std=c++2a", "-Wall", "-Werror"],
+    copts = copts,
     deps = [
+        ":base",
         ":known",
         "@arb//:arb",
-        "@tinyformat//:tinyformat",
+    ],
+)
+
+cc_library(
+    name = "series",
+    srcs = [
+      "series.h",
+    ],
+    copts = copts,
+    deps = [
+        ":base",
     ],
 )
 
 cc_binary(
-    name = "area",
-    srcs = ["area.cc"],
-    copts = ["-std=c++2a", "-Wall", "-Werror"],
+    name = "mandelbrot",
+    srcs = ["mandelbrot.cc"],
+    copts = copts,
     deps = [
         ":known",
-        ":mandelbrot",
+        ":area-arb",
     ],
 )
 
+cc_tests(
+    names = [
+        "area_test",
+        "poly_test",
+    ],
+    deps = [":area-arb"],
+)
 
 cc_tests(
-    names = ["poly_test"],
-    deps = [":mandelbrot"],
+    names = ["series_test"],
+    deps = [
+        ":series",
+        ":area-arb",
+    ],
 )

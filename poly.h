@@ -48,7 +48,7 @@ template<class... Args> void stats(const Poly& f, const char* fmt, const Args&..
   print("    %s: %s", format(fmt, args...), f.stats());
 }
 
-void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, const int n, const int prec);
+void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, const slong n, const slong prec);
 void poly_mid(Poly& mid, const Poly& f);
 void poly_add_arb(Poly& f, const Arb& a, const slong prec);
 bool overlaps(const Poly& f, const Poly& g);
@@ -58,8 +58,8 @@ static inline void safe_poly_set_trunc(Poly& f, const Poly& g, const slong n) {
 }
 
 // h = f +/- z^s g
-void poly_add_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const int n, const int prec);
-void poly_sub_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const int n, const int prec);
+void poly_add_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const slong n, const slong prec);
+void poly_sub_shift_series(Poly& h, const Poly& f, const Poly& g, const slong s, const slong n, const slong prec);
 
 // C = intersection(C, A - B)
 void poly_intersect_sub(Poly& C, const Poly& A, const Poly& B, const slong n, const slong prec);
