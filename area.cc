@@ -33,24 +33,24 @@ template<class S> void escape(Series<S>& h, Series<S>& dh, const int k,
   dh.set_terms(dn);
   if (dn) dh = 0;
 
-  Series<S> t(n), dt(dn), s(n), ds(dn), u(dn);
+  Series<S> t(n), dt(dn), s(n), u(dn);
   for (int i = 1; i <= k; i++) {
     const auto p = int64_t(1) << i;
 
     // t = (1-p)g - p h
     t = sub_si_2exp(1-p, g, i, h);
-    dt = sub_si_2exp(1-p, dg, i, dh);
+    dt = sub_si_2exp(1-p, dg, i, dh.low(dn-(p-1)));
 
     // h += (1/p) log(1 + z^(p-1)exp(t))
     s = log1p_exp(t.low(n-(p-1)), p-1);  // s = z^(1-p) log(1 + z^(p-1) exp(t))
     u = t.low(dn-(p-1));
     u.high(p-1) -= s;                    // u = t - z^(p-1) s
     t = exp(u);                          // t = exp(t - z^(p-1) s)
-    ds = mul(t, dt.low(dn-(p-1)));       // ds = exp(t - z^(p-1) s) dt
+    dt = mul(t, dt.low(dn-(p-1)));       // ds = exp(t - z^(p-1) s) dt
     s = ldexp(s, -i);                    // s /= p
-    ds = ldexp(ds, -i);                  // s /= p
+    dt = ldexp(dt, -i);                  // ds /= p
     h.high(p-1) += s;                    // h += z^(p-1) s
-    dh.high(p-1) += ds;                  // h += z^(p-1) s
+    dh.high(p-1) += dt;                  // h += z^(p-1) ds
   }
 }
 

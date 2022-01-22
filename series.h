@@ -218,7 +218,6 @@ template<class... Args> using Scalar = typename ScalarT<Args...>::type;
 
 // Multiplication: z = xy
 SERIES_EXP(mul, z, (class A,class B), (x,y), (const Series<A>& x, const Series<B>& y)) {
-  slow_assert(!z.alias(x) && !z.alias(y));
   const auto n = min(x.terms(), y.terms());
   z.set_terms(n);
   fft_mul(z.data(), x.data(), y.data(), n);
@@ -226,22 +225,19 @@ SERIES_EXP(mul, z, (class A,class B), (x,y), (const Series<A>& x, const Series<B
 
 // Shifted multiplication: z = x(1 + z^s y)
 SERIES_EXP(mul1p, z, (class A,class B), (x,y,s), (const Series<A>& x, const Series<B>& y, const int64_t s)) {
-  slow_assert(!z.alias(x) && !z.alias(y) && s > 0);
+  slow_assert(!z.alias(x) && s > 0);
   const auto n = min(x.terms(), y.terms() + s);
   z.set_terms(n);
+  fft_mul(z.data() + s, x.data(), y.data(), n - s);
+  for (int64_t i = s; i < n; i++)
+    z[i] += x[i];
   const auto sn = min(s, n);
   for (int64_t i = 0; i < sn; i++)
     z[i] = x[i];
-  if (s < n) {
-    fft_mul(z.data() + s, x.data(), y.data(), n - s);
-    for (int64_t i = s; i < n; i++)
-      z[i] += x[i];
-  }
 }
 
 // Squaring: y = x^2
 SERIES_EXP(sqr, y, (class T), (x), (const Series<T>& x)) {
-  slow_assert(!y.alias(x));
   const auto n = x.terms();
   y.set_terms(n);
   fft_sqr(y.data(), x.data(), n);
@@ -297,15 +293,15 @@ SERIES_EXP(inv, y, (class T), (x), (const Series<T>& x)) {
   //   N(y) = y0 - f(y0) / f'(y)
   //        = y0 - (1/y0 - x) / (-1/y^2)
   //        = y0 - y0(x y0 - 1)(y/y0)^2
-  Series<S> dy(n), t(n);
-  newton_iterate(1, n, [&y, &x, &dy, &t](const int64_t m0, const int64_t m, const bool refine) {
+  Series<S> dy(n);
+  newton_iterate(1, n, [&y, &x, &dy](const int64_t m0, const int64_t m, const bool refine) {
     y.extend(m);
 
     // dy = y0(xy0-1)(y/y0)^2
     static_assert(!is_interval<T>);  // Ignore y/y0 for now
-    t = mul(x, y);
-    t -= 1;
-    dy = mul(t, y);
+    dy = mul(x, y);
+    dy -= 1;
+    dy = mul(dy, y);
 
     if (refine)
       y -= dy;
@@ -371,10 +367,10 @@ SERIES_EXP(div, y, (class A,class B), (a,b), (const Series<A>& a, const Series<B
   //   N(y) = y0 - (b*y0 - a)/b
   //        = y0 - (b*y0 - a)(1/b)
   static_assert(!is_interval<S>);  // Assume y0 = y
-  Series<S> t(n), dy(n);
-  t = mul(b, y);
-  t -= a;
-  dy = mul(t, inv_b);
+  Series<S> dy(n);
+  dy = mul(b, y);
+  dy -= a;
+  dy = mul(dy, inv_b);
   y -= dy;
 }
 
@@ -469,15 +465,15 @@ SERIES_EXP(exp, y, (class A), (x), (const Series<A>& x)) {
   //   N(y) = y0 - f(y0)/f'(y)
   //        = y0 - (log(y0) - x)/(1/y)
   //        = y0 - y*(log(y0) - x)
-  Series<S> dy(n), t(n);
-  newton_iterate(1, n, [&x, &y, &dy, &t](const int64_t m0, const int64_t m, const bool refine) {
+  Series<S> dy(n);
+  newton_iterate(1, n, [&x, &y, &dy](const int64_t m0, const int64_t m, const bool refine) {
     y.extend(m);
 
     // dy = y*(log(y0) - x)
     static_assert(!is_interval<S>);  // Assume y = y0 for now
-    t = log(y);
-    t -= x;
-    dy = mul(y, t);
+    dy = log(y);
+    dy -= x;
+    dy = mul(y, dy);
 
     if (refine)
       y -= dy;

@@ -13,9 +13,11 @@ template<class S> void fft(Complex<S>* y, const S* x, const int64_t n, const int
 template<class S> void ifft(S* x, Complex<S>* y, const int64_t n, const int64_t xn);
 
 // z[:n] = x[:n] * y[:n]
+// Aliasing is allowed.
 template<class S> void fft_mul(S* z, const S* x, const S* y, const int64_t n);
 
 // y[:n] = x[:n]^2
+// Aliasing is allowed.
 template<class S> void fft_sqr(S* y, const S* x, const int64_t n);
 
 }  // namespace mandelbrot

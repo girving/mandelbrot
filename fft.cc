@@ -77,7 +77,7 @@ template<class S> void ifft(S* x, Complex<S>* y, const int64_t n, const int64_t 
 
 // z[:n] = x[:n] * y[:n]
 template<class S> void fft_mul(S* z, const S* x, const S* y, const int64_t n) {
-  if (n == 0)
+  if (n <= 0)
     return;
   else if (n == 1)
     z[0] = x[0] * y[0];
@@ -98,7 +98,7 @@ template<class S> void fft_mul(S* z, const S* x, const S* y, const int64_t n) {
 
 // y[:n] = x[:n]^2
 template<class S> void fft_sqr(S* y, const S* x, const int64_t n) {
-  if (n == 0)
+  if (n <= 0)
     return;
   else if (n == 1)
     y[0] = sqr(x[0]);

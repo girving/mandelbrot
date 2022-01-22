@@ -235,8 +235,6 @@ TEST(series, mul) {
   // Small n
   Series<double> x(3, {3, 5, 7}), y(3, {2, 3, 4});
   Series<double> small, z(3);
-  ASSERT_THROW(x = mul(x, y), runtime_error);
-  ASSERT_THROW(y = mul(x, y), runtime_error);
   { Series<double> small; ASSERT_THROW(small = mul(x, y), runtime_error); }
   { Series<double> z(3); z = mul(x, y); ASSERT_EXACT(z, 6, 19, 41); }
   { Series<double> z(2); z = mul(x, y.low(2)); ASSERT_EXACT(z, 6, 19); }
@@ -247,6 +245,9 @@ TEST(series, mul) {
   { Series<double> z; z = mul(x.low(0), y); ASSERT_EXACT(z); }
   { Series<double> z; z = mul(x, y.low(0)); ASSERT_EXACT(z); }
 
+  // Aliasing should work
+  { Series<double> z(3); z = x; z = mul(z, z); ASSERT_CLOSE(z, 9, 30, 67); }
+
   // Large n
   Rand random;
   Poly az, ax, ay;
@@ -255,21 +256,39 @@ TEST(series, mul) {
     poly_rand(ay, random, n);
     arb_poly_mullow(az, ax, ay, n, prec);
     Series<double> z(n);
-    z = mul(approx(ax, n), approx(ay, n));
-    const auto e = error(z, az);
-    ASSERT_LT(e, 1e-14) << format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
+    const auto x = approx(ax, n);
+    const auto y = approx(ay, n);
+    {
+      z = mul(x, y);
+      const auto e = error(z, az);
+      ASSERT_LT(e, 1e-14) << format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
+    }
+    // Aliased versions
+    {
+      z = x;
+      z = mul(z, y);
+      const auto e = error(z, az);
+      ASSERT_LT(e, 1e-14) << format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
+    } {
+      z = y;
+      z = mul(x, z);
+      const auto e = error(z, az);
+      ASSERT_LT(e, 1e-14) << format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
+    }
   }
 }
 
 TEST(series, sqr) {
   // Small n
   Series<double> x(3, {2, 3, 4});
-  ASSERT_THROW(x = sqr(x), runtime_error);
   { Series<double> small; ASSERT_THROW(small = sqr(x), runtime_error); }
   { Series<double> y; y = sqr(x.low(0)); ASSERT_CLOSE(y); }
   { Series<double> y(1); y = sqr(x.low(1)); ASSERT_CLOSE(y, 4); }
   { Series<double> y(2); y = sqr(x.low(2)); ASSERT_CLOSE(y, 4, 12); }
   { Series<double> y(3); y = sqr(x); ASSERT_CLOSE(y, 4, 12, 25); }
+
+  // Aliasing should work
+  { Series<double> z(3); z = x; z = sqr(z); ASSERT_CLOSE(z, 4, 12, 25); }
 
   // Large n
   Rand random;
@@ -278,9 +297,19 @@ TEST(series, sqr) {
     poly_rand(ax, random, n);
     arb_poly_mullow(ay, ax, ax, n, prec);
     Series<double> y(n);
-    y = sqr(approx(ax, n));
-    const auto e = error(y, ay);
-    ASSERT_LT(e, 1e-14) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
+    const auto x = approx(ax, n);
+    {
+      y = sqr(x);
+      const auto e = error(y, ay);
+      ASSERT_LT(e, 1e-14) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
+    }
+    // Aliased version
+    {
+      y = x;
+      y = sqr(y);
+      const auto e = error(y, ay);
+      ASSERT_LT(e, 1e-14) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
+    }
   }
 }
 
@@ -352,11 +381,22 @@ TEST(series, mul1p) {
       arb_poly_shift_left(t, ay, s);
       arb_poly_add_si(t, t, 1, prec);
       arb_poly_mullow(az, ax, t, n, prec);
+      const auto x = approx(ax, n);
+      const auto y = approx(ay, n);
       Series<double> z(n);
-      z = mul1p(approx(ax, n), approx(ay, n).low(n-s), s);
+      z = mul1p(x, y.low(n-s), s);
       const auto e = error(z, az);
       ASSERT_LT(e, 1e-14) << format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
                                     e, approx(ax, n), approx(ay, n), z, az);
+      // Aliasing works with the second argument works
+      Series<double> w(n);
+      if (n) {
+        w = x;
+        ASSERT_THROW(w = mul1p(w, y.low(n-s), s), runtime_error);
+      }
+      w = y;
+      w = mul1p(x, w.low(n-s), s);
+      ASSERT_LT(error(z, w), 1e-14);
     }
   }
 }
