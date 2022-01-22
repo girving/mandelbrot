@@ -2,6 +2,7 @@
 #pragma once
 
 #include "debug.h"
+#include "fft.h"
 #include <algorithm>
 #include <bit>
 #include <iostream>
@@ -14,6 +15,7 @@ using std::conditional_t;
 using std::countr_zero;
 using std::initializer_list;
 using std::is_const_v;
+using std::is_trivially_copyable_v;
 using std::is_trivially_destructible_v;
 using std::max;
 using std::min;
@@ -32,9 +34,10 @@ template<> struct IsIntervalT<double> { static constexpr bool value = false; };
 template<class T> static constexpr bool is_interval = IsIntervalT<T>::value;
 
 // For approximate near zero assertions
-static inline bool near_zero(const double x) { return abs(x) < 1e-6; }
+static inline bool near_zero(const double x) { return abs(x) < 1e-5; }
 
 template<class T> struct Series {
+  static_assert(is_trivially_copyable_v<T>);
   static_assert(is_trivially_destructible_v<T>);
   typedef remove_const_t<T> Scalar;
   typedef Scalar value_type;
@@ -55,13 +58,18 @@ public:
       x.reset(static_cast<S*>(malloc(limit_ * sizeof(S))), [](auto p) { free(p); });
   }
   Series(int64_t limit, initializer_list<S>&& cs)
-    : Series(limit) {
+    : limit_(limit) {
     slow_assert(cs.size() <= size_t(limit_));
     terms_ = cs.size();
-    int64_t i = 0;
-    for (const auto& c : cs)
-      x[i++] = c;
+    if (limit_) {
+      shared_ptr<S[]> y(static_cast<S*>(malloc(limit_ * sizeof(S))), [](auto p) { free(p); });
+      int64_t i = 0;
+      for (const auto& c : cs)
+        y[i++] = c;
+      x = move(y);
+    }
   }
+  Series(initializer_list<S>&& cs) : Series(cs.size(), move(cs)) {}
   Series(const Series& g) = default;
   Series(const Series<conditional_t<is_const_v<T>,S,Unusable>>& g)
     : x(g.x), terms_(g.terms()), limit_(g.limit()) {}
@@ -94,6 +102,7 @@ public:
   bool valid(const int64_t i) const { return (uint64_t)i < (uint64_t)terms_; }
   const S& operator[](const int64_t n) const { assert(valid(n)); return x[n]; }
   S& operator[](const int64_t n) { assert(valid(n)); return x[n]; }
+  T* data() const { return x.get(); }
   template<class A> bool alias(const Series<A>& f) const {
     return x && !x.owner_before(f.x) && !f.x.owner_before(x);
   }
@@ -195,53 +204,33 @@ template<class... Args> using Scalar = typename ScalarT<Args...>::type;
 
 // Multiplication: z = xy
 SERIES_EXP(mul, z, (class A,class B), (x,y), (const Series<A>& x, const Series<B>& y)) {
-  typedef remove_const_t<A> S;
   slow_assert(!z.alias(x) && !z.alias(y));
   const auto n = min(x.terms(), y.terms());
   z.set_terms(n);
-
-  // For now, we do very slow multiplication
-  for (int64_t i = 0; i < n; i++) {
-    S t = 0;
-    for (int64_t j = 0; j <= i; j++)
-      t += x[j] * y[i-j];
-    z[i] = t;
-  }
+  fft_mul(z.data(), x.data(), y.data(), n);
 }
 
 // Shifted multiplication: z = x(1 + z^s y)
 SERIES_EXP(mul1p, z, (class A,class B), (x,y,s), (const Series<A>& x, const Series<B>& y, const int64_t s)) {
-  typedef remove_const_t<A> S;
   slow_assert(!z.alias(x) && !z.alias(y) && s > 0);
   const auto n = min(x.terms(), y.terms() + s);
   z.set_terms(n);
-
-  // For now, we do very slow multiplication
   const auto sn = min(s, n);
   for (int64_t i = 0; i < sn; i++)
     z[i] = x[i];
-  for (int64_t i = sn; i < n; i++) {
-    S t = x[i];
-    for (int64_t j = 0; j <= i-s; j++)
-      t += x[j] * y[i-j-s];
-    z[i] = t;
+  if (s < n) {
+    fft_mul(z.data() + s, x.data(), y.data(), n - s);
+    for (int64_t i = s; i < n; i++)
+      z[i] += x[i];
   }
 }
 
 // Squaring: y = x^2
 SERIES_EXP(sqr, y, (class T), (x), (const Series<T>& x)) {
-  typedef remove_const_t<T> S;
-  const auto n = x.terms();
   slow_assert(!y.alias(x));
+  const auto n = x.terms();
   y.set_terms(n);
-
-  // For now, we do very slow multiplication
-  for (int64_t i = 0; i < n; i++) {
-    S s = 0;
-    for (int64_t j = 0; j <= i; j++)
-      s += x[j] * x[i-j];
-    y[i] = s;
-  }
+  fft_sqr(y.data(), x.data(), n);
 }
 
 // Number of Newton steps needed to go from n0 to n

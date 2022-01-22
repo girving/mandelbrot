@@ -8,6 +8,7 @@
 namespace mandelbrot {
 namespace {
 
+using std::numeric_limits;
 using std::runtime_error;
 using testing::ElementsAre;
 
@@ -20,25 +21,21 @@ Series<double> approx(const Poly& x, const int64_t n) {
   return y;
 }
 
-bool close(const Series<const double>& x, const Series<const double>& y, const double atol = 1e-6) {
+double error(const Series<const double>& x, const Series<const double>& y) {
   if (x.terms() != y.terms())
-    return false;
-  for (int64_t i = 0; i < x.terms(); i++) {
-    const auto e = abs(x[i] - y[i]);
-    if (e > atol) {
-      print("x[%d] = %g, y[%d] = %g, error = %g", i, x[i], i, y[i], e);
-      return false;
-    }
-  }
-  return true;
+    return numeric_limits<double>::infinity();
+  double e = 0;
+  for (int64_t i = 0; i < x.terms(); i++)
+    e = max(e, abs(x[i] - y[i]));
+  return e;
 }
-__attribute__((unused)) bool
-close(const Series<const double>& x, initializer_list<double>&& ys, const double atol = 1e-6) {
-  Series<double> y(ys.size(), move(ys));
-  return close(x, y, atol);
+__attribute__((unused)) double error(const Series<const double>& x, initializer_list<double>&& ys) {
+  return error(x, Series<const double>(move(ys)));
 }
-bool close(const Series<const double>& x, const Poly& y, const double atol = 1e-6) {
-  return x.terms() >= y.length() && close(x, approx(y, x.terms()));
+double error(const Series<const double>& x, const Poly& y) {
+  if (x.terms() < y.length())
+    return numeric_limits<double>::infinity();
+  return error(x, approx(y, x.terms()));
 }
 
 const int prec = 100, mag_bits = 0;
@@ -49,7 +46,9 @@ void poly_rand(Poly& x, Rand& random, const int64_t n) {
 }
 
 #define ASSERT_EXACT(x, ...) ASSERT_THAT(x, ElementsAre(__VA_ARGS__))
-#define ASSERT_CLOSE(x, ...) ASSERT_TRUE(close(x, {__VA_ARGS__})) << x
+#define ASSERT_CLOSE(x, ...) { \
+  const auto e = error(x, {__VA_ARGS__}); \
+  ASSERT_LT(e, 1e-14) << format("e %g, x %g", e, x); }
 
 TEST(series, construct) {
   Series<double> x(5);
@@ -261,7 +260,8 @@ TEST(series, mul) {
     arb_poly_mullow(az, ax, ay, n, prec);
     Series<double> z(n);
     z = mul(approx(ax, n), approx(ay, n));
-    ASSERT_TRUE(close(z, az)) << format("z = %.3g\naz = %.3g", z, az);
+    const auto e = error(z, az);
+    ASSERT_LT(e, 1e-14) << format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
   }
 }
 
@@ -270,10 +270,10 @@ TEST(series, sqr) {
   Series<double> x(3, {2, 3, 4});
   ASSERT_THROW(x = sqr(x), runtime_error);
   { Series<double> small; ASSERT_THROW(small = sqr(x), runtime_error); }
-  { Series<double> y(3); y = sqr(x); ASSERT_EXACT(y, 4, 12, 25); }
-  { Series<double> y(2); y = sqr(x.low(2)); ASSERT_EXACT(y, 4, 12); }
-  { Series<double> y(1); y = sqr(x.low(1)); ASSERT_EXACT(y, 4); }
-  { Series<double> y; y = sqr(x.low(0)); ASSERT_EXACT(y); }
+  { Series<double> y; y = sqr(x.low(0)); ASSERT_CLOSE(y); }
+  { Series<double> y(1); y = sqr(x.low(1)); ASSERT_CLOSE(y, 4); }
+  { Series<double> y(2); y = sqr(x.low(2)); ASSERT_CLOSE(y, 4, 12); }
+  { Series<double> y(3); y = sqr(x); ASSERT_CLOSE(y, 4, 12, 25); }
 
   // Large n
   Rand random;
@@ -283,7 +283,8 @@ TEST(series, sqr) {
     arb_poly_mullow(ay, ax, ax, n, prec);
     Series<double> y(n);
     y = sqr(approx(ax, n));
-    ASSERT_TRUE(close(y, ay)) << format("y = %.3g\nay = %.3g", y, ay);
+    const auto e = error(y, ay);
+    ASSERT_LT(e, 1e-14) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
   }
 }
 
@@ -310,10 +311,10 @@ TEST(series, inv) {
   Series<double> x(3, {2, 3, 4});
   ASSERT_THROW(x = inv(x), runtime_error);
   { Series<double> small; ASSERT_THROW(small = inv(x), runtime_error); }
-  { Series<double> y(3); y = inv(x); ASSERT_EXACT(y, .5, -.75, .125); }
-  { Series<double> y(2); y = inv(x.low(2)); ASSERT_EXACT(y, .5, -.75); }
-  { Series<double> y(1); y = inv(x.low(1)); ASSERT_EXACT(y, .5); }
-  { Series<double> y; y = inv(x.low(0)); ASSERT_EXACT(y); }
+  { Series<double> y; y = inv(x.low(0)); ASSERT_CLOSE(y); }
+  { Series<double> y(1); y = inv(x.low(1)); ASSERT_CLOSE(y, .5); }
+  { Series<double> y(2); y = inv(x.low(2)); ASSERT_CLOSE(y, .5, -.75); }
+  { Series<double> y(3); y = inv(x); ASSERT_CLOSE(y, .5, -.75, .125); }
 
   // Large n
   Rand random;
@@ -323,7 +324,8 @@ TEST(series, inv) {
     arb_poly_inv_series(ay, ax, n, prec);
     Series<double> y(n);
     y = inv(approx(ax, n));
-    ASSERT_TRUE(close(y, ay)) << format("y = %.3g\nay = %.3g", y, ay);
+    const auto e = error(y, ay);
+    ASSERT_LT(e, 1e-6) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
   }
 }
 
@@ -338,8 +340,9 @@ TEST(series, div) {
     arb_poly_div_series(az, ax, ay, n, prec);
     Series<double> z(n);
     z = div(approx(ax, n), approx(ay, n));
-    ASSERT_TRUE(close(z, az)) << format("\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
-                                        approx(ax, n), approx(ay, n), z, az);
+    const auto e = error(z, az);
+    ASSERT_LT(e, 3e-6) << format("n = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+                                 n, e, approx(ax, n), approx(ay, n), z, az);
   }
 }
 
@@ -355,8 +358,9 @@ TEST(series, mul1p) {
       arb_poly_mullow(az, ax, t, n, prec);
       Series<double> z(n);
       z = mul1p(approx(ax, n), approx(ay, n).low(n-s), s);
-      ASSERT_TRUE(close(z, az)) << format("\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
-                                          approx(ax, n), approx(ay, n), z, az);
+      const auto e = error(z, az);
+      ASSERT_LT(e, 1e-14) << format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+                                    e, approx(ax, n), approx(ay, n), z, az);
     }
   }
 }
@@ -373,8 +377,9 @@ TEST(series, inv1p) {
       ay >>= s;
       Series<double> y(n);
       y = inv1p(approx(ax, n), s);
-      ASSERT_TRUE(close(y, ay)) << format("\ns = %d\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                          s, approx(ax, n), y, approx(ay, n));
+      const auto e = error(y, ay);
+      ASSERT_LT(e, 1e-8) << format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                   s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -391,8 +396,9 @@ TEST(series, div1p) {
       arb_poly_div_series(az, ax, t, n, prec);
       Series<double> z(n);
       z = div1p(approx(ax, n), approx(ay, n).low(n-s), s);
-      ASSERT_TRUE(close(z, az)) << format("\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
-                                          approx(ax, n), approx(ay, n), z, az);
+      const auto e = error(z, az);
+      ASSERT_LT(e, 1e-10) << format("\nn %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+                                    n, e, approx(ax, n), approx(ay, n), z, az);
     }
   }
 }
@@ -406,7 +412,8 @@ TEST(series, log) {
     arb_poly_log_series(ay, ax, n, prec);
     Series<double> y(n);
     y = log(approx(ax, n));
-    ASSERT_TRUE(close(y, ay)) << format("y = %.3g\nay = %.3g", y, ay);
+    const auto e = error(y, ay);
+    ASSERT_LT(e, 1e-12) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
   }
 }
 
@@ -421,8 +428,9 @@ TEST(series, log1p) {
       ay >>= s;
       Series<double> y(n);
       y = log1p(approx(ax, n), s);
-      ASSERT_TRUE(close(y, ay)) << format("\ns = %d\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                          s, approx(ax, n), y, approx(ay, n));
+      const auto e = error(y, ay);
+      ASSERT_LT(e, 1e-9) << format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                   s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -441,7 +449,9 @@ TEST(series, derivative_shift) {
         arb_poly_shift_left(ay, ay, 1);
       Series<double> y(n);
       y = derivative_shift(approx(ax, n), s);
-      ASSERT_TRUE(close(y, ay)) << format("\nx = %.3g\n\ny = %.3g\n\nay = %.3g", approx(ax, n), y, approx(ay, n));
+      const auto e = error(y, ay);
+      ASSERT_LT(e, 1e-14) << format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                    e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -460,7 +470,9 @@ TEST(series, integral_shift) {
       arb_poly_shift_right(ay, ay, s);
       Series<double> y(n);
       y = integral_shift(approx(ax, n), s);
-      ASSERT_TRUE(close(y, ay)) << format("\nx = %.3g\n\ny = %.3g\n\nay = %.3g", approx(ax, n), y, approx(ay, n));
+      const auto e = error(y, ay);
+      ASSERT_LT(e, 1e-14) << format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                    e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -474,7 +486,8 @@ TEST(series, exp) {
     arb_poly_exp_series(ay, ax, n, prec);
     Series<double> y(n);
     y = exp(approx(ax, n));
-    ASSERT_TRUE(close(y, ay)) << format("y = %.3g\nay = %.3g", y, ay);
+    const auto e = error(y, ay);
+    ASSERT_LT(e, 1e-13) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
   }
 }
 
@@ -491,8 +504,9 @@ TEST(series, expm1) {
         ay >>= s;
         Series<double> y(n);
         y = expm1(approx(ax, n), a, s);
-        ASSERT_TRUE(close(y, ay)) << format("\na %d, s %d\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                            a, s, approx(ax, n), y, approx(ay, n));
+        const auto e = error(y, ay);
+        ASSERT_LT(e, 1e-13) << format("\na %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                      a, s, e, approx(ax, n), y, approx(ay, n));
       }
     }
   }
@@ -511,8 +525,9 @@ TEST(series, log1p_exp) {
       ay >>= s;
       Series<double> y(n);
       y = log1p_exp(approx(ax, n), s);
-      ASSERT_TRUE(close(y, ay)) << format("\ns %d\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                          s, approx(ax, n), y, approx(ay, n));
+      const auto e = error(y, ay);
+      ASSERT_LT(e, 2.1e-2) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                   n, s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }

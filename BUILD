@@ -47,6 +47,8 @@ cc_library(
 cc_library(
     name = "series",
     srcs = [
+      "fft.h",
+      "fft.cc",
       "series.h",
     ],
     copts = copts,
@@ -75,6 +77,15 @@ cc_tests(
 
 cc_tests(
     names = ["series_test"],
+    deps = [
+        ":series",
+        ":area-arb",
+    ],
+)
+
+cc_tests(
+    names = ["fft_test"],
+    copts = copts + ["-Wno-shorten-64-to-32"],
     deps = [
         ":series",
         ":area-arb",
