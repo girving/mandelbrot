@@ -1,16 +1,22 @@
 // Mandelbrot area via Arb
 
+#include "arb_area.h"
 #include "area.h"
 #include "debug.h"
 #include <exception>
 
+using namespace mandelbrot;
+
 int main() {
   try {
     const int max_k = 14;
-    const int prec = 200;
-    mandelbrot::areas(max_k, prec);
+    if (0) {
+      const int prec = 200;
+      arb_areas(max_k, prec);
+    } else
+      areas<double>(max_k);
     return 0;
   } catch (const std::exception& e) {
-    mandelbrot::die(e.what());
+    die(e.what());
   }
 }

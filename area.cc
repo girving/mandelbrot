@@ -1,9 +1,11 @@
-// Mandelbrot area via Arb
+// Mandelbrot area via custom power series
 
+#include "area.h"
+#include "nearest.h"
 #include "debug.h"
 #include "known.h"
-#include "poly.h"
 #include "print.h"
+#include "series.h"
 #include "wall_time.h"
 namespace mandelbrot {
 
@@ -11,83 +13,71 @@ using std::min;
 using std::max;
 using std::runtime_error;
 
-// C = a*A - 2^(log2_b)*B
-void poly_linear_sub_si_2exp(Poly& C, slong a, const Poly& A, const slong log2_b, const Poly& B, slong prec) {
-  const auto n = max(A.length(), B.length());
-  arb_poly_zero(C);
-  arb_poly_fit_length(C, n);
-  _arb_poly_set_length(C, n);
-  for (int i = 0; i < n; i++) {
-    auto c = C.mutable_at(i);
-    arb_mul_2exp_si(c, B[i], log2_b);
-    arb_neg(c, c);
-    arb_addmul_si(c, A[i], a, prec);
-  }
+// z = a*x - 2^(log2_b)*y
+SERIES_EXP(sub_si_2exp, z, (class A,class B), (a,x,b,y),
+          (const int64_t a, const Series<A>& x, const int b, const Series<B>& y)) {
+  slow_assert(!z.alias(x) && !z.alias(y));
+  const auto n = min(x.terms(), y.terms());
+  z.set_terms(n);
+  for (int64_t i = 0; i < n; i++)
+    z[i] = a*x[i] - ldexp(y[i], b);
 }
 
 // h = log escape(k, z*e^-g)^(2^-k) in mandelbrot-area-cupy.ipynb notation
-void escape(Poly& h, Poly& dh, const int k, const Poly& g, const Poly& dg,
-            const int n, const int dn, const int prec) {
-  const bool verbose = false;
-
+template<class S> void escape(Series<S>& h, Series<S>& dh, const int k,
+                              const Series<const S>& g, const Series<const S>& dg,
+                              const int64_t n, const int64_t dn) {
   // Base case
-  arb_poly_zero(h);
-  arb_poly_zero(dh);
+  h.set_terms(n);
+  h = 0;
+  dh.set_terms(dn);
+  if (dn) dh = 0;
 
-  Poly t, dt, s, ds, u;
+  Series<S> t(n), dt(dn), s(n), ds(dn), u(dn);
   for (int i = 1; i <= k; i++) {
-    const int p = 1 << i;
+    const auto p = int64_t(1) << i;
 
     // t = (1-p)g - p h
-    poly_linear_sub_si_2exp(t, 1-p, g, i, h, prec);
-    poly_linear_sub_si_2exp(dt, 1-p, dg, i, dh, prec);
-    if (verbose) stats(t, "linear %d", i);
+    t = sub_si_2exp(1-p, g, i, h);
+    dt = sub_si_2exp(1-p, dg, i, dh);
 
     // h += (1/p) log(1 + z^(p-1)exp(t))
-    poly_log1p_exp_shift_refine(s, t, p-1, n-(p-1), prec);  // s = z^(1-p) log(1 + z^(p-1) exp(t))
-    poly_sub_shift_series(u, t, s, p-1, dn-(p-1), prec);    // u = t - z^(p-1) s
-    poly_exp_refine(t, u, dn-(p-1), prec);                  // u = exp(t - z^(p-1) s)
-    safe_poly_mullow(ds, t, dt, dn-(p-1), prec);            // ds = exp(t - z^(p-1) s) dt
-    arb_poly_scalar_mul_2exp_si(s, s, -i);                  // s /= p
-    arb_poly_scalar_mul_2exp_si(ds, ds, -i);                // ds /= p
-    poly_add_shift_series(h, h, s, p-1, n, prec);           // h += z^(p-1) s
-    poly_add_shift_series(dh, dh, ds, p-1, dn, prec);       // dh += z^(p-1) ds
+    s = log1p_exp(t.low(n-(p-1)), p-1);  // s = z^(1-p) log(1 + z^(p-1) exp(t))
+    u = t.low(dn-(p-1));
+    u.high(p-1) -= s;                    // u = t - z^(p-1) s
+    t = exp(u);                          // t = exp(t - z^(p-1) s)
+    ds = mul(t, dt.low(dn-(p-1)));       // ds = exp(t - z^(p-1) s) dt
+    s = ldexp(s, -i);                    // s /= p
+    ds = ldexp(ds, -i);                  // s /= p
+    h.high(p-1) += s;                    // h += z^(p-1) s
+    dh.high(p-1) += ds;                  // h += z^(p-1) s
   }
 }
 
 // escape(k, g) + g
-void implicit(Poly& F, Poly& dF, const int k, const Poly& g, const Poly& dg,
-              const int n, const int dn, const int prec) {
-  escape(F, dF, k, g, dg, n, dn, prec);
-  arb_poly_add_series(F, F, g, n, prec);
-  arb_poly_add_series(dF, dF, dg, dn, prec);
+template<class S> void implicit(Series<S>& F, Series<S>& dF, const int k,
+                                const Series<const S>& g, const Series<const S>& dg,
+                                const int64_t n, const int64_t dn) {
+  escape(F, dF, k, g, dg, n, dn);
+  F += g;
+  dF += dg;
 }
 
-void area(arb_t mu, const Poly& f, const int prec) {
-  arb_zero(mu);
-  const auto n = f.length();
-  Arb t;
-  for (slong i = 0; i < n; i++) {
-    // mu += (1-i) f[i]^2
-    arb_poly_get_coeff_arb(t, f, i);
-    arb_sqr(t, t, prec);
-    arb_addmul_si(mu, t, 1-i, prec);
-  }
-  arb_const_pi(t, prec);
-  arb_mul(mu, mu, t, prec);
+template<class A> remove_const_t<A> area(const Series<A>& f) {
+  typedef remove_const_t<A> S;
+  S mu = 0;
+  const auto n = f.terms();
+  for (int64_t i = 0; i < n; i++)
+    mu += (1-i) * sqr(f[i]);
+  return nearest_pi<S>() * mu;
 }
 
-void areas(const int max_k, const int prec) {
-  print("prec = %d (%d digits)\n\n", prec, int(prec*log10(2)));
-
+template<class S> void areas(const int max_k) {
   // f = 1, so g = log f = 0
-  Poly g;
+  Series<S> g(1);
+  g = 0;
   print("k 0:\n  f = 1\n  g = 0");
 
-  // dg = 1
-  const Poly dg(1);
-
-  Poly g0, F, dF, ignore;
   for (int k = 1; k <= max_k; k++) {
     print("\nk %d:", k);
     for (int refine = 0; refine < 2; refine++) {
@@ -95,46 +85,63 @@ void areas(const int max_k, const int prec) {
       const auto start = wall_time();
       const int p = 1 << k;
       const int dp = refine ? p : p / 2;
+  
+      // Reallocate and extend
+      g.copy(p).swap(g);
+      g.extend(p);
+  
+      // dg = 1
+      Series<S> dg(dp);
+      dg.set_terms(dp);
+      dg = 1;
 
       if (refine) {
         // Newton update all terms
-        poly_mid(g0, g);
-        implicit(F, ignore, k, g0, dg, p, 0, prec);
-        implicit(ignore, dF, k, g, dg, p, p, prec);
-        poly_div_refine(F, F, dF, p, prec);
-        poly_intersect_sub(g, g0, F, p, prec);
+        static_assert(!is_interval<S>);
+        const auto& g0 = g;  // Valid until S is an interval type
+        Series<S> F(p), dF(p), ignore(0);
+        implicit<S>(F, dF, k, g, dg, p, p);
+        implicit<S>(F, ignore, k, g0, dg, p, 0);
+        dg = div(F, dF);
+        g -= dg;
+        g[0] = 0;
       } else {
         // Newton update only the high terms
-        implicit(F, dF, k, g, dg, p, dp, prec);
-        F.assert_low_zero(dp);
-        F >>= dp;
-        poly_div_refine(F, F, dF, dp, prec);
-        F <<= dp;
-        arb_poly_sub_series(g, g, F, p, prec);
+        Series<S> F(p), dF(dp);
+        implicit<S>(F, dF, k, g, dg, p, dp);
+        F.assert_low_near_zero(dp);
+        dg = div(F.high(dp), dF);
+        g.high(dp) -= dg;
       }
       const auto elapsed = wall_time() - start;
 
       // Report results
-      Poly f;
-      poly_exp_refine(f, g, p, prec);
-      Arb mu;
-      area(mu, f, prec);
-      print("    mu = %.10g %s", mu, mu.safe(20));
+      Series<S> f(p);
+      f = exp(g);
+      const S mu = area(f);
+      print("    mu = %.10g", mu);
       if (k < 4) {
         print("    f = %.3g", f);
         print("    g = %.3g", g);
       }
-      if (0) stats(f, "f");
       print("    time = %.3g s", elapsed.seconds());
 
       // Check against known results
       if (k < known_ks) {
         Arb known;
-        arb_set_str(known, known_areas[k], prec);
-        slow_assert(arb_overlaps(mu, known), "No overlap with known area %.20g", known);
+        arb_set_str(known, known_areas[k], 200);
+        const S k = round_near<S>(arb_midref(known.x));
+        const S e = abs(mu - k);
+        print("    error = %.3g", e);
+        const S tol = 1e-6;
+        slow_assert(e <= tol, "error %g > %g", e, tol);
       }
     }
   }
 }
+
+#define AREAS(S) \
+  template void areas<S>(const int max_k);
+AREAS(double)
 
 }  // namespace mandelbrot

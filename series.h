@@ -17,6 +17,7 @@ using std::initializer_list;
 using std::is_const_v;
 using std::is_trivially_copyable_v;
 using std::is_trivially_destructible_v;
+using std::ldexp;
 using std::max;
 using std::min;
 using std::move;
@@ -78,10 +79,17 @@ public:
   void clear() { x.reset(); terms_ = limit_ = 0; }
 
   // Assignment
-  void operator=(const int a) { slow_assert(limit_); terms_ = max(terms_, int64_t(1)); x[0] = a; }
-  void operator=(const S& a) { slow_assert(limit_); terms_ = max(terms_, int64_t(1)); x[0] = a; }
-  void operator=(Series&& g) {
-    swap(x, g.x); swap(terms_, g.terms_); swap(limit_, g.limit_); g.clear();
+  void operator=(const int a) {
+    slow_assert(limit_);
+    terms_ = max(terms_, int64_t(1));
+    x[0] = a;
+    for (int64_t i = 1; i < terms_; i++) x[i] = 0;
+  }
+  void operator=(const S& a) {
+    slow_assert(limit_);
+    terms_ = max(terms_, int64_t(1));
+    x[0] = a;
+    for (int64_t i = 1; i < terms_; i++) x[i] = 0;
   }
   void operator=(const Series& g) {
     slow_assert(limit_ >= g.limit_); terms_ = g.terms_; memcpy(x.get(), g.x.get(), terms_ * sizeof(S));
@@ -90,6 +98,7 @@ public:
     slow_assert(limit_ >= g.limit_); terms_ = g.terms_; memcpy(x.get(), g.x.get(), terms_ * sizeof(S));
   }
   template<class F> void operator=(SeriesExp<F>&& e) { e.set(*this); }
+  void swap(Series<S>& g) { using std::swap; swap(x, g.x); swap(terms_, g.terms_); swap(limit_, g.limit_); }
 
   // Adding or removing const
   const Series<const S>& const_() const { return *reinterpret_cast<const Series<const S>*>(this); }
@@ -137,8 +146,13 @@ public:
   void extend(const int64_t n) {
     slow_assert(uint64_t(n) <= uint64_t(limit_));
     for (int64_t i = terms_; i < n; i++)
-      x[i] = S();
+      x[i] = 0;
     terms_ = n;
+  }
+  Series<S> copy(const int64_t limit) const {
+    Series<S> g(limit);
+    g = *this;
+    return g;
   }
 
   // The low terms of a series, without copying
@@ -347,7 +361,7 @@ SERIES_EXP(div, y, (class A,class B), (a,b), (const Series<A>& a, const Series<B
 
   // Compute the inverse and multiply
   Series<S> inv_b(n);
-  inv_b = inv(b);
+  inv_b = inv(b.low(n));
   y = mul(a, inv_b);
 
   // One more step of Newton refinement
@@ -553,6 +567,14 @@ SERIES_EXP(log1p_exp, y, (class A), (x,s), (const Series<A>& x, const int64_t s)
       y.high(m0) += ndy.high(m0);
     }
   });
+}
+
+// Multiplication by a power of two: y = 2^k x
+SERIES_EXP(ldexp, y, (class A), (x,k), (const Series<A>& x, const int k)) {
+  const auto n = x.terms();
+  y.set_terms(n);
+  for (int64_t i = 0; i < n; i++)
+    y[i] = ldexp(x[i], k);
 }
 
 }  // namespace mandelbrot

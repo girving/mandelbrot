@@ -1,6 +1,6 @@
 // C++ interface to arb_t
 
-#include "arb-cc.h"
+#include "arb_cc.h"
 #include <iostream>
 namespace mandelbrot {
 

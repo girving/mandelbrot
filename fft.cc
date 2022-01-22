@@ -116,8 +116,8 @@ template<class S> void fft_sqr(S* y, const S* x, const int64_t n) {
 }
 
 #define FFT(S) \
-  template void fft<S>(Complex<S>* y, const S* x, const int64_t n, const int64_t xn); \
-  template void ifft<S>(S* x, Complex<S>* y, const int64_t n, const int64_t xn); \
+  template void fft(Complex<S>* y, const S* x, const int64_t n, const int64_t xn); \
+  template void ifft(S* x, Complex<S>* y, const int64_t n, const int64_t xn); \
   template void fft_mul(S* z, const S* x, const S* y, const int64_t n); \
   template void fft_sqr(S* y, const S* x, const int64_t n);
 FFT(double)

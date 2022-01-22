@@ -1,7 +1,7 @@
-// Mandelbrot area via Arb
+// Mandelbrot area via custom power series
 
 namespace mandelbrot {
 
-void areas(const int max_k, const int prec);
+template<class S> void areas(const int max_k);
 
 }  // namespace mandelbrot

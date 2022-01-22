@@ -24,20 +24,32 @@ cc_library(
 )
 
 cc_library(
-    name = "area-arb",
+    name = "arb",
     srcs = [
-      "arb-cc.h",
-      "arb-cc.cc",
-      "arf-cc.h",
-      "arf-cc.cc",
-      "area.h",
-      "area.cc",
+      "arb_cc.h",
+      "arb_cc.cc",
+      "arf_cc.h",
+      "arf_cc.cc",
       "poly.h",
       "poly.cc",
       "rand.h",
     ],
     copts = copts,
     deps = [
+        ":base",
+        "@arb//:arb",
+    ],
+)
+
+cc_library(
+    name = "arb_area",
+    srcs = [
+      "arb_area.h",
+      "arb_area.cc",
+    ],
+    copts = copts,
+    deps = [
+        ":arb",
         ":base",
         ":known",
         "@arb//:arb",
@@ -47,13 +59,19 @@ cc_library(
 cc_library(
     name = "series",
     srcs = [
+      "area.h",
+      "area.cc",
+      "complex.h",
       "fft.h",
       "fft.cc",
+      "nearest.h",
       "series.h",
     ],
     copts = copts,
     deps = [
+        ":arb",
         ":base",
+        ":known",
     ],
 )
 
@@ -62,24 +80,28 @@ cc_binary(
     srcs = ["mandelbrot.cc"],
     copts = copts,
     deps = [
+        ":arb_area",
         ":known",
-        ":area-arb",
+        ":series",
     ],
 )
 
 cc_tests(
     names = [
-        "area_test",
+        "arb_area_test",
         "poly_test",
     ],
-    deps = [":area-arb"],
+    deps = [":arb_area"],
 )
 
 cc_tests(
-    names = ["series_test"],
+    names = [
+        "area_test",
+        "series_test",
+    ],
     deps = [
         ":series",
-        ":area-arb",
+        ":arb_area",
     ],
 )
 
@@ -88,6 +110,6 @@ cc_tests(
     copts = copts + ["-Wno-shorten-64-to-32"],
     deps = [
         ":series",
-        ":area-arb",
+        ":arb_area",
     ],
 )

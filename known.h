@@ -28,7 +28,7 @@ const char* known_areas[known_ks] = {
 //   g = [(0 +/- 0), (-0.5 +/- 0), (0 +/- 0), (-0.229 +/- 1.1927e-60),
 //        (7.78e-62 +/- 1.7891e-60), (0.0289 +/- 2.6331e-60), (-0.0625 +/- 4.8099e-60), (-0.0836 +/- 7.5565e-60)]
 
-// History:
+// Arb history:
 //   15jan2022, prec 200:
 //     k 11 refine, 2.06 s: mu = 1.854656777 +/- 6.3116e-18
 //   16jan2022, prec 200, Newton refinement:
@@ -47,3 +47,7 @@ const char* known_areas[known_ks] = {
 //   17jan2022, prec 200, solve in g = log f space:
 //     k 11 refine, 26.7 s: mu = 1.854656777 +/- 8.9856e-46
 //     k 12 refine, 84.4 s: mu = 1.834655733 +/- 2.7409e-43
+
+// Series history:
+//   22jan2022, Series<double>, fft_mul:
+//     k 14, 39.5 s: mu = 1.786389717, error = 7.11e-15

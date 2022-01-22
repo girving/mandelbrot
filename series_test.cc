@@ -86,30 +86,26 @@ TEST(series, clear) {
 }
 
 TEST(series, assign_int) {
-  Series<double> x(1);
+  Series<double> x(2);
   x.extend(1);
   x = 7;
-  ASSERT_EQ(x.terms(), 1);
-  ASSERT_EQ(x[0], 7);
+  ASSERT_EXACT(x, 7);
+  x.extend(2);
+  x[1] = 7;
+  x = 3;
+  ASSERT_EXACT(x, 3, 0);
 }
 
 TEST(series, assign_double) {
-  Series<double> x(1);
+  Series<double> x(2);
   x.extend(1);
   x = 7.5;
   ASSERT_EQ(x.terms(), 1);
   ASSERT_EQ(x[0], 7.5);
-}
-
-TEST(series, move_assign) {
-  Series<double> x(5);
-  x.extend(1);
-  x = 7;
-  Series<double> y;
-  y = move(x);
-  ASSERT_EQ(x.terms(), 0);
-  ASSERT_EQ(y.terms(), 1);
-  ASSERT_EQ(y[0], 7);
+  x.extend(2);
+  x[1] = 7;
+  x = 3;
+  ASSERT_EXACT(x, 3, 0);
 }
 
 TEST(series, assign_series) {
@@ -530,6 +526,12 @@ TEST(series, log1p_exp) {
                                    n, s, e, approx(ax, n), y, approx(ay, n));
     }
   }
+}
+
+TEST(series, ldexp) {
+  Series<double> x(3, {3, 5, 7}), y(3);
+  y = ldexp(x, 3); ASSERT_EXACT(y, 3<<3, 5<<3, 7<<3);
+  y = ldexp(x, -1); ASSERT_EXACT(y, 1.5, 2.5, 3.5);
 }
 
 }  // namespace

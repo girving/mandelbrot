@@ -1,13 +1,14 @@
-// Series area tests
+// Arb area tests
 
-#include "area.h"
+#include "arb_area.h"
 #include "gtest/gtest.h"
 namespace mandelbrot {
 namespace {
 
-TEST(area, double) {
+TEST(arb_area, areas) {
   const int max_k = 7;
-  areas<double>(max_k);
+  const int prec = 200;
+  arb_areas(max_k, prec);
 }
 
 }  // namespace
