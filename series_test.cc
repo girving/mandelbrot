@@ -21,21 +21,25 @@ Series<double> approx(const Poly& x, const int64_t n) {
   return y;
 }
 
-double error(const Series<const double>& x, const Series<const double>& y) {
+double error(const Series<const double>& x, const Series<const double>& y, const bool relative = false) {
   if (x.terms() != y.terms())
     return numeric_limits<double>::infinity();
   double e = 0;
-  for (int64_t i = 0; i < x.terms(); i++)
-    e = max(e, abs(x[i] - y[i]));
+  for (int64_t i = 0; i < x.terms(); i++) {
+    double d = abs(x[i] - y[i]);
+    if (relative)
+      d /= max(1., abs(y[i]));
+    e = max(e, d);
+  }
   return e;
 }
-__attribute__((unused)) double error(const Series<const double>& x, initializer_list<double>&& ys) {
-  return error(x, Series<const double>(move(ys)));
+double error(const Series<const double>& x, initializer_list<double>&& ys, const bool relative = false) {
+  return error(x, Series<const double>(move(ys)), relative);
 }
-double error(const Series<const double>& x, const Poly& y) {
+double error(const Series<const double>& x, const Poly& y, const bool relative = false) {
   if (x.terms() < y.length())
     return numeric_limits<double>::infinity();
-  return error(x, approx(y, x.terms()));
+  return error(x, approx(y, x.terms()), relative);
 }
 
 const int prec = 100, mag_bits = 0;
@@ -561,8 +565,8 @@ TEST(series, log1p_exp) {
       ay >>= s;
       Series<double> y(n);
       y = log1p_exp(approx(ax, n), s);
-      const auto e = error(y, ay);
-      ASSERT_LT(e, 2.1e-2) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+      const auto e = error(y, ay, true);
+      ASSERT_LT(e, 5e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
                                    n, s, e, approx(ax, n), y, approx(ay, n));
     }
   }

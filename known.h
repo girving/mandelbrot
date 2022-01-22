@@ -49,5 +49,7 @@ const char* known_areas[known_ks] = {
 //     k 12 refine, 84.4 s: mu = 1.834655733 +/- 2.7409e-43
 
 // Series history:
-//   22jan2022, Series<double>, fft_mul:
+//   22jan2022, double, fft_mul:
 //     k 14, 39.5 s: mu = 1.786389717, error = 7.11e-15
+//   22jan2022, double, no bit reverse:
+//     k 14, 36.1 s: mu = 1.786389717, error = 2.11e-14
