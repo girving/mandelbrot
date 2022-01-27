@@ -9,7 +9,7 @@ using namespace mandelbrot;
 
 int main() {
   try {
-    const int max_k = 16;
+    const int max_k = 22;
     if (0) {
       const int prec = 200;
       arb_areas(max_k, prec);
