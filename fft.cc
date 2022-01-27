@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <memory>
 #include <type_traits>
+#include <vector>
 namespace mandelbrot {
 
 using std::bit_ceil;
@@ -15,14 +16,57 @@ using std::cos;
 using std::countr_zero;
 using std::has_single_bit;
 using std::is_trivially_copyable_v;
+using std::max;
 using std::sin;
 using std::swap;
 using std::unique_ptr;
+using std::vector;
 
-static Complex<double> twiddle(const int64_t a, const int64_t b) {
+static Complex<double> slow_twiddle(const int64_t a, const int64_t b) {
   const double t = 2 * M_PI / b * a;
   return Complex<double>(cos(t), sin(t));
 }
+
+namespace {
+template<class S> class FullTwiddle {
+  // twiddles = concat(
+  //   [sentinel],  // For better cache alignment
+  //   twiddle(:1, 2),
+  //   twiddle(:2, 4),
+  //   twiddle(:4, 8),
+  //   ...,
+  //   twiddle(:1<<(p-1), 2<<(p-1)))
+  static vector<Complex<S>> twiddles;
+  static int p;
+public:
+
+  // Ensure that we know up to twiddle(:1<<s, 2<<s)
+  void ensure(const int s) {
+    slow_assert(0 <= s && s <= 20);
+    if (s < p) return;
+    twiddles.reserve(size_t(1) << max(10, s+1));
+    twiddles.resize(size_t(1) << (s+1));
+    while (p <= s) {
+      const auto m = int64_t(1) << p;
+      for (int64_t j = 0; j < m; j++)
+        twiddles[m + j] = slow_twiddle(j, 2*m);
+      p++;
+    }
+  }
+
+  // slow_twiddle(j, 2<<s)
+  Complex<S> operator()(const int64_t j, const int s) {
+    // i = j + sum_{a < s} 2^a = j + 2^s - 1
+    const auto m = int64_t(1) << s;
+    const auto i = m + j;
+    assert(size_t(j) < size_t(m) && size_t(i) < twiddles.size());
+    return twiddles[i];
+  }
+};
+
+template<class S> vector<Complex<S>> FullTwiddle<S>::twiddles;
+template<class S> int FullTwiddle<S>::p;
+}  // namespace
 
 // Bit-reverse y in place.
 // Don't worry about speed since we don't use bit reversal in fft_mul.
@@ -87,7 +131,7 @@ template<class S> static void fft_bitrev(span<Complex<S>> y, span<const S> x) {
         const auto u0 = y0 + y1;
         const auto u1 = y0 - y1;
         y0 = u0;
-        y1 = u1 * twiddle(-j, 2*m);
+        y1 = u1 * slow_twiddle(-j, 2*m);
       }
     }
   }
@@ -109,7 +153,7 @@ template<class S> static void ifft_bitrev(span<S> x, span<Complex<S>> y) {
         auto& y0 = y[k + j];
         auto& y1 = y[k + j + m];
         const auto u0 = y0;
-        const auto u1 = y1 * twiddle(j, 2*m);
+        const auto u1 = y1 * slow_twiddle(j, 2*m);
         y0 = u0 + u1;
         y1 = u0 - u1;
       }
@@ -143,7 +187,7 @@ template<class S> void rfft(span<Complex<S>> y, span<const S> x) {
   y[0].r = c.r + c.i;
   y[0].i = c.r - c.i;
   for (int64_t i = 1; i <= n/4; i++) {
-    const auto e = left(twiddle(-i, n));
+    const auto e = left(slow_twiddle(-i, n));
     const auto a = y[i];
     const auto b = y[n/2-i];
     const auto u = a + conj(b);
@@ -165,7 +209,7 @@ template<class S> void irfft(span<S> x, span<Complex<S>> y) {
   y[0].i = c.r - c.i;
   y[0] = y[0];
   for (int64_t i = 1; i <= n/4; i++) {
-    const auto e = right(twiddle(i, n));
+    const auto e = right(slow_twiddle(i, n));
     const auto m = n >= 8 || 4*i == n ? 1 : 0.5;
     const auto s = y[i];
     const auto t = y[n/2-i];
@@ -189,6 +233,10 @@ template<class S> static void srfft_scramble(span<Complex<S>> y, span<const S> x
   const int p = countr_zero(uint64_t(n));
   slow_assert(n == int64_t(1) << p && xn <= n);
 
+  // Precompute twiddle factors
+  FullTwiddle<S> T;
+  T.ensure(p);
+
   // Decimination-in-frequency shifted real-to-complex FFT, using the commutator notation:
   //   t j2 j1 j0 -> t k2/2 j1 j0
   //              -> k2 t k1/2 j0
@@ -210,8 +258,8 @@ template<class S> static void srfft_scramble(span<Complex<S>> y, span<const S> x
       auto& y0 = y[j];
       auto& y1 = y[j + n/4];
       const auto z1 = diag<-1>(sqrt(S(0.5)), y1);
-      const auto u0 = twiddle(-j, 2*n) * (y0 + z1);
-      const auto u1 = twiddle(-3*j, 2*n) * conj(y0 - z1);
+      const auto u0 = conj(T(j, p)) * (y0 + z1);
+      const auto u1 = conj(T(3*j, p) * (y0 - z1));
       y0 = u0;
       y1 = u1;
     }
@@ -226,7 +274,7 @@ template<class S> static void srfft_scramble(span<Complex<S>> y, span<const S> x
         auto& y0 = y[k + j];
         auto& y1 = y[k + j + m];
         const auto u0 = y0 + y1;
-        const auto u1 = twiddle(-j, 2*m) * conj(y0 - y1);
+        const auto u1 = conj(T(j, s) * (y0 - y1));
         y0 = u0;
         y1 = u1;
       }
@@ -242,6 +290,10 @@ template<class S> static void isrfft_scramble(span<S> x, span<Complex<S>> y) {
   const int p = countr_zero(uint64_t(n));
   slow_assert(n == int64_t(1) << p && xn <= 2*n);
 
+  // Precompute twiddle factors
+  FullTwiddle<S> T;
+  T.ensure(p);
+
   // First butterflies, in place, unshifted twiddling on output:
   //   ...k... t k(s+1)/2 js ...j... <- ...k... k(s+1) t ks/2 ...j...
   for (int s = 0; s < p-2; s++) {
@@ -251,7 +303,7 @@ template<class S> static void isrfft_scramble(span<S> x, span<Complex<S>> y) {
         auto& y0 = y[k + j];
         auto& y1 = y[k + j + m];
         const auto u0 = y0;
-        const auto u1 = conj(twiddle(j, 2*m) * y1);
+        const auto u1 = conj(T(j, s) * y1);
         y0 = u0 + u1;
         y1 = u0 - u1;
       }
@@ -264,8 +316,8 @@ template<class S> static void isrfft_scramble(span<S> x, span<Complex<S>> y) {
     for (int64_t j = 0; j < n/4; j++) {
       auto& y0 = y[j];
       auto& y1 = y[j + n/4];
-      const auto z0 = twiddle(j, 2*n) * y0;
-      const auto z1 = twiddle(3*j, 2*n) * y1;
+      const auto z0 = T(j, p) * y0;
+      const auto z1 = T(3*j, p) * y1;
       const auto u0 = z0 + conj(z1);
       const auto u1 = diag<1>(sqrt(S(0.5)), z0 - conj(z1));
       y0 = u0;

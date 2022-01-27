@@ -12,17 +12,12 @@
 namespace mandelbrot {
 namespace {
 
-using std::abs;
 using std::hypot;
 using std::max;
 using std::mt19937;
 using std::uniform_int_distribution;
 using std::uniform_real_distribution;
 using std::vector;
-
-double abs(const Complex<double> z) {
-  return hypot(z.r, z.i);
-}
 
 TEST(fft, fft) {
   mt19937 rand(7);

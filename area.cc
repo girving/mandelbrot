@@ -108,7 +108,6 @@ template<class S> void areas(const int max_k) {
         // Newton update only the high terms
         Series<S> F(p), dF(dp);
         implicit<S>(F, dF, k, g, dg, p, dp);
-        F.assert_low_near_zero(dp);
         dg = div(F.high(dp), dF);
         g.high(dp) -= dg;
       }

@@ -55,3 +55,6 @@ const char* known_areas[known_ks] = {
 //     k 14, 36.1 s: mu = 1.786389717, error = 2.11e-14
 //   27jan2022, double, srfft:
 //     k 14, 17.9 s: mu = 1.786389717, error = 1.82e-14
+//   27jan2022, double, cache twiddle factors:
+//     k 14, 2.90 s: mu = 1.786389717, error = 1.82e-14
+//     k 16, 19.1 s: mu = 1.753375772, error = 9.37e-13

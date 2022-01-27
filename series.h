@@ -308,10 +308,8 @@ SERIES_EXP(inv, y, (class T), (x), (const Series<T>& x)) {
 
     if (refine)
       y -= dy;
-    else { // Extend
-      dy.assert_low_near_zero(m0);
+    else  // Extend
       y.high(m0) -= dy.high(m0);
-    }
   });
 }
 
@@ -345,10 +343,8 @@ SERIES_EXP(inv1p, y, (class T), (x, s), (const Series<T>& x, const int64_t s)) {
 
     if (refine)
       y -= dy;
-    else { // Extend
-      dy.assert_low_near_zero(m0);
+    else  // Extend
       y.high(m0) -= dy.high(m0);
-    }
   });
 }
 
@@ -480,10 +476,8 @@ SERIES_EXP(exp, y, (class A), (x), (const Series<A>& x)) {
 
     if (refine)
       y -= dy;
-    else {  // Expand
-      dy.assert_low_near_zero(m0);
+    else  // Expand
       y.high(m0) -= dy.high(m0);
-    }
   });
 }
 
@@ -520,10 +514,8 @@ SERIES_EXP(expm1, y, (class A), (x,a,s), (const Series<A>& x, const int a, const
 
     if (refine)
       y -= dy;
-    else {  // Expand
-      dy.assert_low_near_zero(m0);
+    else  // Expand
       y.high(m0) -= dy.high(m0);
-    }
   });
 }
 
@@ -561,10 +553,8 @@ SERIES_EXP(log1p_exp, y, (class A), (x,s), (const Series<A>& x, const int64_t s)
 
     if (refine)
       y += ndy;
-    else {  // Expand
-      ndy.assert_low_near_zero(m0);
+    else  // Expand
       y.high(m0) += ndy.high(m0);
-    }
   });
 }
 

@@ -5,6 +5,7 @@
 #include <cmath>
 namespace mandelbrot {
 
+using std::abs;
 using std::ostream;
 
 // Double helpers
@@ -48,6 +49,10 @@ template<int sign, class S> static inline Complex<S> diag(const S& a, const Comp
   static_assert(sign == 1 || sign == -1);
   if constexpr (sign == 1) return a * Complex<S>(z.r - z.i, z.i + z.r);
   else return a * Complex<S>(z.r + z.i, z.i - z.r);
+}
+
+static inline double abs(const Complex<double> z) {
+  return hypot(z.r, z.i);
 }
 
 }  // namespace mandelbrot
