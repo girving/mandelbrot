@@ -52,7 +52,7 @@ void poly_rand(Poly& x, Rand& random, const int64_t n) {
 #define ASSERT_EXACT(x, ...) ASSERT_THAT(x, ElementsAre(__VA_ARGS__))
 #define ASSERT_CLOSE(x, ...) { \
   const auto e = error(x, {__VA_ARGS__}); \
-  ASSERT_LT(e, 1e-14) << format("e %g, x %g", e, x); }
+  ASSERT_LT(e, 3e-14) << format("e %g, x %g", e, x); }
 
 TEST(series, construct) {
   Series<double> x(5);
@@ -240,10 +240,10 @@ TEST(series, mul) {
   Series<double> x(3, {3, 5, 7}), y(3, {2, 3, 4});
   Series<double> small, z(3);
   { Series<double> small; ASSERT_THROW(small = mul(x, y), runtime_error); }
-  { Series<double> z(3); z = mul(x, y); ASSERT_EXACT(z, 6, 19, 41); }
-  { Series<double> z(2); z = mul(x, y.low(2)); ASSERT_EXACT(z, 6, 19); }
-  { Series<double> z(2); z = mul(x.low(2), y); ASSERT_EXACT(z, 6, 19); }
-  { Series<double> z(2); z = mul(x.low(2), y.low(2)); ASSERT_EXACT(z, 6, 19); }
+  { Series<double> z(3); z = mul(x, y); ASSERT_CLOSE(z, 6, 19, 41); }
+  { Series<double> z(2); z = mul(x, y.low(2)); ASSERT_CLOSE(z, 6, 19); }
+  { Series<double> z(2); z = mul(x.low(2), y); ASSERT_CLOSE(z, 6, 19); }
+  { Series<double> z(2); z = mul(x.low(2), y.low(2)); ASSERT_CLOSE(z, 6, 19); }
   { Series<double> z(1); z = mul(x.low(1), y); ASSERT_EXACT(z, 6); }
   { Series<double> z(1); z = mul(x, y.low(1)); ASSERT_EXACT(z, 6); }
   { Series<double> z; z = mul(x.low(0), y); ASSERT_EXACT(z); }
@@ -370,7 +370,7 @@ TEST(series, div) {
     Series<double> z(n);
     z = div(approx(ax, n), approx(ay, n));
     const auto e = error(z, az);
-    ASSERT_LT(e, 3e-6) << format("n = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+    ASSERT_LT(e, 4e-6) << format("n = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
                                  n, e, approx(ax, n), approx(ay, n), z, az);
   }
 }
@@ -437,7 +437,7 @@ TEST(series, div1p) {
       Series<double> z(n);
       z = div1p(approx(ax, n), approx(ay, n).low(n-s), s);
       const auto e = error(z, az);
-      ASSERT_LT(e, 1e-10) << format("\nn %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+      ASSERT_LT(e, 2e-10) << format("\nn %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
                                     n, e, approx(ax, n), approx(ay, n), z, az);
     }
   }
@@ -545,8 +545,8 @@ TEST(series, expm1) {
         Series<double> y(n);
         y = expm1(approx(ax, n), a, s);
         const auto e = error(y, ay);
-        ASSERT_LT(e, 1e-13) << format("\na %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                      a, s, e, approx(ax, n), y, approx(ay, n));
+        ASSERT_LT(e, 1.2e-13) << format("\na %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                        a, s, e, approx(ax, n), y, approx(ay, n));
       }
     }
   }
@@ -566,8 +566,8 @@ TEST(series, log1p_exp) {
       Series<double> y(n);
       y = log1p_exp(approx(ax, n), s);
       const auto e = error(y, ay, true);
-      ASSERT_LT(e, 5e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                   n, s, e, approx(ax, n), y, approx(ay, n));
+      ASSERT_LT(e, 5.6e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                     n, s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }

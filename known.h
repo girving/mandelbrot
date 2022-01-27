@@ -53,3 +53,5 @@ const char* known_areas[known_ks] = {
 //     k 14, 39.5 s: mu = 1.786389717, error = 7.11e-15
 //   22jan2022, double, no bit reverse:
 //     k 14, 36.1 s: mu = 1.786389717, error = 2.11e-14
+//   27jan2022, double, srfft:
+//     k 14, 17.9 s: mu = 1.786389717, error = 1.82e-14

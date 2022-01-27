@@ -7,6 +7,7 @@
 #include <bit>
 #include <iostream>
 #include <memory>
+#include <span>
 #include <type_traits>
 namespace mandelbrot {
 
@@ -24,6 +25,7 @@ using std::move;
 using std::ostream;
 using std::remove_const_t;
 using std::shared_ptr;
+using std::span;
 using std::swap;
 template<class T> struct Series;
 template<class F> struct SeriesExp;
@@ -130,14 +132,7 @@ public:
   }
 
   // Output
-  friend ostream& operator<<(ostream& out, const Series& f) {
-    out << '[';
-    for (int64_t i = 0; i < f.terms(); i++) {
-      if (i) out << ", ";
-      out << f[i];
-    }
-    return out << ']';
-  }
+  friend ostream& operator<<(ostream& out, const Series& f) { return out << f.span(); }
 
   // Change the number of terms in place
   void set_empty() { terms_ = 0; }
@@ -154,6 +149,11 @@ public:
     g = *this;
     return g;
   }
+
+  // Span accessors
+  std::span<T> span() const { return std::span<T>(x.get(), terms_); }
+  std::span<T> low_span(int64_t n) const { return std::span<T>(x.get(), min(max(int64_t(0), n), terms_)); }
+  std::span<T> high_span(int64_t n) const { return std::span<T>(x.get() + n, max(int64_t(0), terms_ - n)); }
 
   // The low terms of a series, without copying
   Series<const S> low(int64_t n) const {
@@ -218,17 +218,19 @@ template<class... Args> using Scalar = typename ScalarT<Args...>::type;
 
 // Multiplication: z = xy
 SERIES_EXP(mul, z, (class A,class B), (x,y), (const Series<A>& x, const Series<B>& y)) {
+  typedef remove_const_t<A> S;
   const auto n = min(x.terms(), y.terms());
   z.set_terms(n);
-  fft_mul(z.data(), x.data(), y.data(), n);
+  fft_mul<S>(z.span(), x.low_span(n), y.low_span(n));
 }
 
 // Shifted multiplication: z = x(1 + z^s y)
 SERIES_EXP(mul1p, z, (class A,class B), (x,y,s), (const Series<A>& x, const Series<B>& y, const int64_t s)) {
+  typedef remove_const_t<A> S;
   slow_assert(!z.alias(x) && s > 0);
   const auto n = min(x.terms(), y.terms() + s);
   z.set_terms(n);
-  fft_mul(z.data() + s, x.data(), y.data(), n - s);
+  fft_mul<S>(z.high_span(s), x.low_span(n-s), y.low_span(n-s));
   for (int64_t i = s; i < n; i++)
     z[i] += x[i];
   const auto sn = min(s, n);
@@ -237,10 +239,11 @@ SERIES_EXP(mul1p, z, (class A,class B), (x,y,s), (const Series<A>& x, const Seri
 }
 
 // Squaring: y = x^2
-SERIES_EXP(sqr, y, (class T), (x), (const Series<T>& x)) {
+SERIES_EXP(sqr, y, (class A), (x), (const Series<A>& x)) {
+  typedef remove_const_t<A> S;
   const auto n = x.terms();
   y.set_terms(n);
-  fft_sqr(y.data(), x.data(), n);
+  fft_sqr<S>(y.span(), x.span());
 }
 
 // Number of Newton steps needed to go from n0 to n
