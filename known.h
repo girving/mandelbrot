@@ -83,3 +83,10 @@ const char* known_areas[known_ks] = {
 //     k 16, 32.1 s: mu = 1.753375772, error = 3.55e-15
 //     k 17, 84.4 s: mu = 1.736187979
 //     k 18, 210 s:  mu = 1.726163785
+//   29jan2022, double, compute twiddles via arb:
+//     k 15, 13.1 s: mu = 1.766837674, error = 3.11e-15
+//     k 16, 35.5 s: mu = 1.753375772, error = 3e-14
+//     k 17, 86.9 s: mu = 1.736187979
+//     k 18, 214 s:  mu = 1.726163785
+//     k 19, 545 s:  mu = 1.712556954 (still 0.01 below Ewing-Schober, but same as above?)
+

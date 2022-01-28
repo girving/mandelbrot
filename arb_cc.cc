@@ -15,4 +15,11 @@ std::ostream& operator<<(std::ostream& out, const Arb& a) {
   return out;
 }
 
+string Arb::safe(const slong n) const {
+  char* p = arb_get_str(x, n, 0);
+  string s(p);
+  free(p);
+  return s;
+}
+
 }  // namespace mandelbrot

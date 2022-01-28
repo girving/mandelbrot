@@ -27,7 +27,7 @@ struct Arb {
 
   // Printing
   friend std::ostream& operator<<(std::ostream& out, const Arb& a);
-  string safe(const slong n) const { return arb_get_str(x, n, 0); }
+  string safe(const slong n) const;
 };
 
 }  // namespace mandelbrot

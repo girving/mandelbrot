@@ -27,15 +27,19 @@ cc_library(
 cc_library(
     name = "arb",
     srcs = [
+      "acb_cc.h",
+      "acb_cc.cc",
       "arb_cc.h",
       "arb_cc.cc",
       "arf_cc.h",
       "arf_cc.cc",
+      "fmpq_cc.h",
+      "fmpq_cc.cc",
       "poly.h",
       "poly.cc",
       "rand.h",
     ],
-    copts = copts,
+    copts = copts + ["-Wno-shorten-64-to-32"],
     deps = [
         ":base",
         "@arb//:arb",
@@ -66,6 +70,7 @@ cc_library(
       "fft.h",
       "fft.cc",
       "nearest.h",
+      "nearest.cc",
       "series.h",
     ],
     copts = copts,

@@ -2,6 +2,7 @@
 
 #include "fft.h"
 #include "debug.h"
+#include "nearest.h"
 #include "print.h"
 #include "relu.h"
 #include <bit>
@@ -23,7 +24,8 @@ using std::swap;
 using std::unique_ptr;
 using std::vector;
 
-static Complex<double> slow_twiddle(const int64_t a, const int64_t b) {
+// Should be used only by FFTs that we don't use for the main computation
+static Complex<double> bad_twiddle(const int64_t a, const int64_t b) {
   const double t = 2 * M_PI / b * a;
   return Complex<double>(cos(t), sin(t));
 }
@@ -49,13 +51,12 @@ public:
     twiddles.resize(size_t(1) << (s+1));
     while (p <= s) {
       const auto m = int64_t(1) << p;
-      for (int64_t j = 0; j < m; j++)
-        twiddles[m + j] = slow_twiddle(j, 2*m);
+      nearest_twiddles(span<Complex<S>>(twiddles.data() + m, m), 2*m);
       p++;
     }
   }
 
-  // slow_twiddle(j, 2<<s)
+  // twiddle(j, 2<<s)
   Complex<S> operator()(const int64_t j, const int s) {
     // i = j + sum_{a < s} 2^a = j + 2^s - 1
     const auto m = int64_t(1) << s;
@@ -132,7 +133,7 @@ template<class S> static void fft_bitrev(span<Complex<S>> y, span<const S> x) {
         const auto u0 = y0 + y1;
         const auto u1 = y0 - y1;
         y0 = u0;
-        y1 = u1 * slow_twiddle(-j, 2*m);
+        y1 = u1 * bad_twiddle(-j, 2*m);
       }
     }
   }
@@ -154,7 +155,7 @@ template<class S> static void ifft_bitrev(span<S> x, span<Complex<S>> y) {
         auto& y0 = y[k + j];
         auto& y1 = y[k + j + m];
         const auto u0 = y0;
-        const auto u1 = y1 * slow_twiddle(j, 2*m);
+        const auto u1 = y1 * bad_twiddle(j, 2*m);
         y0 = u0 + u1;
         y1 = u0 - u1;
       }
@@ -188,7 +189,7 @@ template<class S> void rfft(span<Complex<S>> y, span<const S> x) {
   y[0].r = c.r + c.i;
   y[0].i = c.r - c.i;
   for (int64_t i = 1; i <= n/4; i++) {
-    const auto e = left(slow_twiddle(-i, n));
+    const auto e = left(bad_twiddle(-i, n));
     const auto a = y[i];
     const auto b = y[n/2-i];
     const auto u = a + conj(b);
@@ -210,7 +211,7 @@ template<class S> void irfft(span<S> x, span<Complex<S>> y) {
   y[0].i = c.r - c.i;
   y[0] = y[0];
   for (int64_t i = 1; i <= n/4; i++) {
-    const auto e = right(slow_twiddle(i, n));
+    const auto e = right(bad_twiddle(i, n));
     const auto m = n >= 8 || 4*i == n ? 1 : 0.5;
     const auto s = y[i];
     const auto t = y[n/2-i];
@@ -255,10 +256,11 @@ template<class S> static void srfft_scramble(span<Complex<S>> y, span<const S> x
   // Second butterfly, in place, shifted twiddling on input:
   //   t k(p-1)/2 j(p-2) ...j... -> k(p-1) t k(p-2)/2 ...j...
   if (p > 1) {
+    static const auto sqrt_half = nearest_sqrt<S>(1, 2);
     for (int64_t j = 0; j < n/4; j++) {
       auto& y0 = y[j];
       auto& y1 = y[j + n/4];
-      const auto z1 = diag<-1>(sqrt(S(0.5)), y1);
+      const auto z1 = diag<-1>(sqrt_half, y1);
       const auto u0 = conj(T(j, p)) * (y0 + z1);
       const auto u1 = conj(T(3*j, p) * (y0 - z1));
       y0 = u0;
@@ -314,13 +316,14 @@ template<class S> static void isrfft_scramble(span<S> x, span<Complex<S>> y) {
   // Second to last butterfly, in place, shifted twiddling on output:
   //   t k(p-1)/2 j(p-2) ...j... -> k(p-1) t k(p-2)/2 ...j...
   if (p > 1) {
+    static const auto sqrt_half = nearest_sqrt<S>(1, 2);
     for (int64_t j = 0; j < n/4; j++) {
       auto& y0 = y[j];
       auto& y1 = y[j + n/4];
       const auto z0 = T(j, p) * y0;
       const auto z1 = T(3*j, p) * y1;
       const auto u0 = z0 + conj(z1);
-      const auto u1 = diag<1>(sqrt(S(0.5)), z0 - conj(z1));
+      const auto u1 = diag<1>(sqrt_half, z0 - conj(z1));
       y0 = u0;
       y1 = u1;
     }

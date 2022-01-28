@@ -1,6 +1,7 @@
 // Mandelbrot area via custom power series
 
 #include "area.h"
+#include "arb_cc.h"
 #include "nearest.h"
 #include "debug.h"
 #include "known.h"
