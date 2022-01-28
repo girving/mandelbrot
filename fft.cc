@@ -3,6 +3,7 @@
 #include "fft.h"
 #include "debug.h"
 #include "print.h"
+#include "relu.h"
 #include <bit>
 #include <cmath>
 #include <cstdint>
@@ -345,15 +346,15 @@ template<class S> void isrfft(span<S> x, span<Complex<S>> y) {
 }
 
 template<class S> void fft_mul(span<S> z, span<const S> x, span<const S> y) {
-  const int64_t n = z.size();
-  slow_assert(n == int64_t(x.size()) && n == int64_t(y.size()));
-  if (!n)
+  const int64_t nz = z.size(), nx = x.size(), ny = y.size();
+  slow_assert(nz <= relu(nx + ny - 1));
+  if (!nz)
     return;
-  else if (n == 1)
-    z[0] = x[0] * y[0];
-  else {
+  else if (nz == 1) {
+    z[0] = nx && ny ? x[0] * y[0] : 0;
+  } else {
     // FFT multiplication for large n
-    const int64_t fn = bit_ceil(uint64_t(2*n));
+    const int64_t fn = bit_ceil(uint64_t(2*nz));
     unique_ptr<Complex<S>[]> buffer(new Complex<S>[fn]);
     const span<Complex<S>> fx(buffer.get(), fn/2);
     const span<Complex<S>> fy(buffer.get() + fn/2, fn/2);
@@ -367,15 +368,15 @@ template<class S> void fft_mul(span<S> z, span<const S> x, span<const S> y) {
 }
 
 template<class S> void fft_sqr(span<S> y, span<const S> x) {
-  const int64_t n = y.size();
-  slow_assert(n == int64_t(x.size()));
-  if (!n)
+  const int64_t ny = y.size(), nx = x.size();
+  slow_assert(ny <= relu(2*nx - 1));
+  if (!ny)
     return;
-  else if (n == 1)
-    y[0] = sqr(x[0]);
+  else if (ny == 1)
+    y[0] = nx ? sqr(x[0]) : 0;
   else {
     // FFT squaring for large n
-    const int64_t fn = bit_ceil(uint64_t(2*n));
+    const int64_t fn = bit_ceil(uint64_t(2*ny));
     unique_ptr<Complex<S>[]> buffer(new Complex<S>[fn/2]);
     const span<Complex<S>> fx(buffer.get(), fn/2);
     srfft_scramble(fx, x);

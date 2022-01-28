@@ -15,20 +15,29 @@ using testing::ElementsAre;
 Series<double> approx(const Poly& x, const int64_t n) {
   slow_assert(n >= x.length());
   Series<double> y(n);
-  y.set_terms(n);
+  y.set_counts(n, n);
   for (int64_t i = 0; i < n; i++)
     y[i] = arf_get_d(arb_midref(x[i]), ARF_RND_NEAR);
   return y;
 }
 
 double error(const Series<const double>& x, const Series<const double>& y, const bool relative = false) {
-  if (x.terms() != y.terms())
+  if (x.known() != y.known())
     return numeric_limits<double>::infinity();
   double e = 0;
-  for (int64_t i = 0; i < x.terms(); i++) {
+  const auto both = min(x.nonzero(), y.nonzero());
+  for (int64_t i = 0; i < both; i++) {
     double d = abs(x[i] - y[i]);
     if (relative)
       d /= max(1., abs(y[i]));
+    e = max(e, d);
+  }
+  for (int64_t i = both; i < x.nonzero(); i++)
+    e = max(e, abs(x[i]));
+  for (int64_t i = both; i < y.nonzero(); i++) {
+    double d = abs(y[i]);
+    if (relative)
+      d = min(d, 1.);
     e = max(e, d);
   }
   return e;
@@ -37,9 +46,9 @@ double error(const Series<const double>& x, initializer_list<double>&& ys, const
   return error(x, Series<const double>(move(ys)), relative);
 }
 double error(const Series<const double>& x, const Poly& y, const bool relative = false) {
-  if (x.terms() < y.length())
+  if (x.known() < y.length())
     return numeric_limits<double>::infinity();
-  return error(x, approx(y, x.terms()), relative);
+  return error(x, approx(y, x.known()), relative);
 }
 
 const int prec = 100, mag_bits = 0;
@@ -56,14 +65,16 @@ void poly_rand(Poly& x, Rand& random, const int64_t n) {
 
 TEST(series, construct) {
   Series<double> x(5);
-  ASSERT_EQ(x.terms(), 0);
+  ASSERT_EQ(x.known(), 0);
+  ASSERT_EQ(x.nonzero(), 0);
   ASSERT_EQ(x.limit(), 5);
 }
 
 TEST(series, initializer_list) {
   Series<double> x(3, {5, 7});
   ASSERT_EQ(x.limit(), 3);
-  ASSERT_EQ(x.terms(), 2);
+  ASSERT_EQ(x.known(), 2);
+  ASSERT_EQ(x.nonzero(), 2);
   ASSERT_EQ(x[0], 5);
   ASSERT_EQ(x[1], 7);
 
@@ -72,58 +83,61 @@ TEST(series, initializer_list) {
 
 TEST(series, move_construct) {
   Series<double> x(5);
-  x.extend(1);
-  x = 7;
+  x.set_scalar(1, 7);
   Series<double> y(move(x));
-  ASSERT_EQ(x.terms(), 0);
-  ASSERT_EQ(y.terms(), 1);
+  ASSERT_EQ(x.known(), 0);
+  ASSERT_EQ(x.nonzero(), 0);
+  ASSERT_EQ(y.known(), 1);
+  ASSERT_EQ(y.nonzero(), 1);
   ASSERT_EQ(y[0], 7);
 }
 
 TEST(series, clear) {
   Series<double> x(5);
-  x.extend(1);
-  x = 7;
+  x.set_scalar(1, 7);
   x.clear();
-  ASSERT_EQ(x.terms(), 0);
+  ASSERT_EQ(x.known(), 0);
+  ASSERT_EQ(x.nonzero(), 0);
   ASSERT_EQ(x.limit(), 0);
 }
 
 TEST(series, assign_int) {
   Series<double> x(2);
-  x.extend(1);
-  x = 7;
+  x.set_scalar(1, 7);
+  ASSERT_EQ(x.known(), 1);
+  ASSERT_EQ(x.nonzero(), 1);
   ASSERT_EXACT(x, 7);
-  x.extend(2);
-  x[1] = 7;
-  x = 3;
-  ASSERT_EXACT(x, 3, 0);
+  x.set_scalar(2, 3);
+  ASSERT_EQ(x.known(), 2);
+  ASSERT_EQ(x.nonzero(), 1);
+  ASSERT_EXACT(x, 3);
 }
 
 TEST(series, assign_double) {
   Series<double> x(2);
-  x.extend(1);
-  x = 7.5;
-  ASSERT_EQ(x.terms(), 1);
-  ASSERT_EQ(x[0], 7.5);
-  x.extend(2);
-  x[1] = 7;
-  x = 3;
-  ASSERT_EXACT(x, 3, 0);
+  x.set_scalar(1, 7.5);
+  ASSERT_EQ(x.known(), 1);
+  ASSERT_EQ(x.nonzero(), 1);
+  ASSERT_EXACT(x, 7.5);
+  x.set_scalar(2, 3);
+  ASSERT_EQ(x.known(), 2);
+  ASSERT_EQ(x.nonzero(), 1);
+  ASSERT_EXACT(x, 3);
 }
 
 TEST(series, assign_series) {
   Series<double> x(2, {7, 13});
   Series<double> y(2);
-  ASSERT_EQ(y.terms(), 0); 
+  ASSERT_EQ(y.known(), 0);
+  ASSERT_EQ(y.nonzero(), 0);
   y = x;
   ASSERT_EXACT(y, 7, 13);
 }
 
 TEST(series, alias) {
   Series<double> x(2), y(2);
-  x.extend(2);
-  y.extend(2);
+  x.set_counts(2, 2);
+  y.set_counts(2, 2);
   Series<double> t(x);
   const auto lo = x.low(1);
   const auto hi = x.high(1);
@@ -135,47 +149,52 @@ TEST(series, alias) {
 }
 
 TEST(series, assert_low_near_zero) {
-  Series<double> x(3); 
-  x.extend(3);
+  Series<double> x(3);
+  x.set_counts(3, 3);
+  x[0] = x[1] = 0;
   x[2] = 1;
   for (int n = 0; n <= 2; n++)
     x.assert_low_near_zero(n);
   ASSERT_THROW(x.assert_low_near_zero(3), runtime_error);
-  x.truncate(1);
+  x.set_counts(1, 1);
   ASSERT_THROW(x.assert_low_near_zero(2), runtime_error);
 }
 
 TEST(series, print) {
   Series<double> x(2);
   ASSERT_EQ(format("%g", x), "[]");
-  x.extend(1); x[0] = 7;
+  x.set_scalar(1, 7);
   ASSERT_EQ(format("%g", x), "[7]");
-  x.extend(2); x[1] = 4.5;
+  x.set_counts(2, 2); x[1] = 4.5;
   ASSERT_EQ(format("%g", x), "[7, 4.5]");
 }
 
-TEST(series, truncate_extend) {
-  Series<double> x(2); 
+TEST(series, set_known) {
+  Series<double> x(2);
 
-  // Truncate
-  ASSERT_EQ(x.terms(), 0);
-  x.truncate(-1);
-  ASSERT_EQ(x.terms(), 0);
-  x.truncate(3);
-  ASSERT_EQ(x.terms(), 0);
-  
+  // Extending past limit is fine, since we fill in symbolic zeros
+  x.set_known(7);
+  ASSERT_EQ(x.known(), 7);
+  ASSERT_EQ(x.nonzero(), 0);
+
   // Extend
-  ASSERT_THROW(x.extend(3), runtime_error);
-  x.extend(2);
-  ASSERT_EQ(x.terms(), 2);
+  x.set_counts(2, 2);
+  ASSERT_EQ(x.known(), 2);
+  ASSERT_EQ(x.nonzero(), 2);
   x[0] = 7;
   x[1] = 13;
   ASSERT_EXACT(x, 7, 13);
 
-  // Truncate and extend should fill in zeros
-  x.truncate(1);
-  x.extend(2);
-  ASSERT_EXACT(x, 7, 0);
+  // Extending more should just change the counts
+  x.set_counts(1, 1);
+  x.set_known(7);
+  ASSERT_EQ(x.known(), 7);
+  ASSERT_EQ(x.nonzero(), 1);
+  ASSERT_EXACT(x, 7);
+  x.set_known(4);
+  ASSERT_EQ(x.known(), 4);
+  ASSERT_EQ(x.nonzero(), 1);
+  ASSERT_EXACT(x, 7);
 }
 
 TEST(series, low_high) {
@@ -205,7 +224,8 @@ TEST(series, low_high) {
 
 TEST(series, add_scalar) {
   Series<double> x(2);
-  x.extend(2);
+  x.set_counts(2, 2);
+  x[0] = 0;
   x[1] = 3;
   x += 7;
   ASSERT_EXACT(x, 7, 3);
@@ -219,8 +239,8 @@ TEST(series, add_scalar) {
 
 TEST(series, add_series) {
   Series<double> x(2), y(2, {3, 5});
-  x.extend(2);
-  ASSERT_EXACT(x, 0, 0);
+  x.set_known(2);
+  ASSERT_EXACT(x);
   x += y;
   ASSERT_EXACT(x, 3, 5);
   x += y;
@@ -229,10 +249,38 @@ TEST(series, add_series) {
   ASSERT_EXACT(x, 3, 5);
 
   // Adding into high part
-  x.high(1) += x.high(1);
+  x.high_add(1, y.high(1));
   ASSERT_EXACT(x, 3, 10);
-  x.high(1) -= x.low(1);
+  x.high_sub(1, y.low(1));
   ASSERT_EXACT(x, 3, 7);
+
+  // Add/sub with x extension
+  for (const int sign : {1, -1}) {
+    Series<double> x(2), y(2, {3, 5});
+    x.set_counts(2, 1); x[0] = 4; x.data()[1] = 99;
+    if (sign > 0) x += y;
+    else x -= y;
+    ASSERT_EXACT(x, 4 + sign*3, sign*5);
+  }
+
+  // Add/sub with y extension
+  for (const int sign : {1, -1}) {
+    Series<double> x(2), y(2, {3});
+    y.set_known(2); y.data()[1] = 99;
+    x.set_counts(2, 2); x[0] = 4; x[1] = 2;
+    if (sign > 0) x += y;
+    else x -= y;
+    ASSERT_EXACT(x, 4 + sign*3, 2);
+  }
+
+  // High add/sub with x extension
+  for (const int sign : {1, -1}) {
+    Series<double> x(3), y(2, {3, 5});
+    x.set_counts(3, 0); x[0] = x[1] = x[3] = 99;
+    if (sign > 0) x.high_add(1, y);
+    else x.high_sub(1, y);
+    ASSERT_EXACT(x, 0, sign*3, sign*5);
+  }
 }
 
 TEST(series, mul) {

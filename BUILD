@@ -15,6 +15,7 @@ cc_library(
       "debug.cc",
       "format.h",
       "print.h",
+      "relu.h",
       "wall_time.h",
     ],
     copts = copts,
