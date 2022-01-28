@@ -469,8 +469,8 @@ TEST(series, log1p) {
       Series<double> y(n);
       y = log1p(approx(ax, n), s);
       const auto e = error(y, ay);
-      ASSERT_LT(e, 1e-9) << format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                   s, e, approx(ax, n), y, approx(ay, n));
+      ASSERT_LT(e, 1.1e-10) << format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                      s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -566,8 +566,8 @@ TEST(series, log1p_exp) {
       Series<double> y(n);
       y = log1p_exp(approx(ax, n), s);
       const auto e = error(y, ay, true);
-      ASSERT_LT(e, 5.6e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                     n, s, e, approx(ax, n), y, approx(ay, n));
+      ASSERT_LT(e, 2e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                   n, s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }

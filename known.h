@@ -48,6 +48,18 @@ const char* known_areas[known_ks] = {
 //     k 11 refine, 26.7 s: mu = 1.854656777 +/- 8.9856e-46
 //     k 12 refine, 84.4 s: mu = 1.834655733 +/- 2.7409e-43
 
+// Bittner et al.'s Tables 1 and 2 (https://arxiv.org/abs/1410.1212):
+//     0.5M: 1.72 (Ewing-Schober)
+//     1.0M: 1.70393
+//     1.5M: 1.69702
+//     2.0M: 1.69388
+//     2.5M: 1.69096
+//     3.0M: 1.68895, 9 days
+//     3.5M: 1.6874,  10.8 days
+//     4.0M: 1.68633, 12.5 days
+//     4.5M: 1.68447, 14.4 days
+//     5.0M: 1.68288, 16.2 days
+
 // Series history:
 //   22jan2022, double, fft_mul:
 //     k 14, 39.5 s: mu = 1.786389717, error = 7.11e-15
@@ -60,3 +72,9 @@ const char* known_areas[known_ks] = {
 //     k 15, 6.99 s: mu = 1.766837674, error = 3.55e-14
 //     k 16, 19.1 s: mu = 1.753375772, error = 9.37e-13
 //     k 17, 44.9 s: mu = nan
+//   29jan2022, double, Newton refine more often:
+//     k 15, 13.7 s: mu = 1.766837674, error = 9.77e-15
+//     k 16, 33.4 s: mu = 1.753375772, error = 4.29e-14
+//     k 17, 86.2 s: mu = 1.736187979
+//     k 18, 208 s:  mu = 1.726163785
+//     k 19, 524 s:  mu = 1.712556954 (0.01 below Ewing-Schober)

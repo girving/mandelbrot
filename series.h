@@ -270,12 +270,13 @@ template<class Step> static inline void newton_iterate(int64_t n0, const int64_t
   //   n0 = 1, n = 4, k = ceil(log2(4)) = 2
   if (n <= n0) return;
   slow_assert(n0 > 0);
-  for (int k = newton_steps(n0, n)-1; k >= -1; k--) {
-    // We iterate down to k = -1 to do one final step of refinement with n0 = m = n
-    const bool refine = k < 0;
-    const auto m = refine ? n : (n + (int64_t(1)<<k) - 1) >> k;
+  for (int kr = 2*newton_steps(n0, n)-1; kr >= 0; kr--) {
+    // We alternate extension steps with refinement steps
+    const int k = kr >> 1;
+    const bool refine = !(kr & 1);
+    const auto m = (n + (int64_t(1)<<k) - 1) >> k;
     step(n0, m, refine);
-    n0 = m;
+    if (refine) n0 = m;
   }
 }
 
@@ -306,10 +307,8 @@ SERIES_EXP(inv, y, (class T), (x), (const Series<T>& x)) {
     dy -= 1;
     dy = mul(dy, y);
 
-    if (refine)
-      y -= dy;
-    else  // Extend
-      y.high(m0) -= dy.high(m0);
+    // Update
+    y.high(m0) -= dy.high(m0);
   });
 }
 
@@ -341,10 +340,8 @@ SERIES_EXP(inv1p, y, (class T), (x, s), (const Series<T>& x, const int64_t s)) {
     t += y;
     dy = mul1p(t, y, s);
 
-    if (refine)
-      y -= dy;
-    else  // Extend
-      y.high(m0) -= dy.high(m0);
+    // Update
+    y.high(m0) -= dy.high(m0);
   });
 }
 
@@ -474,10 +471,8 @@ SERIES_EXP(exp, y, (class A), (x), (const Series<A>& x)) {
     dy -= x;
     dy = mul(y, dy);
 
-    if (refine)
-      y -= dy;
-    else  // Expand
-      y.high(m0) -= dy.high(m0);
+    // Update
+    y.high(m0) -= dy.high(m0);
   });
 }
 
@@ -512,10 +507,8 @@ SERIES_EXP(expm1, y, (class A), (x,a,s), (const Series<A>& x, const int a, const
     else t += x;
     dy = mul1p(t, y, s);
 
-    if (refine)
-      y -= dy;
-    else  // Expand
-      y.high(m0) -= dy.high(m0);
+    // Update
+    y.high(m0) -= dy.high(m0);
   });
 }
 
@@ -551,10 +544,8 @@ SERIES_EXP(log1p_exp, y, (class A), (x,s), (const Series<A>& x, const int64_t s)
     t = expm1(y, -1, s);
     ndy += t;
 
-    if (refine)
-      y += ndy;
-    else  // Expand
-      y.high(m0) += ndy.high(m0);
+    // Update
+    y.high(m0) += ndy.high(m0);
   });
 }
 

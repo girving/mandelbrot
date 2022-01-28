@@ -42,7 +42,7 @@ public:
 
   // Ensure that we know up to twiddle(:1<<s, 2<<s)
   void ensure(const int s) {
-    slow_assert(0 <= s && s <= 20);
+    slow_assert(0 <= s && s <= 22);
     if (s < p) return;
     twiddles.reserve(size_t(1) << max(10, s+1));
     twiddles.resize(size_t(1) << (s+1));
