@@ -5,12 +5,12 @@
 
 #include "expansion.h"
 #include "arb_cc.h"
+#include "arith.h"
 #include "mag_cc.h"
 #include "nearest.h"
 #include "noncopyable.h"
 #include "print.h"
 #include "rand.h"
-#include "relu.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include <fenv.h>
@@ -23,6 +23,7 @@ using std::bernoulli_distribution;
 using std::function;
 using std::max;
 using std::mt19937;
+using std::mt19937_64;
 using std::nextafter;
 using std::numeric_limits;
 using std::tuple;
@@ -103,11 +104,6 @@ struct RoundingMode : public Noncopyable {
 };
 
 // Returns an upper bound for |x|
-double bound(const Arb& x) {
-  Mag m;
-  arb_get_mag(m, x);
-  return mag_get_d(m);
-}
 template<int n> double bound(const Expansion<n> x) {
   RoundingMode r(FE_UPWARD);
   double b = 0;
@@ -139,6 +135,23 @@ template<int n> void convert_test() {
   }
 }
 
+template<int n,class I> void convert_int_test() {
+  typedef Expansion<n> E;
+  mt19937_64 mt(7);
+
+  Arb x, e;
+  for (int i = 0; i < 1024; i++) {
+    const I a = I(mt());
+    const E x(a);
+    ASSERT_TRUE(ulp_valid(x))
+        << format("n %d, i %d, a %d", n, i, a)
+        << format("\nx %.30", x)
+        << format("\nx %s (ulp %g)", x.span(), ulp(x.x[0]));
+    const Arf y = exact_arf(x);
+    ASSERT_TRUE(arf_equal_si(y, a));
+  }
+}
+
 template<int n> void random_expansion_test() {
   const bool verbose = false;
   typedef Expansion<n> E;
@@ -163,7 +176,7 @@ template<int n> void random_expansion_test() {
     ASSERT_TRUE(found[i]) << format("%s (i %d)", get<0>(anys[i]), i);
 }
 
-template<int n> void neg_test() {
+template<int n,class Op,class ArbOp> void exact_unary_test(const Op& op, const ArbOp& arb_op) {
   typedef Expansion<n> E;
   mt19937 mt(7);
 
@@ -171,11 +184,37 @@ template<int n> void neg_test() {
   for (int i = 0; i < 1024; i++) {
     const int prec = 400*n;
     const E x = random_expansion<n>(mt);
-    const E z = -x;
-    arb_neg(correct, x.arb(prec));
+    const E z = op(x);
+    arb_op(correct, x.arb(prec));
     const auto az = z.arb(prec);
     ASSERT_TRUE(arb_is_exact(correct));
     ASSERT_TRUE(arb_equal(correct, az));
+  }
+}
+
+template<int n> void neg_test() { exact_unary_test<n>(std::negate<void>(), arb_neg); }
+template<int n> void abs_test() { exact_unary_test<n>([](auto x) { return abs(x); }, arb_abs); }
+template<int n> void ldexp_test() {
+  for (const int e : {-10, -5, -1, 0, 1, 5, 10})
+    exact_unary_test<n>(
+        [e](auto x) { return ldexp(x, e); },
+        [e](Arb& y, const Arb& x) { arb_mul_2exp_si(y, x, e); });
+}
+
+template<int n> void inv_test() {
+  typedef Expansion<n> E;
+  mt19937 mt(7);
+  const int slop = 2;
+
+  Arb correct, error;
+  for (int i = 0; i < 1024; i++) {
+    const int prec = 400*n;
+    const E x = random_expansion<n>(mt);
+    const E z = inv(x);
+    arb_inv(correct, x.arb(prec), prec);
+    arb_sub(error, correct, z.arb(prec), prec);
+    const auto want = ldexp(bound(correct), -52*n + slop);
+    ASSERT_LE(bound(error), want);
   }
 }
 
@@ -203,7 +242,7 @@ binary_test(const string& name, const Op& op, const ArbOp& arb_op, const bool ca
         << format("\n\nx %.100g\ny %.100g\nz %.100g", x, y, z)
         << format("\n\nx %.17g (valid %d)\ny %.17g (valid %d)\nz %.17g (valid %d)",
                   x.span(), ulp_valid(x), y.span(), ulp_valid(y), z.span(), ulp_valid(z))
-        << format("\n\nax %s\nay %s\naz %s", x.exact_arf().safe(), y.exact_arf().safe(), z.exact_arf().safe());
+        << format("\n\nax %s\nay %s\naz %s", safe(x), safe(y), safe(z));
   }
 }
 
@@ -215,6 +254,9 @@ template<int n> void sub_test() {
 }
 template<int n> void mul_test() {
   binary_test<n>("*", std::multiplies<void>(), arb_mul, false, n == 2 ? 1 : 13, n == 2 ? 1 : 1);
+}
+template<int n> void div_test() {
+  binary_test<n>("/", std::divides<void>(), arb_div, false, 0, 2);
 }
 
 template<int n> void equal_test() {
@@ -255,11 +297,17 @@ template<int n> void equal_test() {
 #define TESTS(n) \
   TEST(expansion, random_expansion##n) { random_expansion_test<n>(); } \
   TEST(expansion, convert##n) { convert_test<n>(); } \
+  TEST(expansion, convert_int##n##_32) { convert_int_test<n,int32_t>(); } \
+  TEST(expansion, convert_int##n##_64) { convert_int_test<n,int64_t>(); } \
   TEST(expansion, neg##n) { neg_test<n>(); } \
+  TEST(expansion, abs##n) { abs_test<n>(); } \
+  TEST(expansion, ldexp##n) { ldexp_test<n>(); } \
   TEST(expansion, add##n) { add_test<n>(); } \
   TEST(expansion, sub##n) { sub_test<n>(); } \
   TEST(expansion, mul##n) { mul_test<n>(); } \
-  TEST(expansion, equal##n) { equal_test<n>(); }
+  TEST(expansion, equal##n) { equal_test<n>(); } \
+  TEST(expansion, inv##n) { inv_test<n>(); } \
+  TEST(expansion, div##n) { div_test<n>(); }
 TESTS(2)
 TESTS(3)
 

@@ -10,6 +10,7 @@ namespace mandelbrot {
 using std::min;
 using std::max;
 using std::runtime_error;
+using std::span;
 
 // C = a*A - 2^(log2_b)*B
 void poly_linear_sub_si_2exp(Poly& C, slong a, const Poly& A, const slong log2_b, const Poly& B, slong prec) {
@@ -119,7 +120,7 @@ void arb_areas(const int max_k, const int prec) {
       poly_exp_refine(f, g, p, prec);
       Arb mu;
       area(mu, f, prec);
-      print("    mu = %.10g %s", mu, mu.safe(20));
+      print("    mu = %.10g %s", mu, mu.safe());
       if (k < 4) {
         print("    f = %.3g", f);
         print("    g = %.3g", g);
@@ -128,9 +129,10 @@ void arb_areas(const int max_k, const int prec) {
       print("    time = %.3g s", elapsed.seconds());
 
       // Check against known results
-      if (k < known_ks) {
+      const span<const Known> knowns(known_areas);
+      if (k < int(knowns.size())) {
         Arb known;
-        arb_set_str(known, known_areas[k], prec);
+        arb_set_str(known, knowns[k].value, prec);
         slow_assert(arb_overlaps(mu, known), "No overlap with known area %.20g", known);
       }
     }

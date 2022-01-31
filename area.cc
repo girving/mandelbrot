@@ -2,6 +2,7 @@
 
 #include "area.h"
 #include "arb_cc.h"
+#include "expansion.h"
 #include "nearest.h"
 #include "debug.h"
 #include "known.h"
@@ -79,7 +80,7 @@ template<class A> remove_const_t<A> area(const Series<A>& f) {
   return nearest_pi<S>() * mu;
 }
 
-template<class S> void areas(const int max_k) {
+template<class S> void areas(const int max_k, const double tol) {
   // f = 1, so g = log f = 0
   Series<S> g(1);
   g.set_scalar(1, 0);
@@ -123,7 +124,7 @@ template<class S> void areas(const int max_k) {
       Series<S> f(p);
       f = exp(g);
       const S mu = area(f);
-      print("    mu = %.10g", mu);
+      print("    mu = %s", safe(mu));
       if (k < 4) {
         print("    f = %.3g", f);
         print("    g = %.3g", g);
@@ -131,21 +132,25 @@ template<class S> void areas(const int max_k) {
       print("    time = %.3g s", elapsed.seconds());
 
       // Check against known results
-      if (k < known_ks) {
-        Arb known;
-        arb_set_str(known, known_areas[k], 200);
-        const S k = round_near<S>(arb_midref(known.x));
-        const S e = abs(mu - k);
+      const span<const Known> knowns(known_areas);
+      if (k < int(knowns.size())) {
+        const int prec = 1000;
+        Arb known, error;
+        arb_set_str(known, knowns[k].value, prec);
+        const Arb ours = exact_arb(mu);
+        arb_sub(error, known, ours, prec);
+        const double e = bound(error);
         print("    error = %.3g", e);
-        const S tol = 1e-6;
-        slow_assert(e <= tol, "error %g > %g", e, tol);
+        const auto t = refine ? tol : 1e-6;
+        slow_assert(e <= t, "error %g > %g", e, t);
       }
     }
   }
 }
 
 #define AREAS(S) \
-  template void areas<S>(const int max_k);
+  template void areas<S>(const int max_k, const double);
 AREAS(double)
+AREAS(Expansion<2>)
 
 }  // namespace mandelbrot

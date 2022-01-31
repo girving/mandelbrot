@@ -1,17 +1,12 @@
 // Complex numbers with custom real types
 #pragma once
 
+#include "arith.h"
 #include <iostream>
 #include <cmath>
 namespace mandelbrot {
 
-using std::abs;
 using std::ostream;
-
-// Double helpers
-static inline double sqr(double x) { return x * x; }
-static inline double twice(double x) { return x + x; }
-static inline double inv(double x) { return 1 / x; }
 
 // We need our own complex template to handle custom scalars.
 // Ours has very few operations.
@@ -36,6 +31,7 @@ template<class S> struct Complex {
   friend Complex left(const Complex& z) { return Complex(-z.i, z.r); }  // iz
   friend Complex right(const Complex& z) { return Complex(z.i, -z.r); }  // -iz
   friend Complex twice(const Complex& z) { return Complex(twice(z.r), twice(z.i)); }
+  friend Complex half(const Complex& z) { return Complex(half(z.r), half(z.i)); }
 
   friend ostream& operator<<(ostream& out, const Complex& z) {
     out << z.r;

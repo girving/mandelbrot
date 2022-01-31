@@ -17,17 +17,26 @@ struct Arb {
   ~Arb() { arb_clear(x); }
 
   // Assignment
-  Arb& operator=(const slong a) { arb_set_si(x, a); return *this; }
-  Arb& operator=(const Arb& a) { arb_set(x, a.x); return *this; }
-  Arb& operator=(Arb&& a) { arb_swap(x, a.x); arb_zero(a.x); return *this; }
+  void operator=(const slong a) { arb_set_si(x, a); }
+  void operator=(const Arb& a) { arb_set(x, a.x); }
+  void operator=(Arb&& a) { arb_swap(x, a.x); arb_zero(a.x); }
 
   // Implicit converson
   operator arb_ptr() { return x; }
   operator arb_srcptr() const { return x; }
 
+  // Upper bound for |x|
+  friend double bound(const Arb& x);
+
   // Printing
   friend std::ostream& operator<<(std::ostream& out, const Arb& a);
-  string safe(const slong n) const;
+  string safe() const;
 };
+
+static inline Arb exact_arb(const double a) {
+  Arb x;
+  arb_set_d(x, a);
+  return x;
+}
 
 }  // namespace mandelbrot

@@ -4,19 +4,23 @@ load("//:mandelbrot.bzl", "copts")
 
 cc_library(
     name = "known",
-    hdrs = ["known.h"],
+    srcs = [
+        "known.h",
+        "known.cc",
+    ],
     copts = copts,
 )
 
 cc_library(
     name = "base",
     srcs = [
+      "arith.h",
       "debug.h",
       "debug.cc",
       "format.h",
+      "is_interval.h",
       "noncopyable.h",
       "print.h",
-      "relu.h",
       "wall_time.h",
     ],
     copts = copts,
@@ -83,55 +87,25 @@ cc_library(
 )
 
 cc_library(
-    name = "expansion",
+    name = "area",
     srcs = [
+        "area.h",
+        "area.cc",
+        "complex.h",
         "expansion.h",
         "expansion.cc",
+        "fft.h",
+        "fft.cc",
         "gen/expansion.h",
-    ],
-    copts = copts,
-    deps = [
-        ":arb",
-    ],
-)
-
-cc_library(
-    name = "complex",
-    srcs = ["complex.h"],
-    copts = copts,
-)
-
-cc_library(
-    name = "nearest",
-    srcs = [
         "nearest.h",
         "nearest.cc",
+        "series.h",
     ],
     copts = copts,
     deps = [
         ":arb",
         ":base",
-        ":complex",
-        ":expansion",
-    ],
-)
-
-cc_library(
-    name = "series",
-    srcs = [
-      "area.h",
-      "area.cc",
-      "fft.h",
-      "fft.cc",
-      "series.h",
-    ],
-    copts = copts,
-    deps = [
-        ":arb",
-        ":base",
-        ":complex",
         ":known",
-        ":nearest",
     ],
 )
 
@@ -141,8 +115,7 @@ cc_binary(
     copts = copts,
     deps = [
         ":arb_area",
-        ":known",
-        ":series",
+        ":area",
     ],
 )
 
@@ -151,8 +124,7 @@ cc_tests(
     copts = copts + ["-Wno-shorten-64-to-32"],
     deps = [
         ":arb",
-        ":nearest",
-        ":expansion",
+        ":area",
     ],
 )
 
@@ -169,17 +141,11 @@ cc_tests(
         "area_test",
         "series_test",
     ],
-    deps = [
-        ":series",
-        ":arb_area",
-    ],
+    deps = [":area"],
 )
 
 cc_tests(
     names = ["fft_test"],
     copts = copts + ["-Wno-shorten-64-to-32"],
-    deps = [
-        ":series",
-        ":arb_area",
-    ],
+    deps = [":area"],
 )

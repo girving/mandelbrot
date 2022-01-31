@@ -10,6 +10,8 @@ using tinyformat::format;
 
 static inline string format() { return string(); }
 
+static inline string safe(const double x) { return format(".17g", x); }
+
 }  // namespace mandelbrot
 namespace std {
 

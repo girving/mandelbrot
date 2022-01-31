@@ -1,26 +1,15 @@
 // Known Mandelbrot area bounds
 #pragma once
 
-const int known_ks = 16+1;
-const char* known_areas[known_ks] = {
-  "3.1415926535897932385 +/- 3.74e-20",  // k 0, prec 2000
-  "3.1415926535897932385 +/- 3.74e-20",  // k 1, prec 2000
-  "2.6998061866787285643 +/- 3.84e-21",  // k 2, prec 2000
-  "2.4636540388624509718 +/- 1.11e-20",  // k 3, prec 2000
-  "2.3089221574735649437 +/- 1.86e-20",  // k 4, prec 2000
-  "2.1863969605631909502 +/- 3.77e-20",  // k 5, prec 2000
-  "2.1117843557698974143 +/- 3.66e-20",  // k 6, prec 2000
-  "2.0290979917037465762 +/- 2.62e-20",  // k 7, prec 2000
-  "1.9793859246155479841 +/- 4.66e-21",  // k 8, prec 2000
-  "1.9277162229003024017 +/- 3.17e-20",  // k 9, prec 2000
-  "1.8959430758033194112 +/- 3.71e-20",  // k 10, prec 2000
-  "1.8546567767819607804 +/- 1.97e-20",  // k 11, prec 2000
-  "1.8346557326261556582 +/- 3.03e-20",  // k 12, prec 2000
-  "1.8061788858565225232 +/- 4.46e-20",  // k 13, prec 2000
-  "1.7863897165519852571 +/- 2.07e-20",  // k 14, prec 2000
-  "1.7668376741940830366 +/- 2.45e-20",  // k 15, prec 2000
-  "1.7533757723569262997 +/- 3.64e-20",  // k 16, prec 2000, repeats 2, radius 1.1345e-477
+namespace mandelbrot {
+
+struct Known {
+  int k;  // Estimate from 2^k terms
+  double time;  // time of refinement step in seconds (negative for unknown)
+  int prec;  // Arb precision
+  const char* value;  // serialized arb_t value
 };
+extern const Known known_areas[16+1];
 
 // 8 terms of f and g = log f:
 //   f = [(1 +/- 0), (-0.5 +/- 0), (0.125 +/- 0), (-0.25 +/- 9.3345e-61),
@@ -89,4 +78,10 @@ const char* known_areas[known_ks] = {
 //     k 17, 86.9 s: mu = 1.736187979
 //     k 18, 214 s:  mu = 1.726163785
 //     k 19, 545 s:  mu = 1.712556954 (still 0.01 below Ewing-Schober, but same as above?)
+//   31jan2022, exp2, expansion arithmetic works:
+//     k 13, 26.1 s: mu = 1.80617888585652252315542830417844,  error = 1.36e-31
+//     k 14, 63.8 s: mu = 1.78638971655198525707933106215495,  error < 2.07e-20
+//     k 15, 150 s:  mu = 1.76683767419408303662440486811699,  error < 2.44e-20
+//     k 16, 352 s:  mu = 1.753375772356926299663688533777756, error < 3.63e-20
 
+}  // namespace mandelbrot

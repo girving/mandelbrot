@@ -10,18 +10,17 @@ namespace mandelbrot {
 
 using std::vector;
 
-// Round both lower and upper bounds to the nearest S, and return nothing if they don't match
-template<class S> auto round_nearest(const arb_t c, const int prec) {
+template<class S> optional<S> round_nearest(const arb_t c, const int prec) {
   Arf a, b;
   arb_get_interval_arf(a, b, c, prec);
   const auto a_ = round_near<S>(a);
   const auto b_ = round_near<S>(b);
-  optional<remove_const_t<decltype(a_)>> c_;
+  optional<S> c_;
   if (a_ == b_)
     c_ = a_;
   return c_;
 }
-template<class S> auto round_nearest(const acb_t z, const int prec) {
+template<class S> optional<Complex<S>> round_nearest(const acb_t z, const int prec) {
   optional<Complex<S>> z_;
   const auto r = round_nearest<S>(acb_realref(z), prec);
   if (r) {
@@ -30,16 +29,6 @@ template<class S> auto round_nearest(const acb_t z, const int prec) {
       z_ = Complex<S>(*r, *i);
   }
   return z_;
-}
-
-// Given f : prec → S, increase prec until we get perfect rounding
-template<class S,class F> auto nearest(F&& f) {
-  const int max_prec = 1600;
-  for (int prec = 200; prec <= max_prec; prec <<= 1) {
-    const auto c = round_nearest<S>(f(prec), prec);
-    if (c) return *c;
-  } 
-  die("nearest ran out of precision (max prec = %g)", max_prec);
 }
 
 template<int n> Expansion<n> RoundNear<Expansion<n>>::round(const arf_t c) {

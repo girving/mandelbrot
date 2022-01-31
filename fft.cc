@@ -1,10 +1,11 @@
 // Fast Fourier Transforms
 
 #include "fft.h"
+#include "arith.h"
 #include "debug.h"
+#include "expansion.h"
 #include "nearest.h"
 #include "print.h"
-#include "relu.h"
 #include <bit>
 #include <cmath>
 #include <cstdint>
@@ -24,12 +25,6 @@ using std::swap;
 using std::unique_ptr;
 using std::vector;
 
-// Should be used only by FFTs that we don't use for the main computation
-static Complex<double> bad_twiddle(const int64_t a, const int64_t b) {
-  const double t = 2 * M_PI / b * a;
-  return Complex<double>(cos(t), sin(t));
-}
-
 namespace {
 template<class S> class FullTwiddle {
   // twiddles = concat(
@@ -45,7 +40,7 @@ public:
 
   // Ensure that we know up to twiddle(:1<<s, 2<<s)
   void ensure(const int s) {
-    slow_assert(0 <= s && s <= 22);
+    slow_assert(s <= 22);
     if (s < p) return;
     twiddles.reserve(size_t(1) << max(10, s+1));
     twiddles.resize(size_t(1) << (s+1));
@@ -118,6 +113,10 @@ template<class S> static void fft_bitrev(span<Complex<S>> y, span<const S> x) {
   const int p = countr_zero(uint64_t(n));
   slow_assert(n == int64_t(1) << p && xn <= 2*n);
 
+  // Precompute twiddle factors
+  FullTwiddle<S> T;
+  T.ensure(p-1);
+
   // Copy from x to y, without bit reversing
   static_assert(is_trivially_copyable_v<S>);
   memcpy(y.data(), x.data(), xn*sizeof(S));
@@ -133,7 +132,7 @@ template<class S> static void fft_bitrev(span<Complex<S>> y, span<const S> x) {
         const auto u0 = y0 + y1;
         const auto u1 = y0 - y1;
         y0 = u0;
-        y1 = u1 * bad_twiddle(-j, 2*m);
+        y1 = u1 * conj(T(j, s));
       }
     }
   }
@@ -147,6 +146,10 @@ template<class S> static void ifft_bitrev(span<S> x, span<Complex<S>> y) {
   const int p = countr_zero(uint64_t(n));
   slow_assert(n == int64_t(1) << p && xn <= 2*n);
 
+  // Precompute twiddle factors
+  FullTwiddle<S> T;
+  T.ensure(p-1);
+
   // Cooley-Tukey FFT
   for (int s = 0; s < p; s++) {
     const auto m = int64_t(1) << s;
@@ -155,7 +158,7 @@ template<class S> static void ifft_bitrev(span<S> x, span<Complex<S>> y) {
         auto& y0 = y[k + j];
         auto& y1 = y[k + j + m];
         const auto u0 = y0;
-        const auto u1 = y1 * bad_twiddle(j, 2*m);
+        const auto u1 = y1 * T(j, s);
         y0 = u0 + u1;
         y1 = u0 - u1;
       }
@@ -181,6 +184,11 @@ template<class S> void rfft(span<Complex<S>> y, span<const S> x) {
   const int64_t n = 2*y.size();
   if (!n) return;
 
+  // Precompute twiddle factors
+  const int p = countr_zero(uint64_t(n));
+  FullTwiddle<S> T;
+  T.ensure(p-1);
+
   // Half-size complex FFT
   fft(y, x);
 
@@ -189,13 +197,13 @@ template<class S> void rfft(span<Complex<S>> y, span<const S> x) {
   y[0].r = c.r + c.i;
   y[0].i = c.r - c.i;
   for (int64_t i = 1; i <= n/4; i++) {
-    const auto e = left(bad_twiddle(-i, n));
+    const auto e = left(conj(T(i, p-1)));
     const auto a = y[i];
     const auto b = y[n/2-i];
     const auto u = a + conj(b);
     const auto v = e * (a - conj(b));
-    const auto s = 0.5 * (u - v);
-    const auto t = 0.5 * conj(u + v);
+    const auto s = half(u - v);
+    const auto t = half(conj(u + v));
     y[i] = s;
     y[n/2-i] = t;
   }
@@ -205,14 +213,19 @@ template<class S> void irfft(span<S> x, span<Complex<S>> y) {
   const int64_t n = 2*y.size();
   if (!n) return;
 
+  // Precompute twiddle factors
+  const int p = countr_zero(uint64_t(n));
+  FullTwiddle<S> T;
+  T.ensure(p-1);
+
   // Preprocess into half-size complex FFT
   const auto c = y[0];
   y[0].r = c.r + c.i;
   y[0].i = c.r - c.i;
   y[0] = y[0];
   for (int64_t i = 1; i <= n/4; i++) {
-    const auto e = right(bad_twiddle(i, n));
-    const auto m = n >= 8 || 4*i == n ? 1 : 0.5;
+    const auto e = right(T(i, p-1));
+    const S m(n >= 8 || 4*i == n ? 1 : 0.5);
     const auto s = y[i];
     const auto t = y[n/2-i];
     const auto u = m * (conj(t) + s);
@@ -400,5 +413,6 @@ template<class S> void fft_sqr(span<S> y, span<const S> x) {
   template void fft_mul(span<S> z, span<const S> x, span<const S> y); \
   template void fft_sqr(span<S> y, span<const S> x);
 FFT(double)
+FFT(Expansion<2>)
 
 }  // namespace mandelbrot

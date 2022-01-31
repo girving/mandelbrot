@@ -1,9 +1,10 @@
 // Series arithmetic
 #pragma once
 
+#include "arith.h"
 #include "debug.h"
 #include "fft.h"
-#include "relu.h"
+#include "is_interval.h"
 #include <algorithm>
 #include <bit>
 #include <iostream>
@@ -31,12 +32,6 @@ using std::span;
 using std::swap;
 template<class T> struct Series;
 template<class F> struct SeriesExp;
-
-// For assertions that scalars aren't intervals
-template<class T> struct IsIntervalT;
-template<class T> struct IsIntervalT<const T> : public IsIntervalT<T> {};
-template<> struct IsIntervalT<double> { static constexpr bool value = false; };
-template<class T> static constexpr bool is_interval = IsIntervalT<T>::value;
 
 // For approximate near zero assertions
 static inline bool near_zero(const double x) { return abs(x) < 1e-5; }
@@ -335,7 +330,7 @@ SERIES_EXP(inv, y, (class T), (x), (const Series<T>& x)) {
   slow_assert(!y.alias(x) && x.nonzero());
 
   // Base case
-  y.set_scalar(1, 1 / x[0]);
+  y.set_scalar(1, inv(x[0]));
 
   // Newton step:
   //   1/y = x
@@ -403,7 +398,7 @@ SERIES_EXP(div, y, (class A,class B), (a,b), (const Series<A>& a, const Series<B
   inv_b = inv(b.low(n));
   y = mul(a, inv_b);
 
-  // One more step of Newton refinement
+  // One more step of Newton refinement:
   //   y = a/b
   //   f(y) = by - a
   //   f'(y) = b
@@ -449,7 +444,7 @@ SERIES_EXP(derivative_shift, y, (class A), (x,s), (const Series<A>& x, const int
   const auto nk = x.known(), nz = x.nonzero();
   y.set_counts(nk, nz);
   for (int64_t i = 0; i < nz; i++)
-    y[i] = x[i] * (s + i);
+    y[i] = (s + i) * x[i];
 }
 
 // Shifted integral: y = z^(-s) (z^(s-1) x)
@@ -530,7 +525,7 @@ SERIES_EXP(expm1, y, (class A), (x,a,s), (const Series<A>& x, const int a, const
   // Base case
   const auto n = x.known();
   if (!n) return y.set_unknown();
-  y.set_scalar(1, x.nonzero() ? a * x[0] : 0);
+  y.set_scalar(1, x.nonzero() ? a > 0 ? x[0] : -x[0] : 0);
 
   // Newton step:
   //   y = z^-s (exp(az^s x) - 1)
@@ -563,7 +558,7 @@ SERIES_EXP(log1p_exp, y, (class A), (x,s), (const Series<A>& x, const int64_t s)
   typedef remove_const_t<A> S;
   const auto n = x.known();
   if (!n) return y.set_unknown();
-  slow_assert(!y.alias(x) && s > 0 && (!x.nonzero() || x[0] == 0));
+  slow_assert(!y.alias(x) && s > 0 && (!x.nonzero() || !x[0]));
 
   // Base case
   y.set_scalar(1, 1);
