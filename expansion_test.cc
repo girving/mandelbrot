@@ -10,6 +10,7 @@
 #include "noncopyable.h"
 #include "print.h"
 #include "rand.h"
+#include "relu.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include <fenv.h>
@@ -24,17 +25,22 @@ using std::max;
 using std::mt19937;
 using std::nextafter;
 using std::numeric_limits;
+using std::tuple;
 using std::uniform_int_distribution;
 using std::uniform_real_distribution;
 using std::vector;
+
+int exponent(const double x) {
+  int e;
+  frexp(x, &e);
+  return e;
+}
 
 // Goldberg's definition, according to Collange et al.
 double ulp(const double x) {
   constexpr int p = numeric_limits<double>::digits;
   static_assert(p == 52 + 1);
-  int e;
-  frexp(x, &e);
-  return ldexp(double(1), e - p);
+  return ldexp(double(1), exponent(x) - p);
 }
 
 // Verify Figure 2.6 of Muller et al., Handbook of floating point arithmetic
@@ -60,12 +66,22 @@ template<int n> bool ulp_valid(const Expansion<n>& e) {
   return true;
 }
 
+template<int n> int ulp_slop(const Expansion<n>& e) {
+  int slop = 0;
+  for (int i = 0; i+1 < n; i++) {
+    const double x = e.x[i];
+    const double y = e.x[i+1];
+    if (x && y)
+      slop = max(slop, exponent(y) - exponent(ulp(x)));
+  }
+  return slop;
+}
+
 template<int n> Expansion<n> random_expansion_with_exponent(mt19937& mt, int e) {
   Expansion<n> a;
   for (int i = 0; i < n; i++) {
     a.x[i] = ldexp(uniform_real_distribution<double>(-1, 1)(mt), e);
-    // Generate slight overlaps and spacings some of the time
-    e = e - 52 + uniform_int_distribution<int>(-2, 2)(mt);
+    e = exponent(a.x[i]) - 52 - 1;
   }
   return a;
 }
@@ -76,9 +92,7 @@ template<int n> Expansion<n> random_expansion(mt19937& mt) {
 }
 
 template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<n> x) {
-  int e;
-  frexp(x.x[0], &e);
-  e = e - uniform_int_distribution<int>(1, 52*n)(mt);
+  const int e = exponent(x.x[0]) - uniform_int_distribution<int>(1, 52*n)(mt);
   return (bernoulli_distribution(0.5)(mt) ? x : -x) + random_expansion_with_exponent<n>(mt, e);
 }
 
@@ -129,23 +143,24 @@ template<int n> void random_expansion_test() {
   const bool verbose = false;
   typedef Expansion<n> E;
   mt19937 mt(7);
-  vector<function<bool(E)>> anys = {
-    [](E x) { return bound(x) > 1e3 && x.x[0] > 0; },
-    [](E x) { return bound(x) > 1e3 && x.x[0] < 0; },
-    [](E x) { return bound(x) < 1e-3 && x.x[0] > 0; },
-    [](E x) { return bound(x) < 1e-3 && x.x[0] < 0; },
+  vector<tuple<string,function<bool(E)>>> anys = {
+    {"hi_pos", [](E x) { return bound(x) > 1e3 && x.x[0] > 0; }},
+    {"hi_neg", [](E x) { return bound(x) > 1e3 && x.x[0] < 0; }},
+    {"lo_pos", [](E x) { return bound(x) < 1e-3 && x.x[0] > 0; }},
+    {"lo_pos", [](E x) { return bound(x) < 1e-3 && x.x[0] < 0; }},
   };
   vector<bool> found(anys.size());
-  for (int i = 0; i < 16; i++) {
+  for (int i = 0; i < 64; i++) {
     const E x = random_expansion<n>(mt);
+    ASSERT_TRUE(ulp_valid(x)) << x.span();
     for (int i = 0; i < int(anys.size()); i++)
-      if (anys[i](x))
+      if (get<1>(anys[i])(x))
         found[i] = true;
     if (verbose)
       print(x.span());
   }
   for (int i = 0; i < int(anys.size()); i++)
-    ASSERT_TRUE(found[i]) << format("i %d", i);
+    ASSERT_TRUE(found[i]) << format("%s (i %d)", get<0>(anys[i]), i);
 }
 
 template<int n> void neg_test() {
@@ -165,7 +180,8 @@ template<int n> void neg_test() {
 }
 
 template<int n,class Op,class ArbOp> void
-binary_test(const string& name, const Op& op, const ArbOp& arb_op, const bool cancellation, const int slop = 0) {
+binary_test(const string& name, const Op& op, const ArbOp& arb_op, const bool cancellation,
+            const int uslop, const int eslop) {
   typedef Expansion<n> E;
   mt19937 mt(7);
 
@@ -178,8 +194,11 @@ binary_test(const string& name, const Op& op, const ArbOp& arb_op, const bool ca
     const E z = op(x, y);
     arb_op(correct, x.arb(prec), y.arb(prec), prec);
     arb_sub(error, z.arb(prec), correct, prec);
-    const auto want = ldexp(bound(correct), -52*n + slop);
-    ASSERT_LE(bound(error), ldexp(bound(correct), -52*n + slop))
+    const auto want = ldexp(bound(correct), -52*n + eslop);
+    ASSERT_LE(ulp_slop(z), uslop)
+        << format("op %s, n %d, i %d, near %d, error %g > %g", name, n, i, near, bound(error), want)
+        << format("\n\nx %.100g\ny %.100g\nz %.100g", x, y, z);
+    ASSERT_LE(bound(error), want)
         << format("op %s, n %d, i %d, near %d, error %g > %g", name, n, i, near, bound(error), want)
         << format("\n\nx %.100g\ny %.100g\nz %.100g", x, y, z)
         << format("\n\nx %.17g (valid %d)\ny %.17g (valid %d)\nz %.17g (valid %d)",
@@ -188,9 +207,15 @@ binary_test(const string& name, const Op& op, const ArbOp& arb_op, const bool ca
   }
 }
 
-template<int n> void add_test() { binary_test<n>("+", std::plus<void>(), arb_add, true); }
-template<int n> void sub_test() { binary_test<n>("-", std::minus<void>(), arb_sub, true); }
-template<int n> void mul_test() { binary_test<n>("*", std::multiplies<void>(), arb_mul, false, n == 2 ? 18 : 26); }
+template<int n> void add_test() {
+  binary_test<n>("+", std::plus<void>(), arb_add, true, n == 2 ? 0 : 11, 0);
+}
+template<int n> void sub_test() {
+  binary_test<n>("-", std::minus<void>(), arb_sub, true, n == 2 ? 0 : 11, 0);
+}
+template<int n> void mul_test() {
+  binary_test<n>("*", std::multiplies<void>(), arb_mul, false, n == 2 ? 1 : 13, n == 2 ? 1 : 1);
+}
 
 template<int n> void equal_test() {
   typedef Expansion<n> E;
