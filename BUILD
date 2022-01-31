@@ -14,6 +14,7 @@ cc_library(
       "debug.h",
       "debug.cc",
       "format.h",
+      "noncopyable.h",
       "print.h",
       "relu.h",
       "wall_time.h",
@@ -22,6 +23,24 @@ cc_library(
     deps = [
         "@tinyformat//:tinyformat",
     ],
+)
+
+cc_binary(
+    name = "codelets",
+    srcs = ["codelets.cc"],
+    copts = copts,
+    deps = [
+        ":base",
+    ],
+)
+
+genrule(
+    name = "run-codelets",
+    outs = [
+        "gen/expansion.h",
+    ],
+    tools = [":codelets"],
+    cmd = "$(location :codelets) $(OUTS)",
 )
 
 cc_library(
@@ -35,6 +54,7 @@ cc_library(
       "arf_cc.cc",
       "fmpq_cc.h",
       "fmpq_cc.cc",
+      "mag_cc.h",
       "poly.h",
       "poly.cc",
       "rand.h",
@@ -43,6 +63,7 @@ cc_library(
     deps = [
         ":base",
         "@arb//:arb",
+        "@flint//:flint",
     ],
 )
 
@@ -62,22 +83,55 @@ cc_library(
 )
 
 cc_library(
+    name = "expansion",
+    srcs = [
+        "expansion.h",
+        "expansion.cc",
+        "gen/expansion.h",
+    ],
+    copts = copts,
+    deps = [
+        ":arb",
+    ],
+)
+
+cc_library(
+    name = "complex",
+    srcs = ["complex.h"],
+    copts = copts,
+)
+
+cc_library(
+    name = "nearest",
+    srcs = [
+        "nearest.h",
+        "nearest.cc",
+    ],
+    copts = copts,
+    deps = [
+        ":arb",
+        ":base",
+        ":complex",
+        ":expansion",
+    ],
+)
+
+cc_library(
     name = "series",
     srcs = [
       "area.h",
       "area.cc",
-      "complex.h",
       "fft.h",
       "fft.cc",
-      "nearest.h",
-      "nearest.cc",
       "series.h",
     ],
     copts = copts,
     deps = [
         ":arb",
         ":base",
+        ":complex",
         ":known",
+        ":nearest",
     ],
 )
 
@@ -89,6 +143,16 @@ cc_binary(
         ":arb_area",
         ":known",
         ":series",
+    ],
+)
+
+cc_tests(
+    names = ["expansion_test"],
+    copts = copts + ["-Wno-shorten-64-to-32"],
+    deps = [
+        ":arb",
+        ":nearest",
+        ":expansion",
     ],
 )
 

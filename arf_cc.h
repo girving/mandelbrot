@@ -24,6 +24,7 @@ struct Arf {
   operator arf_srcptr() const { return x; }
 
   // Printing
+  string safe() const;  // Integer mantissa and exponent
   friend std::ostream& operator<<(std::ostream& out, const Arf& a);
 };
 

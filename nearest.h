@@ -11,9 +11,16 @@ using std::move;
 using std::optional;
 using std::remove_const_t;
 using std::span;
+template<int n> struct Expansion;
 
-template<class S> S round_near(const arf_t c);
-template<> inline double round_near(const arf_t c) { return arf_get_d(c, ARF_RND_NEAR); }
+template<class S> struct RoundNear;
+template<> struct RoundNear<double> {
+  static double round(const arf_t c) { return arf_get_d(c, ARF_RND_NEAR); }
+};
+template<int n> struct RoundNear<Expansion<n>> {
+  static Expansion<n> round(const arf_t c);
+};
+template<class S> S round_near(const arf_t c) { return RoundNear<S>::round(c); }
 
 // 𝜋
 template<class S> S nearest_pi();

@@ -3,6 +3,7 @@
 #include "nearest.h"
 #include "acb_cc.h"
 #include "arb_cc.h"
+#include "expansion.h"
 #include "fmpq_cc.h"
 #include <vector>
 namespace mandelbrot {
@@ -39,6 +40,25 @@ template<class S,class F> auto nearest(F&& f) {
     if (c) return *c;
   } 
   die("nearest ran out of precision (max prec = %g)", max_prec);
+}
+
+template<int n> Expansion<n> RoundNear<Expansion<n>>::round(const arf_t c) {
+  const int max_prec = 1600;
+  Expansion<n> e;
+  Arb dc, t;
+  for (int prec = 60*n; prec <= max_prec; prec <<= 1) {
+    arb_set_arf(dc, c);
+    for (int i = 0; i < n; i++) {
+      const auto x = round_nearest<double>(dc, prec);
+      if (!x) goto fail;
+      e.x[i] = *x;
+      arb_set_d(t, *x);
+      arb_sub(dc, dc, t, prec);
+    }
+    return e;
+    fail:;
+  }
+  die("ran out of precision rounding arf_t to Expansion<%d> (max prec = %d)", n, max_prec);
 }
 
 // 𝜋
@@ -114,5 +134,11 @@ template<class S> void nearest_twiddles(span<Complex<S>> zs, const int64_t b) {
   template Complex<S> nearest_twiddle(const int64_t, const int64_t); \
   template void nearest_twiddles(span<Complex<S>>, const int64_t); 
 NEAREST(double)
+
+#define EXPANSION(n) \
+  template struct RoundNear<Expansion<n>>; \
+  NEAREST(Expansion<n>)
+EXPANSION(2)
+EXPANSION(3)
 
 }  // namespace mandelbrot

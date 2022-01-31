@@ -4,6 +4,17 @@
 #include <iostream>
 namespace mandelbrot {
 
+string Arf::safe() const {
+  char* buffer;
+  size_t size;
+  FILE* f = open_memstream(&buffer, &size);
+  arf_fprint(f, x);
+  fflush(f);
+  string s(buffer);
+  fclose(f);
+  return s;
+}
+
 std::ostream& operator<<(std::ostream& out, const Arf& a) {
   char* buffer;
   size_t size;
