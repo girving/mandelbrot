@@ -68,8 +68,8 @@ cc_library(
     copts = copts,
     deps = [
         ":base",
-        "@arb//:arb",
-        "@flint//:flint",
+        "//third_party/arb",
+        "//third_party/flint",
     ],
 )
 
@@ -84,7 +84,7 @@ cc_library(
         ":arb",
         ":base",
         ":known",
-        "@arb//:arb",
+        "//third_party/arb",
     ],
 )
 

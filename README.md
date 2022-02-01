@@ -17,11 +17,11 @@ Here we try to compute more terms.
 
 ## Dependencies
 
-We depend on `bazel` and `gmp` manually, and `arb`, `flint`, and `mpfr` automatically via `bazel`.  To install the manual dependencies:
+To install `bazel` and `arb`:
 
     # On Mac
-    brew install bazel gmp
+    brew install bazel arb
 
     # On Linux
     # Install bazel via https://docs.bazel.build/versions/main/install-ubuntu.html
-    sudo apt-get install libgmp3-dev
+    sudo apt-get install libflint-arb-dev
