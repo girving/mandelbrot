@@ -6,10 +6,8 @@
 #include "debug.h"
 #include "format.h"
 #include "nearest.h"
-#include <span>
+#include "span.h"
 namespace mandelbrot {
-
-using std::span;
 
 template<int n> int sign(const Expansion<n> x) {
   for (int i = 0; i < n; i++)
@@ -94,8 +92,8 @@ template<int n> Arb exact_arb(const Expansion<n> x) {
   return b;
 }
 
-template<int n> std::span<const double> Expansion<n>::span() const {
-  return std::span<const double>(x, size_t(n));
+template<int n> span<const double> Expansion<n>::span() const {
+  return SPAN_NAMESPACE::span<const double>(x, size_t(n));
 }
 
 template<int n> ostream& operator<<(ostream& out, const Expansion<n> e) {
@@ -129,7 +127,7 @@ template<int n> Expansion<n>::Expansion(const string& s) {
   template Arb Expansion<n>::arb(const int) const; \
   template Arb exact_arb(const Expansion<n>); \
   template Arf exact_arf(const Expansion<n>); \
-  template std::span<const double> Expansion<n>::span() const; \
+  template span<const double> Expansion<n>::span() const; \
   template ostream& operator<<(ostream&, const Expansion<n>); \
   template Expansion<n> inv(const Expansion<n>); \
   template Expansion<n> Expansion<n>::operator/(const Expansion<n>) const; \

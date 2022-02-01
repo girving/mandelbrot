@@ -1,6 +1,6 @@
 # Build extensions
 
-copts = ["-std=c++2a", "-Wall", "-Werror", "-Wsign-compare", "-Wshorten-64-to-32"]
+copts = ["-std=c++2a", "-Wall", "-Werror", "-Wsign-compare"]
 
 def cc_tests(names, deps, data=[], size="medium", copts=copts):
   deps = deps + ["@com_google_googletest//:gtest", "@com_google_googletest//:gtest_main"]

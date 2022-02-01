@@ -2,20 +2,19 @@
 #pragma once
 
 #include "arith.h"
+#include "bit.h"
 #include "debug.h"
 #include "fft.h"
 #include "is_interval.h"
+#include "span.h"
 #include <algorithm>
-#include <bit>
+#include <cstring>
 #include <iostream>
 #include <memory>
-#include <span>
 #include <type_traits>
 namespace mandelbrot {
 
-using std::bit_ceil;
 using std::conditional_t;
-using std::countr_zero;
 using std::initializer_list;
 using std::is_const_v;
 using std::is_trivially_copyable_v;
@@ -28,7 +27,6 @@ using std::numeric_limits;
 using std::ostream;
 using std::remove_const_t;
 using std::shared_ptr;
-using std::span;
 using std::swap;
 template<class T> struct Series;
 template<class F> struct SeriesExp;
@@ -56,14 +54,14 @@ public:
   explicit Series(int64_t limit)
     : known_(0), nonzero_(0), limit_(relu(limit)) {
     if (limit_)
-      x.reset(static_cast<S*>(malloc(limit_ * sizeof(S))), [](auto p) { free(p); });
+      x.reset(static_cast<S*>(malloc(limit_ * sizeof(S))), [](S* p) { free(p); });
   }
   Series(int64_t limit, initializer_list<S>&& cs)
-    : limit_(limit) {
+    : limit_(relu(limit)) {
     slow_assert(cs.size() <= size_t(limit_));
     known_ = nonzero_ = cs.size();
     if (limit_) {
-      shared_ptr<S[]> y(static_cast<S*>(malloc(limit_ * sizeof(S))), [](auto p) { free(p); });
+      shared_ptr<S[]> y(static_cast<S*>(malloc(limit_ * sizeof(S))), [](S* p) { free(p); });
       int64_t i = 0;
       for (const auto& c : cs)
         y[i++] = c;
@@ -165,9 +163,9 @@ public:
   }
 
   // Span accessors
-  std::span<T> span() const { return std::span<T>(x.get(), nonzero_); }
-  std::span<T> low_span(int64_t n) const { return std::span<T>(x.get(), min(relu(n), nonzero_)); }
-  std::span<T> high_span(int64_t n) const { return std::span<T>(x.get() + n, relu(nonzero_ - n)); }
+  SPAN_NAMESPACE::span<T> span() const { return SPAN_NAMESPACE::span<T>(x.get(), nonzero_); }
+  SPAN_NAMESPACE::span<T> low_span(int64_t n) const { return SPAN_NAMESPACE::span<T>(x.get(), min(relu(n), nonzero_)); }
+  SPAN_NAMESPACE::span<T> high_span(int64_t n) const { return SPAN_NAMESPACE::span<T>(x.get() + n, relu(nonzero_ - n)); }
 
   // The low terms of a series, without copying
   Series<const S> low(const int64_t n) const {

@@ -43,10 +43,10 @@ cc_library(
     hdrs = glob([
         "*.h",
         "*_templates/*.c",
+        "fmpz_lll/*.c",
     ]) + [
         "fmpz-conversions.h",
     ],
-    includes = ["."],
     include_prefix = "flint",
     copts = [
         "-Wall",

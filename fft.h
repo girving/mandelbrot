@@ -2,11 +2,9 @@
 #pragma once
 
 #include "complex.h"
+#include "span.h"
 #include <cstdint>
-#include <span>
 namespace mandelbrot {
-
-using std::span;
 
 // Complex size-n fft of x, with n = y.size() and x zero extended to 2n reals.
 template<class S> void fft(span<Complex<S>> y, span<const S> x);

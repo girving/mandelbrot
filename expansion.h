@@ -2,9 +2,9 @@
 #pragma once
 
 #include "arith.h"
+#include "span.h"
 #include <cmath>
 #include <ostream>
-#include <span>
 namespace mandelbrot {
 
 // References:
@@ -79,7 +79,8 @@ template<int n> struct Expansion {
   // These are slow
   explicit operator bool() const;
   bool operator==(const Expansion y) const;
-  std::span<const double> span() const;
+  bool operator!=(const Expansion y) const { return !(*this == y); }
+  SPAN_NAMESPACE::span<const double> span() const;
   Arb arb(const int prec) const;
   explicit Expansion(const string& s);
 };

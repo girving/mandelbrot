@@ -5,6 +5,7 @@
 #include "debug.h"
 #include "expansion.h"
 #include <exception>
+#include <functional>
 #include <map>
 #include <vector>
 

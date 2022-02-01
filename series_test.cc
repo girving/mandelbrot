@@ -276,7 +276,8 @@ TEST(series, add_series) {
   // High add/sub with x extension
   for (const int sign : {1, -1}) {
     Series<double> x(3), y(2, {3, 5});
-    x.set_counts(3, 0); x[0] = x[1] = x[3] = 99;
+    x.set_counts(3, 0);
+    x.data()[0] = x.data()[1] = x.data()[2] = 99;
     if (sign > 0) x.high_add(1, y);
     else x.high_sub(1, y);
     ASSERT_EXACT(x, 0, sign*3, sign*5);
@@ -614,7 +615,7 @@ TEST(series, log1p_exp) {
       Series<double> y(n);
       y = log1p_exp(approx(ax, n), s);
       const auto e = error(y, ay, true);
-      ASSERT_LT(e, 1.5e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+      ASSERT_LT(e, 3.2e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
                                      n, s, e, approx(ax, n), y, approx(ay, n));
     }
   }

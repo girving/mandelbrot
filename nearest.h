@@ -12,7 +12,6 @@ namespace mandelbrot {
 using std::move;
 using std::optional;
 using std::remove_const_t;
-using std::span;
 template<int n> struct Expansion;
 
 template<class S> struct RoundNear;

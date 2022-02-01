@@ -15,12 +15,14 @@ cc_library(
     name = "base",
     srcs = [
       "arith.h",
+      "bit.h",
       "debug.h",
       "debug.cc",
       "format.h",
       "is_interval.h",
       "noncopyable.h",
       "print.h",
+      "span.h",
       "wall_time.h",
     ],
     copts = copts,
@@ -63,7 +65,7 @@ cc_library(
       "poly.cc",
       "rand.h",
     ],
-    copts = copts + ["-Wno-shorten-64-to-32"],
+    copts = copts,
     deps = [
         ":base",
         "@arb//:arb",
@@ -120,8 +122,12 @@ cc_binary(
 )
 
 cc_tests(
+    names = ["bit_test"],
+    deps = [":base"],
+)
+
+cc_tests(
     names = ["expansion_test"],
-    copts = copts + ["-Wno-shorten-64-to-32"],
     deps = [
         ":arb",
         ":area",
@@ -146,6 +152,5 @@ cc_tests(
 
 cc_tests(
     names = ["fft_test"],
-    copts = copts + ["-Wno-shorten-64-to-32"],
     deps = [":area"],
 )

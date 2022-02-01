@@ -2,22 +2,20 @@
 
 #include "fft.h"
 #include "arith.h"
+#include "bit.h"
 #include "debug.h"
 #include "expansion.h"
 #include "nearest.h"
 #include "print.h"
-#include <bit>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <type_traits>
 #include <vector>
 namespace mandelbrot {
 
-using std::bit_ceil;
 using std::cos;
-using std::countr_zero;
-using std::has_single_bit;
 using std::is_trivially_copyable_v;
 using std::max;
 using std::sin;
@@ -72,7 +70,7 @@ template<class T> static void bitrev(span<T> y) {
   const int p = countr_zero(uint64_t(n));
   const auto np = 64 - p;
   for (int64_t i = 0; i < n; i++) {
-    const int64_t j = __builtin_bitreverse64(i) >> np;
+    const int64_t j = bitreverse(uint64_t(i)) >> np;
     if (i < j)
       swap(y[i], y[j]);
   }
@@ -84,8 +82,8 @@ template<class T> static void reverses(span<T> y) {
   const int64_t n = y.size();
   if (n <= 2) return;
   const auto p = y.data();
-  reverses(span<T>(p, p + n/2));
-  reverses(span<T>(p + n/2, p + n));
+  reverses(span<T>(p, n/2));
+  reverses(span<T>(p + n/2, n/2));
   std::reverse(p + n/2, p + n);
 }
 template<class T> static void unreverses(span<T> y) {
@@ -93,8 +91,8 @@ template<class T> static void unreverses(span<T> y) {
   if (n <= 2) return;
   const auto p = y.data();
   std::reverse(p + n/2, p + n);
-  unreverses(span<T>(p, p + n/2));
-  unreverses(span<T>(p + n/2, p + n));
+  unreverses(span<T>(p, n/2));
+  unreverses(span<T>(p + n/2, n/2));
 }
 template<class T> static void shifted_permute(span<T> y) {
   bitrev(y);
@@ -119,8 +117,11 @@ template<class S> static void fft_bitrev(span<Complex<S>> y, span<const S> x) {
 
   // Copy from x to y, without bit reversing
   static_assert(is_trivially_copyable_v<S>);
-  memcpy(y.data(), x.data(), xn*sizeof(S));
-  memset(reinterpret_cast<S*>(y.data()) + xn, 0, (2*n-xn)*sizeof(S));
+  S* ys = reinterpret_cast<S*>(y.data());
+  for (int64_t i = 0; i < xn; i++)
+    ys[i] = x[i];
+  for (int64_t i = xn; i < 2*n; i++)
+    ys[i] = 0;
 
   // Cooley-Tukey FFT
   for (int s = p-1; s >= 0; s--) {
@@ -167,7 +168,9 @@ template<class S> static void ifft_bitrev(span<S> x, span<Complex<S>> y) {
 
   // Copy to output
   static_assert(is_trivially_copyable_v<S>);
-  memcpy(x.data(), y.data(), xn*sizeof(S));
+  const S* ys = reinterpret_cast<S*>(y.data());
+  for (int64_t i = 0; i < xn; i++)
+    x[i] = ys[i];
 }
 
 template<class S> void fft(span<Complex<S>> y, span<const S> x) {

@@ -4,13 +4,13 @@
 #include "known.h"
 #include "poly.h"
 #include "print.h"
+#include "span.h"
 #include "wall_time.h"
 namespace mandelbrot {
 
 using std::min;
 using std::max;
 using std::runtime_error;
-using std::span;
 
 // C = a*A - 2^(log2_b)*B
 void poly_linear_sub_si_2exp(Poly& C, slong a, const Poly& A, const slong log2_b, const Poly& B, slong prec) {

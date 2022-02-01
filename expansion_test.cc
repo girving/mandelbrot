@@ -1,8 +1,5 @@
 // Expansion tests
 
-// Allow rounding mode changes
-#pragma STDC FENV_ACCESS ON
-
 #include "expansion.h"
 #include "arb_cc.h"
 #include "arith.h"
@@ -21,6 +18,7 @@ namespace {
 
 using std::bernoulli_distribution;
 using std::function;
+using std::get;
 using std::max;
 using std::mt19937;
 using std::mt19937_64;
@@ -97,18 +95,12 @@ template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<
   return (bernoulli_distribution(0.5)(mt) ? x : -x) + random_expansion_with_exponent<n>(mt, e);
 }
 
-struct RoundingMode : public Noncopyable {
-  const int previous = fegetround();
-  RoundingMode(const int mode) { fesetround(mode); }
-  ~RoundingMode() { fesetround(previous); }
-};
-
 // Returns an upper bound for |x|
 template<int n> double bound(const Expansion<n> x) {
-  RoundingMode r(FE_UPWARD);
+  const auto inf = numeric_limits<double>::infinity();
   double b = 0;
   for (const auto a : x.x)
-    b += abs(a);
+    b = nextafter(b + abs(a), inf);  // Make sure we round up without bothering with rounding mode
   return b;
 }
 
@@ -253,7 +245,7 @@ template<int n> void sub_test() {
   binary_test<n>("-", std::minus<void>(), arb_sub, true, n == 2 ? 0 : 11, 0);
 }
 template<int n> void mul_test() {
-  binary_test<n>("*", std::multiplies<void>(), arb_mul, false, n == 2 ? 1 : 13, n == 2 ? 1 : 1);
+  binary_test<n>("*", std::multiplies<void>(), arb_mul, false, n == 2 ? 1 : 14, n == 2 ? 2 : 1);
 }
 template<int n> void div_test() {
   binary_test<n>("/", std::divides<void>(), arb_div, false, 0, 2);
