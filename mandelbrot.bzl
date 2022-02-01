@@ -3,7 +3,7 @@
 load("@local_cuda//:defs.bzl", "if_local_cuda")
 
 copts = ["-std=c++2a", "-Wall", "-Werror", "-Wsign-compare"]
-nvopts = ["-std=c++17", "-Wall", "-Werror=all-warnings", "-Wsign-compare"]
+nvopts = ["-arch=sm_80", "-std=c++17", "-Wall", "-Werror=all-warnings", "-Wsign-compare"]
 
 def cc_tests(names, deps, data=[], size="medium", copts=copts):
   deps = deps + ["@com_google_googletest//:gtest", "@com_google_googletest//:gtest_main"]

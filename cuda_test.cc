@@ -26,7 +26,7 @@ TEST(cuda, add) {
   auto dx = alloc<S>(n, s);
   auto dy = alloc<S>(n, s);
   cuda_check(cudaMemcpyAsync(dx.get(), x.data(), n*sizeof(S), cudaMemcpyHostToDevice, s));
-  cuda_check(cudaMemcpyAsync(dy.get(), x.data(), n*sizeof(S), cudaMemcpyHostToDevice, s));
+  cuda_check(cudaMemcpyAsync(dy.get(), y.data(), n*sizeof(S), cudaMemcpyHostToDevice, s));
 
   // Add on GPU
   add<<<1, 1, 0, s>>>(n, dx.get(), dy.get());
