@@ -31,9 +31,6 @@ using std::swap;
 template<class T> struct Series;
 template<class F> struct SeriesExp;
 
-// For approximate near zero assertions
-static inline bool near_zero(const double x) { return abs(x) < 1e-5; }
-
 template<class T> struct Series {
   static_assert(is_trivially_copyable_v<T>);
   static_assert(is_trivially_destructible_v<T>);
@@ -136,7 +133,7 @@ public:
     slow_assert(n <= known_);
     const auto nz = min(n, nonzero_);
     for (int64_t i = 0; i < nz; i++)
-      slow_assert(near_zero(x[i]), "x = %.3g, x[%d] = %.3g != 0", *this, i, x[i]);
+      slow_assert(bound(x[i]) < 1e-6, "x = %.3g, x[%d] = %.3g != 0", *this, i, x[i]);
   }
 
   // Output
