@@ -14,10 +14,11 @@ namespace mandelbrot {
 using std::min;
 using std::max;
 using std::runtime_error;
+using std::swap;
 
 // z = a*x - 2^(log2_b)*y
-SERIES_EXP(sub_si_2exp, z, (class A,class B), (a,x,b,y),
-          (const int64_t a, const Series<A>& x, const int b, const Series<B>& y)) {
+SERIES_EXP(sub_si_2exp, z, (class SA,class SB), (a,x,b,y), (a,x=x.view(),b,y=y.view()),
+          (const int64_t a, const SA& x, const int b, const SB& y)) {
   const auto nk = min(x.known(), y.known());
   const auto nz = min(nk, max(x.nonzero(), y.nonzero()));
   const auto both = min(x.nonzero(), y.nonzero());
@@ -35,7 +36,7 @@ SERIES_EXP(sub_si_2exp, z, (class A,class B), (a,x,b,y),
 
 // h = log escape(k, z*e^-g)^(2^-k) in mandelbrot-area-cupy.ipynb notation
 template<class S> void escape(Series<S>& h, Series<S>& dh, const int k,
-                              const Series<const S>& g, const Series<const S>& dg,
+                              SeriesView<const S> g, SeriesView<const S> dg,
                               const int64_t n, const int64_t dn) {
   // Base case
   h.set_scalar(n, 0);
@@ -64,7 +65,7 @@ template<class S> void escape(Series<S>& h, Series<S>& dh, const int k,
 
 // escape(k, g) + g
 template<class S> void implicit(Series<S>& F, Series<S>& dF, const int k,
-                                const Series<const S>& g, const Series<const S>& dg,
+                                SeriesView<const S> g, SeriesView<const S> dg,
                                 const int64_t n, const int64_t dn) {
   escape(F, dF, k, g, dg, n, dn);
   F += g;

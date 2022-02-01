@@ -21,7 +21,7 @@ Series<double> approx(const Poly& x, const int64_t n) {
   return y;
 }
 
-double error(const Series<const double>& x, const Series<const double>& y, const bool relative = false) {
+double error(SeriesView<const double> x, SeriesView<const double> y, const bool relative = false) {
   if (x.known() != y.known())
     return numeric_limits<double>::infinity();
   double e = 0;
@@ -42,10 +42,10 @@ double error(const Series<const double>& x, const Series<const double>& y, const
   }
   return e;
 }
-double error(const Series<const double>& x, initializer_list<double>&& ys, const bool relative = false) {
-  return error(x, Series<const double>(move(ys)), relative);
+double error(SeriesView<const double> x, initializer_list<double>&& ys, const bool relative = false) {
+  return error(x, Series<double>(move(ys)), relative);
 }
-double error(const Series<const double>& x, const Poly& y, const bool relative = false) {
+double error(SeriesView<const double> x, const Poly& y, const bool relative = false) {
   if (x.known() < y.length())
     return numeric_limits<double>::infinity();
   return error(x, approx(y, x.known()), relative);
@@ -138,7 +138,7 @@ TEST(series, alias) {
   Series<double> x(2), y(2);
   x.set_counts(2, 2);
   y.set_counts(2, 2);
-  Series<double> t(x);
+  SeriesView<double> t(x);
   const auto lo = x.low(1);
   const auto hi = x.high(1);
   ASSERT_FALSE(x.alias(y));
