@@ -5,6 +5,7 @@ package(default_visibility = ["//visibility:public"])
 licenses(["notice"])  # LGPL
 
 headers = [
+    "flint/config.h",
     "flint/flint.h",
     "flint/flint-config.h",
     "flint/d_mat.h",
@@ -49,7 +50,12 @@ genrule(
             "  src=/usr/include/x86_64-linux-gnu",
             "fi",
             "for h in $(OUTS); do",
-            "  ln -s $src/flint/$$(basename $h) $$h",
+            "  s=$$src/flint/$$(basename $$h)",
+            "  if [ -e $$s ]; then",
+            "    ln -s $$src/flint/$$(basename $$h) $$h",
+            "  else",
+            "    touch $$h",
+            "  fi",
             "done",
         ]),
     }),

@@ -32,7 +32,7 @@ genrule(
             "  src=/usr/include/x86_64-linux-gnu",
             "fi",
             "for h in $(OUTS); do",
-            "  ln -s $src/$$(basename $h) $$h",
+            "  ln -s $$src/$$(basename $$h) $$h",
             "done",
         ]),
     }),
@@ -53,10 +53,10 @@ genrule(
     cmd = select({
         "@bazel_tools//src/conditions:darwin": "touch $(OUTS)",
         "//conditions:default": "\n".join([
-            "if [ -e /usr/lib/libarb.so ]; then",
-            "  ln -s /usr/lib/libarb.so $(OUTS)",
-            "elif [ -e /usr/lib/x86_64-linux-gnu/libarb.so ]; then",
-            "  ln -s /usr/lib/x86_64-linux-gnu/libarb.so $(OUTS)",
+            "if [ -e /usr/lib/libflint-arb.so ]; then",
+            "  ln -s /usr/lib/libflint-arb.so $(OUTS)",
+            "elif [ -e /usr/lib/x86_64-linux-gnu/libflint-arb.so ]; then",
+            "  ln -s /usr/lib/x86_64-linux-gnu/libflint-arb.so $(OUTS)",
             "fi",
         ]),
     }),

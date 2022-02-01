@@ -24,4 +24,4 @@ To install `bazel` and `arb`:
 
     # On Linux
     # Install bazel via https://docs.bazel.build/versions/main/install-ubuntu.html
-    sudo apt-get install libflint-arb-dev
+    sudo apt-get install libmpfr-dev libflint-dev libflint-arb-dev

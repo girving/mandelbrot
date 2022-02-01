@@ -1,6 +1,9 @@
 package(default_visibility = ["//visibility:public"])
 load("//:mandelbrot.bzl", "cc_tests")
+load("//:mandelbrot.bzl", "cuda_tests")
 load("//:mandelbrot.bzl", "copts")
+load("//:mandelbrot.bzl", "nvopts")
+load("@rules_cuda//cuda:defs.bzl", "cuda_library")
 
 cc_library(
     name = "known",
@@ -28,6 +31,18 @@ cc_library(
     copts = copts,
     deps = [
         "@tinyformat//:tinyformat",
+    ],
+)
+
+cuda_library(
+    name = "cuda",
+    srcs = [
+        "cuda.h",
+        "cuda.cc",
+    ],
+    copts = nvopts,
+    deps = [
+        ":base",
     ],
 )
 
@@ -153,4 +168,9 @@ cc_tests(
 cc_tests(
     names = ["fft_test"],
     deps = [":area"],
+)
+
+cuda_tests(
+    names = ["cuda_test"],
+    deps = [":cuda"],
 )
