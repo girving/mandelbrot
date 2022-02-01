@@ -40,7 +40,12 @@ genrule(
     cmd = select({
         "@bazel_tools//src/conditions:darwin": "\n".join([
             "for h in $(OUTS); do",
-            "  ln -s `brew --prefix`/include/flint/$$(basename $$h) $$h",
+            "  s=`brew --prefix`/include/flint/$$(basename $$h)",
+            "  if [ -e $$s ]; then",
+            "    ln -s `brew --prefix`/include/flint/$$(basename $$h) $$h",
+            "  else",
+            "    echo nonexistent > $$s",
+            "  fi",
             "done",
         ]),
         "//conditions:default": "\n".join([
