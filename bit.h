@@ -13,6 +13,7 @@ using std::is_unsigned_v;
 #include <bit>
 namespace mandelbrot {
 using std::bit_ceil;
+using std::countl_zero;
 using std::countr_zero;
 using std::has_single_bit;
 }  // namespace mandelbrot
