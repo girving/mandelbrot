@@ -385,7 +385,7 @@ int main(int argc, char** argv) {
   try {
     const vector<string> paths(argv + 1, argv + argc);
     for (const auto& path : paths) {
-      if (endswith(path, "expansion.h"))
+      if (endswith(path, "gen-expansion.h"))
         expansion_arithmetic(path);
       else
         die("Unmatched path '%s'", path);

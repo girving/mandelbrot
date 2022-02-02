@@ -5,7 +5,7 @@
 #include "arb_cc.h"
 #include "debug.h"
 #include "print.h"
-#include "gtest/gtest.h"
+#include "tests.h"
 #include <cmath>
 #include <complex>
 #include <random>
@@ -19,7 +19,7 @@ using std::uniform_int_distribution;
 using std::uniform_real_distribution;
 using std::vector;
 
-TEST(fft, fft) {
+TEST(fft) {
   mt19937 rand(7);
   uniform_real_distribution<double> uniform(-1, 1);
   for (int p = -1; p <= 15; p++) {
@@ -68,7 +68,7 @@ TEST(fft, fft) {
   }
 }
 
-TEST(fft, rfft) {
+TEST(rfft) {
   mt19937 rand(7);
   uniform_real_distribution<double> uniform(-1, 1);
   for (int p = -1; p <= 15; p++) {
@@ -120,7 +120,7 @@ TEST(fft, rfft) {
   }
 }
 
-TEST(fft, srfft) {
+TEST(srfft) {
   mt19937 rand(7);
   uniform_real_distribution<double> uniform(-1, 1);
   for (int p = -1; p <= 15; p++) {

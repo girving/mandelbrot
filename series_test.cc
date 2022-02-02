@@ -3,14 +3,12 @@
 #include "series.h"
 #include "poly.h"
 #include "rand.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "tests.h"
 namespace mandelbrot {
 namespace {
 
 using std::numeric_limits;
 using std::runtime_error;
-using testing::ElementsAre;
 
 Series<double> approx(const Poly& x, const int64_t n) {
   slow_assert(n >= x.length());
@@ -58,19 +56,23 @@ void poly_rand(Poly& x, Rand& random, const int64_t n) {
   poly_mid(x, x);
 }
 
-#define ASSERT_EXACT(x, ...) ASSERT_THAT(x, ElementsAre(__VA_ARGS__))
 #define ASSERT_CLOSE(x, ...) { \
   const auto e = error(x, {__VA_ARGS__}); \
   ASSERT_LT(e, 3e-14) << format("e %g, x %g", e, x); }
 
-TEST(series, construct) {
+#define ASSERT_EXACT(x, ...) { \
+  const Series<double> _y({__VA_ARGS__}); \
+  const auto e = error(x, _y); \
+  ASSERT_EQ(e, 0) << format("e %g, x %g != %g (x.known %d)", e, x, _y, x.known()); }
+
+TEST(construct) {
   Series<double> x(5);
   ASSERT_EQ(x.known(), 0);
   ASSERT_EQ(x.nonzero(), 0);
   ASSERT_EQ(x.limit(), 5);
 }
 
-TEST(series, initializer_list) {
+TEST(initializer_list) {
   Series<double> x(3, {5, 7});
   ASSERT_EQ(x.limit(), 3);
   ASSERT_EQ(x.known(), 2);
@@ -81,7 +83,7 @@ TEST(series, initializer_list) {
   ASSERT_THROW(Series<double> y(2, {1, 2, 3}), runtime_error);
 }
 
-TEST(series, move_construct) {
+TEST(move_construct) {
   Series<double> x(5);
   x.set_scalar(1, 7);
   Series<double> y(move(x));
@@ -92,7 +94,7 @@ TEST(series, move_construct) {
   ASSERT_EQ(y[0], 7);
 }
 
-TEST(series, clear) {
+TEST(clear) {
   Series<double> x(5);
   x.set_scalar(1, 7);
   x.clear();
@@ -101,7 +103,7 @@ TEST(series, clear) {
   ASSERT_EQ(x.limit(), 0);
 }
 
-TEST(series, assign_int) {
+TEST(assign_int) {
   Series<double> x(2);
   x.set_scalar(1, 7);
   ASSERT_EQ(x.known(), 1);
@@ -110,10 +112,10 @@ TEST(series, assign_int) {
   x.set_scalar(2, 3);
   ASSERT_EQ(x.known(), 2);
   ASSERT_EQ(x.nonzero(), 1);
-  ASSERT_EXACT(x, 3);
+  ASSERT_EXACT(x, 3, 0);
 }
 
-TEST(series, assign_double) {
+TEST(assign_double) {
   Series<double> x(2);
   x.set_scalar(1, 7.5);
   ASSERT_EQ(x.known(), 1);
@@ -122,10 +124,10 @@ TEST(series, assign_double) {
   x.set_scalar(2, 3);
   ASSERT_EQ(x.known(), 2);
   ASSERT_EQ(x.nonzero(), 1);
-  ASSERT_EXACT(x, 3);
+  ASSERT_EXACT(x, 3, 0);
 }
 
-TEST(series, assign_series) {
+TEST(assign_series) {
   Series<double> x(2, {7, 13});
   Series<double> y(2);
   ASSERT_EQ(y.known(), 0);
@@ -134,7 +136,7 @@ TEST(series, assign_series) {
   ASSERT_EXACT(y, 7, 13);
 }
 
-TEST(series, alias) {
+TEST(alias) {
   Series<double> x(2), y(2);
   x.set_counts(2, 2);
   y.set_counts(2, 2);
@@ -148,7 +150,7 @@ TEST(series, alias) {
   ASSERT_TRUE(x.alias(hi));
 }
 
-TEST(series, assert_low_near_zero) {
+TEST(assert_low_near_zero) {
   Series<double> x(3);
   x.set_counts(3, 3);
   x[0] = x[1] = 0;
@@ -160,7 +162,7 @@ TEST(series, assert_low_near_zero) {
   ASSERT_THROW(x.assert_low_near_zero(2), runtime_error);
 }
 
-TEST(series, print) {
+TEST(print) {
   Series<double> x(2);
   ASSERT_EQ(format("%g", x), "[]");
   x.set_scalar(1, 7);
@@ -169,7 +171,7 @@ TEST(series, print) {
   ASSERT_EQ(format("%g", x), "[7, 4.5]");
 }
 
-TEST(series, set_known) {
+TEST(set_known) {
   Series<double> x(2);
 
   // Extending past limit is fine, since we fill in symbolic zeros
@@ -190,14 +192,14 @@ TEST(series, set_known) {
   x.set_known(7);
   ASSERT_EQ(x.known(), 7);
   ASSERT_EQ(x.nonzero(), 1);
-  ASSERT_EXACT(x, 7);
+  ASSERT_EXACT(x, 7, 0, 0, 0, 0, 0, 0);
   x.set_known(4);
   ASSERT_EQ(x.known(), 4);
   ASSERT_EQ(x.nonzero(), 1);
-  ASSERT_EXACT(x, 7);
+  ASSERT_EXACT(x, 7, 0, 0, 0);
 }
 
-TEST(series, low_high) {
+TEST(low_high) {
   Series<double> x(3, {3, 7, 13});
   ASSERT_EXACT(x, 3, 7, 13);
   ASSERT_EXACT(x.low(-1));
@@ -222,7 +224,7 @@ TEST(series, low_high) {
   ASSERT_EQ(hi[1], 37);
 }
 
-TEST(series, add_scalar) {
+TEST(add_scalar) {
   Series<double> x(2);
   x.set_counts(2, 2);
   x[0] = 0;
@@ -237,10 +239,10 @@ TEST(series, add_scalar) {
   ASSERT_EXACT(x, 7.25, 3);
 }
 
-TEST(series, add_series) {
+TEST(add_series) {
   Series<double> x(2), y(2, {3, 5});
   x.set_known(2);
-  ASSERT_EXACT(x);
+  ASSERT_EXACT(x, 0, 0);
   x += y;
   ASSERT_EXACT(x, 3, 5);
   x += y;
@@ -284,7 +286,7 @@ TEST(series, add_series) {
   }
 }
 
-TEST(series, mul) {
+TEST(mul) {
   // Small n
   Series<double> x(3, {3, 5, 7}), y(3, {2, 3, 4});
   Series<double> small, z(3);
@@ -331,7 +333,7 @@ TEST(series, mul) {
   }
 }
 
-TEST(series, sqr) {
+TEST(sqr) {
   // Small n
   Series<double> x(3, {2, 3, 4});
   { Series<double> small; ASSERT_THROW(small = sqr(x), runtime_error); }
@@ -366,7 +368,7 @@ TEST(series, sqr) {
   }
 }
 
-TEST(series, newton_steps) {
+TEST(newton_steps) {
   const auto slow_steps = [](const int64_t n0, int64_t n) {
     int steps = 0;
     while (n0 < n) {
@@ -384,7 +386,7 @@ TEST(series, newton_steps) {
   }
 }
 
-TEST(series, inv) {
+TEST(inv) {
   // Small n
   Series<double> x(3, {2, 3, 4});
   ASSERT_THROW(x = inv(x), runtime_error);
@@ -407,7 +409,7 @@ TEST(series, inv) {
   }
 }
 
-TEST(series, div) {
+TEST(div) {
   Rand random;
   Poly az, ax, ay;
   for (const int n : {0, 1, 2, 3, 5, 11, 16, 23}) {
@@ -424,7 +426,7 @@ TEST(series, div) {
   }
 }
 
-TEST(series, mul1p) {
+TEST(mul1p) {
   Rand random;
   Poly az, ax, ay, t;
   for (const int s : {1, 2, 3}) {
@@ -454,7 +456,7 @@ TEST(series, mul1p) {
   }
 }
 
-TEST(series, inv1p) {
+TEST(inv1p) {
   Rand random;
   Poly ay, ax, t;
   for (const int s : {1, 2, 3}) {
@@ -473,7 +475,7 @@ TEST(series, inv1p) {
   }
 }
 
-TEST(series, div1p) {
+TEST(div1p) {
   Rand random;
   Poly az, ax, ay, t;
   for (const int s : {1, 2, 3}) {
@@ -492,7 +494,7 @@ TEST(series, div1p) {
   }
 }
 
-TEST(series, log) {
+TEST(log) {
   Rand random;
   Poly ay, ax;
   for (const int n : {0, 1, 2, 3, 4, 5, 11, 16, 23}) {
@@ -506,7 +508,7 @@ TEST(series, log) {
   }
 }
 
-TEST(series, log1p) {
+TEST(log1p) {
   Rand random;
   Poly ay, ax, t;
   for (const int s : {1, 2, 3}) {
@@ -524,7 +526,7 @@ TEST(series, log1p) {
   }
 }
 
-TEST(series, derivative_shift) {
+TEST(derivative_shift) {
   Rand random;
   Poly ay, ax;
   for (const int s : {0, 1, 2, 3}) {
@@ -545,7 +547,7 @@ TEST(series, derivative_shift) {
   }
 }
 
-TEST(series, integral_shift) {
+TEST(integral_shift) {
   Rand random;
   Poly ay, ax;
   for (const int s : {0, 1, 2, 3}) {
@@ -566,7 +568,7 @@ TEST(series, integral_shift) {
   }
 }
 
-TEST(series, exp) {
+TEST(exp) {
   Rand random;
   Poly ay, ax;
   for (const int n : {0, 1, 2, 3, 4, 5, 11, 16, 23}) {
@@ -580,7 +582,7 @@ TEST(series, exp) {
   }
 }
 
-TEST(series, expm1) {
+TEST(expm1) {
   Rand random;
   Poly ay, ax, t;
   for (const int s : {1, 2, 3}) {
@@ -601,7 +603,7 @@ TEST(series, expm1) {
   }
 }
 
-TEST(series, log1p_exp) {
+TEST(log1p_exp) {
   Rand random;
   Poly ay, ax, t;
   for (const int s : {1, 2, 3}) {
@@ -621,7 +623,7 @@ TEST(series, log1p_exp) {
   }
 }
 
-TEST(series, ldexp) {
+TEST(ldexp) {
   Series<double> x(3, {3, 5, 7}), y(3);
   y = ldexp(x, 3); ASSERT_EXACT(y, 3<<3, 5<<3, 7<<3);
   y = ldexp(x, -1); ASSERT_EXACT(y, 1.5, 2.5, 3.5);

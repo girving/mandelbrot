@@ -1,7 +1,8 @@
 // CUDA tests
 
-#include "cuda.h"
-#include "gtest/gtest.h"
+#include "cutil.h"
+#include "tests.h"
+#include <cuda.h>
 namespace mandelbrot {
 namespace {
 
@@ -10,7 +11,7 @@ template<class S> __global__ void add(const int64_t n, S* x, S* y) {
     y[i] = x[i] + y[i];
 }
 
-TEST(cuda, add) {
+TEST(add) {
   const int64_t n = 1<<20;
   typedef float S;
   vector<S> x(n), y(n);  // CPU memory
@@ -22,20 +23,20 @@ TEST(cuda, add) {
   }
   
   // Copy to GPU
-  const Stream s;
-  auto dx = alloc<S>(n, s);
-  auto dy = alloc<S>(n, s);
-  cuda_check(cudaMemcpyAsync(dx.get(), x.data(), n*sizeof(S), cudaMemcpyHostToDevice, s));
-  cuda_check(cudaMemcpyAsync(dy.get(), y.data(), n*sizeof(S), cudaMemcpyHostToDevice, s));
+  const auto s = stream();
+  auto dx = alloc<S>(n);
+  auto dy = alloc<S>(n);
+  host_to_device<S>(dx, x);
+  host_to_device<S>(dy, y);
 
   // Add on GPU
-  add<<<1, 1, 0, s>>>(n, dx.get(), dy.get());
-  dx.reset();
+  add<<<1, 1, 0, s>>>(n, device_get(dx), device_get(dy));
+  dx.clear();
 
   // Copy back, then wait for stream to synchronize
-  cuda_check(cudaMemcpyAsync(y.data(), dy.get(), n*sizeof(S), cudaMemcpyDeviceToHost, s));
-  dy.reset();
-  s.sync();
+  device_to_host<S>(y, dy);
+  dy.clear();
+  cuda_sync();
   
   // Verify results
   for (int64_t i = 0; i < n; i++)

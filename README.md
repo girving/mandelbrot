@@ -17,11 +17,13 @@ Here we try to compute more terms.
 
 ## Dependencies
 
-To install `bazel` and `arb`:
+To install `meson` and `arb`:
 
     # On Mac
-    brew install bazel arb
+    brew install meson arb
 
     # On Linux
-    # Install bazel via https://docs.bazel.build/versions/main/install-ubuntu.html
+    sudo apt-get install clang-14 libc++-14-dev libc++abi-14-dev  # Need libc++-14 for std::format
+    sudo apt-get install python3 python3-pip python3-setuptools python3-wheel ninja-build  # Meson deps
     sudo apt-get install libmpfr-dev libflint-dev libflint-arb-dev
+    pip3 install --user meson

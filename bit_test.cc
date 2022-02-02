@@ -2,7 +2,7 @@
 
 #include "bit.h"
 #include "print.h"
-#include "gtest/gtest.h"
+#include "tests.h"
 #include <random>
 namespace mandelbrot {
 namespace {
@@ -11,7 +11,7 @@ using std::mt19937;
 using std::mt19937_64;
 using std::remove_reference_t;
 
-TEST(bit, countl_zero) {
+TEST(countl_zero) {
   const auto test = [](const auto zero) {
     typedef decltype(zero) I;
     const int bits = 8 * sizeof(zero);
@@ -24,7 +24,7 @@ TEST(bit, countl_zero) {
   test(uint64_t(0));
 }
 
-TEST(bit, countr_zero) {
+TEST(countr_zero) {
   const auto test = [](const auto zero) {
     typedef decltype(zero) I;
     const int bits = 8 * sizeof(zero);
@@ -37,11 +37,11 @@ TEST(bit, countr_zero) {
   test(uint64_t(0));
 }
 
-TEST(bit, bit_ceil) {
+TEST(bit_ceil) {
   const auto test = [](const auto zero) {
     typedef decltype(zero) I;
     const int bits = 8 * sizeof(zero);
-    ASSERT_EQ(bit_ceil(I(0)), 1);
+    ASSERT_EQ(bit_ceil(I(0)), I(1));
     for (int i = 0; i < bits; i++) {
       ASSERT_EQ(bit_ceil(I(1) << i), I(1) << i)
           << format("i %d, 1<<i %d, bit_ceil %d", i, I(1) << i, bit_ceil(I(1) << i));
@@ -55,7 +55,7 @@ TEST(bit, bit_ceil) {
   test(uint64_t(0));
 }
 
-TEST(bit, byteswap) {
+TEST(byteswap) {
   mt19937_64 mt(7);
   const auto test = [&mt](auto zero) {
     typedef decltype(zero) I;
@@ -75,7 +75,7 @@ TEST(bit, byteswap) {
   test(uint64_t(0));
 }
 
-TEST(bit, bitreverse) {
+TEST(bitreverse) {
   mt19937_64 mt(7);
   const auto test = [&mt](auto zero) {
     typedef decltype(zero) I;

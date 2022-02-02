@@ -8,8 +8,7 @@
 #include "noncopyable.h"
 #include "print.h"
 #include "rand.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "tests.h"
 #include <fenv.h>
 #include <functional>
 #include <random>
@@ -44,7 +43,7 @@ double ulp(const double x) {
 
 // Verify Figure 2.6 of Muller et al., Handbook of floating point arithmetic
 //   https://doc.lagout.org/science/0_Computer Science/3_Theory/Handbook of Floating Point Arithmetic.pdf
-TEST(expansion, ulp) {
+TEST(ulp) {
   const int p = 52 + 1;
   const double u = pow(2, -p);
   ASSERT_EQ(ulp(0.7), u);
@@ -287,19 +286,19 @@ template<int n> void equal_test() {
 }
 
 #define TESTS(n) \
-  TEST(expansion, random_expansion##n) { random_expansion_test<n>(); } \
-  TEST(expansion, convert##n) { convert_test<n>(); } \
-  TEST(expansion, convert_int##n##_32) { convert_int_test<n,int32_t>(); } \
-  TEST(expansion, convert_int##n##_64) { convert_int_test<n,int64_t>(); } \
-  TEST(expansion, neg##n) { neg_test<n>(); } \
-  TEST(expansion, abs##n) { abs_test<n>(); } \
-  TEST(expansion, ldexp##n) { ldexp_test<n>(); } \
-  TEST(expansion, add##n) { add_test<n>(); } \
-  TEST(expansion, sub##n) { sub_test<n>(); } \
-  TEST(expansion, mul##n) { mul_test<n>(); } \
-  TEST(expansion, equal##n) { equal_test<n>(); } \
-  TEST(expansion, inv##n) { inv_test<n>(); } \
-  TEST(expansion, div##n) { div_test<n>(); }
+  TEST(random_expansion##n) { random_expansion_test<n>(); } \
+  TEST(convert##n) { convert_test<n>(); } \
+  TEST(convert_int##n##_32) { convert_int_test<n,int32_t>(); } \
+  TEST(convert_int##n##_64) { convert_int_test<n,int64_t>(); } \
+  TEST(neg##n) { neg_test<n>(); } \
+  TEST(abs##n) { abs_test<n>(); } \
+  TEST(ldexp##n) { ldexp_test<n>(); } \
+  TEST(add##n) { add_test<n>(); } \
+  TEST(sub##n) { sub_test<n>(); } \
+  TEST(mul##n) { mul_test<n>(); } \
+  TEST(equal##n) { equal_test<n>(); } \
+  TEST(inv##n) { inv_test<n>(); } \
+  TEST(div##n) { div_test<n>(); }
 TESTS(2)
 TESTS(3)
 

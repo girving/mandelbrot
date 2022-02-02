@@ -1,0 +1,2 @@
+# Always use clang, since clang 12+ can do CUDA
+build --repo_env=CC=clang

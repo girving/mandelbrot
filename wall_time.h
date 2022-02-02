@@ -12,6 +12,7 @@ struct wall_time_t {
   explicit wall_time_t(int64_t us) : us(us) {}
 
   double seconds() const { return 1e-6*us; }
+  double milliseconds() const { return 1e-3*us; }
 
   wall_time_t& operator+=(wall_time_t t) { us += t.us; return *this; }
   wall_time_t& operator-=(wall_time_t t) { us -= t.us; return *this; }

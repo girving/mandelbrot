@@ -2,13 +2,13 @@
 
 #include "poly.h"
 #include "rand.h"
-#include "gtest/gtest.h"
+#include "tests.h"
 namespace mandelbrot {
 namespace {
 
 using std::max;
 
-TEST(poly, log_refine) {
+TEST(log_refine) {
   const int prec = 200, mag_bits = 5;
   const bool verbose = false;
   Rand random;
@@ -28,7 +28,7 @@ TEST(poly, log_refine) {
   }
 }
 
-TEST(poly, log1p_shift_refine) {
+TEST(log1p_shift_refine) {
   const int prec = 200, mag_bits = 5;
   const bool verbose = false;
   Rand random;
@@ -52,7 +52,7 @@ TEST(poly, log1p_shift_refine) {
   }
 }
 
-TEST(poly, expm1_shift_refine) {
+TEST(expm1_shift_refine) {
   const int prec = 200, mag_bits = 5;
   const bool verbose = false;
   Rand random;
@@ -80,7 +80,7 @@ TEST(poly, expm1_shift_refine) {
   }
 }
 
-TEST(poly, log1p_exp_shift_refine) {
+TEST(log1p_exp_shift_refine) {
   const int prec = 200, mag_bits = 5;
   const bool verbose = false;
   Rand random;
@@ -103,7 +103,7 @@ TEST(poly, log1p_exp_shift_refine) {
   }
 }
 
-TEST(poly, addsub_shift_series) {
+TEST(addsub_shift_series) {
   const int prec = 200, mag_bits = 5;
   Rand random;
   Poly f, g, fast0, fast1, fast2, fast3, slow, slow3;
