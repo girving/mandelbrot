@@ -35,4 +35,14 @@ void cuda_sync() {
   cuda_check(cudaStreamSynchronize(stream()));
 }
 
+int num_sms() {
+  static const int num_sms = []() {
+    const int device = 0;  // This will need to change if we go multi-device
+    int num_sms;
+    cuda_check(cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device));
+    return num_sms;
+  }();
+  return num_sms;
+}
+
 }  // namespace mandelbrot

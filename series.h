@@ -3,6 +3,7 @@
 
 #include "arith.h"
 #include "bit.h"
+#include "cutil.h"
 #include "debug.h"
 #include "fft.h"
 #include "is_interval.h"
@@ -17,8 +18,11 @@ namespace mandelbrot {
 
 using std::add_const_t;
 using std::conditional_t;
+using std::enable_if_t;
 using std::initializer_list;
 using std::is_const_v;
+using std::is_constructible_v;
+using std::is_convertible_v;
 using std::is_trivially_copyable_v;
 using std::is_trivially_destructible_v;
 using std::ldexp;
@@ -29,7 +33,9 @@ using std::numeric_limits;
 using std::ostream;
 using std::remove_const_t;
 using std::swap;
+using std::type_identity_t;
 using std::unique_ptr;
+struct Poly;
 
 template<class T, bool view = false> struct Series;
 template<class T, bool view> struct SeriesBase;
@@ -39,45 +45,57 @@ template<class F> struct SeriesExp;
 struct FreeDeleter { template<class T> void operator()(T* p) const { free(p); } };
 
 template<class T> struct SeriesBase<T,false> : public Noncopyable {
+  typedef T* Data;
 protected:
   typedef unique_ptr<T[],FreeDeleter> P;
-  int64_t limit_;  // Allocated terms
+  int64_t size_;  // Allocated terms
   P x;
 public:
 
-  SeriesBase() : limit_(0) {}
-  SeriesBase(int64_t limit)
-    : limit_(relu(limit)), x(limit_ ? static_cast<T*>(malloc(limit_ * sizeof(T))) : 0) {}
-  SeriesBase(SeriesBase&& g) : limit_(g.limit_), x(move(g.x)) { g.limit_ = 0; }
+  SeriesBase() : size_(0) {}
+  SeriesBase(int64_t size)
+    : size_(relu(size)), x(size_ ? static_cast<T*>(malloc(size_ * sizeof(T))) : 0) {}
+  SeriesBase(SeriesBase&& g) : size_(g.size_), x(move(g.x)) { g.size_ = 0; }
 
   T* data() const { return x.get(); }
-  void swap(SeriesBase& g) { x.swap(g.x); std::swap(limit_, g.limit_); }
-  void clear() { limit_ = 0; x.reset(); }
+  void swap(SeriesBase& g) { x.swap(g.x); std::swap(size_, g.size_); }
+  void clear() { size_ = 0; x.reset(); }
 };
 
 template<class T> struct SeriesBase<T,true> {
+  typedef T* Data;
+private:
+  struct Unusable {};
 protected:
   T* x;
 public:
 
   SeriesBase() : x(0) {}
   SeriesBase(const SeriesBase& g) = default;
-  template<class A,bool v> SeriesBase(const SeriesBase<A,v>& g) : x{g.data()} {}
+  template<class A,bool v> SeriesBase(
+      const SeriesBase<A,v>& g,
+      enable_if_t<is_convertible_v<typename SeriesBase<A,v>::Data,T*>,Unusable> u = Unusable())
+    : x{g.data()} {}
   SeriesBase(SeriesBase&& g) : x(g.x) { g.x = 0; }
 
   T* data() const { return x; }
   void clear() { x = 0; }
 };
 
+template<class T> struct SeriesBase<Device<T>,false> : public DeviceArray<T> {
+  using DeviceArray<T>::DeviceArray;
+};
+
 template<class T, bool view_> struct Series : public SeriesBase<T,view_> {
   static_assert(is_trivially_copyable_v<T>);
   static_assert(is_trivially_destructible_v<T>);
-  typedef remove_const_t<T> Scalar;
+  typedef Undevice<remove_const_t<T>> Scalar;
   typedef Scalar value_type;
   typedef SeriesBase<T,view_> Base;
   using Base::data;
 private:
   typedef Scalar S;
+  typedef add_const_t<T> CT;
   using Base::x;
 
   int64_t known_;  // Known terms
@@ -92,14 +110,17 @@ public:
   Series(const Series&) = default;
   Series(int64_t limit, initializer_list<S>&& cs)
     : Series(limit) {
-    slow_assert(cs.size() <= size_t(Base::limit_));
+    slow_assert(cs.size() <= size_t(Base::size_));
     known_ = nonzero_ = cs.size();
     int64_t i = 0;
     for (const auto& c : cs)
       x[i++] = c;
   }
   Series(initializer_list<S>&& cs) : Series(cs.size(), move(cs)) {}
-  template<class U,bool r> Series(const Series<U,r>& g) : Base(g), known_(g.known_), nonzero_(g.nonzero_) {}
+  template<class U,bool r> Series(
+      const Series<U,r>& g,
+      enable_if_t<is_constructible_v<Base,const typename Series<U,r>::Base&>,Unusable> u = Unusable())
+    : Base(g), known_(g.known_), nonzero_(g.nonzero_) {}
   Series(Series&& g) : Base(move(static_cast<Base&>(g))), known_(g.known_), nonzero_(g.nonzero_) {
     g.known_ = g.nonzero_ = 0;
   }
@@ -107,25 +128,31 @@ public:
   void clear() { Base::clear(); known_ = nonzero_ = 0; }
 
   // Assignment
-  template<class A> void set_scalar(int64_t known, const A& a) {
+  void set_scalar(int64_t known, const S a) {
     known = relu(known);
     slow_assert(limit() >= (known > 0));
     known_ = known;
     nonzero_ = known > 0;
-    if (known_)
-      x[0] = a;
+    if (known_) {
+      // One slow write
+      if constexpr (is_device<T>) host_to_device(std::span<Device<S>>(data(), 1), std::span<const S>(&a, 1));
+      else x[0] = a;
+    }
   }
+  void set_scalar(int64_t known, const int a) { set_scalar(known, S(a)); }
   void operator=(const Series& g) {
     slow_assert(limit() >= g.nonzero_);
     known_ = g.known_;
     nonzero_ = g.nonzero_;
-    memcpy(data(), g.data(), nonzero_ * sizeof(S));
+    if constexpr (is_device<T>) device_to_device(span(), g.span());
+    else memcpy(data(), g.data(), nonzero_ * sizeof(S));
   }
-  void operator=(conditional_t<is_const_v<T> && view_,Unusable,SeriesView<const S>> g) {
+  void operator=(conditional_t<is_const_v<T> && view_,Unusable,SeriesView<CT>> g) {
     slow_assert(limit() >= g.nonzero_);
     known_ = g.known_;
     nonzero_ = g.nonzero_;
-    memcpy(data(), g.data(), nonzero_ * sizeof(S));
+    if constexpr (is_device<T>) device_to_device(span(), g.span());
+    else memcpy(data(), g.data(), nonzero_ * sizeof(S));
   }
   template<class F> void operator=(SeriesExp<F>&& e) { e.set(*this); }
   void swap(Series& g) {
@@ -141,12 +168,12 @@ public:
   // Information
   int64_t known() const { return known_; }
   int64_t nonzero() const { return nonzero_; }
-  int64_t limit() const { if constexpr (view_) return nonzero_; else return Base::limit_; }
+  int64_t limit() const { if constexpr (view_) return nonzero_; else return Base::size_; }
   bool valid(const int64_t i) const { return (uint64_t)i < (uint64_t)nonzero_; }
   T& operator[](const int64_t n) const { assert(valid(n)); return data()[n]; }
-  bool alias(SeriesView<const S> f) const {
+  bool alias(SeriesView<CT> f) const {
     static_assert(!view_);
-    return x.get() <= f.x && f.x < x.get() + Base::limit_;
+    return x.get() <= f.x && f.x < x.get() + Base::size_;
   }
 
   // Iteration
@@ -165,7 +192,7 @@ public:
   }
 
   // Output
-  friend ostream& operator<<(ostream& out, const Series& f) { return out << f.span(); }
+  friend ostream& operator<<(ostream& out, const Series& f) { static_assert(!is_device<T>); return out << f.span(); }
 
   // Change the number of terms in place
   void set_unknown() { known_ = nonzero_ = 0; }
@@ -181,8 +208,8 @@ public:
   }
 
   // Non-aliasing copy
-  Series<S> copy(const int64_t limit) const {
-    Series<S> g(limit);
+  Series<remove_const_t<T>> copy(const int64_t limit) const {
+    Series<remove_const_t<T>> g(limit);
     g = *this;
     return g;
   }
@@ -193,8 +220,8 @@ public:
   SPAN_NAMESPACE::span<T> high_span(int64_t n) const { return SPAN_NAMESPACE::span<T>(data() + n, relu(nonzero_ - n)); }
 
   // Noncopying view
-  SeriesView<const S> view() const {
-    SeriesView<const S> h;
+  SeriesView<CT> view() const {
+    SeriesView<CT> h;
     h.x = data();
     h.known_ = known_;
     h.nonzero_ = nonzero_;
@@ -227,43 +254,18 @@ public:
   }
 
   // In-place arithmetic
-  void operator+=(const int a) const { slow_assert(nonzero_); x[0] += a; }
-  void operator-=(const int a) const { slow_assert(nonzero_); x[0] -= a; }
-  void operator+=(const S& a) const { slow_assert(nonzero_); x[0] += a; }
-  void operator-=(const S& a) const { slow_assert(nonzero_); x[0] -= a; }
+  void operator+=(const S a) const;
+  void operator-=(const S a) const { *this += -a; }
+  void operator+=(const int a) const { *this += S(a); }
+  void operator-=(const int a) const { *this += S(-a); }
 
-  // self ±= z^s f
-  template<int sign> void high_addsub(const int64_t s, SeriesView<const S> f) {
-    static_assert(!is_const_v<T>);
-    static_assert(sign == 1 || sign == -1);
-    const auto nk = min(known_, f.known_ + s);
-    const auto nz = min(nk, max(nonzero_, f.nonzero_ ? f.nonzero_ + s : 0));
-    slow_assert(!alias(f) && nz <= limit());
-    const auto xs = x.get() + s;
-    // Fill in newly exposed zeros
-    const auto zero = min(s, nz);
-    for (int64_t i = nonzero_; i < zero; i++)
-      x[i] = 0;
-    // Add or subtract in the overlapping region
-    const auto both = min(relu(nonzero_ - s), f.nonzero_);
-    for (int64_t i = 0; i < both; i++) {
-      if constexpr (sign > 0) xs[i] += f.x[i];
-      else xs[i] -= f.x[i];
-    }
-    // Copy remaining values of z^s f
-    const auto copy = min(relu(nz - s), f.nonzero_);
-    for (int64_t i = both; i < copy; i++) {
-      if constexpr (sign > 0) xs[i] = f.x[i];
-      else xs[i] = -f.x[i];
-    }
-    known_ = nk;
-    nonzero_ = nz;
-  }
+  // self ±= sign z^s f for sign = ±1
+  void high_addsub(const int a, const int64_t s, SeriesView<CT> f);
 
-  void operator+=(SeriesView<const S> f) { high_addsub<1>(0, f); }
-  void operator-=(SeriesView<const S> f) { high_addsub<-1>(0, f); }
-  void high_add(const int64_t s, SeriesView<const S> f) { high_addsub<1>(s, f); }
-  void high_sub(const int64_t s, SeriesView<const S> f) { high_addsub<-1>(s, f); }
+  void operator+=(SeriesView<const S> f) { high_addsub(1, 0, f); }
+  void operator-=(SeriesView<const S> f) { high_addsub(-1, 0, f); }
+  void high_add(const int64_t s, SeriesView<const S> f) { high_addsub(1, s, f); }
+  void high_sub(const int64_t s, SeriesView<const S> f) { high_addsub(-1, s, f); }
 };
 
 // Unevaluated series computations
@@ -271,10 +273,15 @@ template<class F> struct SeriesExp { F set; };
 
 template<class... Args> struct ScalarT;
 template<class T, class... Rest> struct ScalarT<T,Rest...> : public ScalarT<Rest...> {};
-template<class T, class... Rest> struct ScalarT<Series<T>,Rest...> { typedef remove_const_t<T> type; };
-template<class T, class... Rest> struct ScalarT<const Series<T>&,Rest...> { typedef remove_const_t<T> type; };
+template<class T, bool v, class... Rest> struct ScalarT<Series<T,v>,Rest...> {
+  typedef typename Series<T,v>::Scalar type;
+};
+template<class T, bool v, class... Rest> struct ScalarT<const Series<T,v>&,Rest...> {
+  typedef typename Series<T,v>::Scalar type;
+};
 template<class... Args> using Scalar = typename ScalarT<Args...>::type;
 #define UNPAREN(...) __VA_ARGS__
+#define COMMA_UNPAREN(...) __VA_OPT__(,) __VA_ARGS__
 
 #define SERIES_EXP(name, y, Ts, xs, capture, args) \
   template<UNPAREN Ts> auto name(UNPAREN args) { \
@@ -286,7 +293,7 @@ template<class... Args> using Scalar = typename ScalarT<Args...>::type;
 // Multiplication: z = xy
 SERIES_EXP(mul, z, (class A,class B,bool va,bool vb), (x,y), (x=x.view(),y=y.view()),
            (const Series<A,va>& x, const Series<B,vb>& y)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   const auto nk = min(x.known(), y.known());
   const auto nz = min(nk, relu(x.nonzero() + y.nonzero() - 1));
   z.set_counts(nk, nz);
@@ -296,7 +303,7 @@ SERIES_EXP(mul, z, (class A,class B,bool va,bool vb), (x,y), (x=x.view(),y=y.vie
 // Shifted multiplication: z = x(1 + z^s y)
 SERIES_EXP(mul1p, z, (class A,class B,bool va,bool vb), (x,y,s), (x=x.view(),y=y.view(),s),
            (const Series<A,va>& x, const Series<B,vb>& y, const int64_t s)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   slow_assert(!z.alias(x) && s > 0);
   const auto nk = min(x.known(), y.known() + s);
   const auto nz = min(nk, x.nonzero() + y.nonzero() + s - 1);
@@ -315,12 +322,29 @@ SERIES_EXP(mul1p, z, (class A,class B,bool va,bool vb), (x,y,s), (x=x.view(),y=y
 
 // Squaring: y = x^2
 SERIES_EXP(sqr, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   const auto nk = x.known();
   const auto nz = min(nk, relu(2*x.nonzero() - 1));
   y.set_counts(nk, nz);
   fft_sqr<S>(y.span(), x.span());
 }
+
+// Set y[0] = exp(x[0]) on either CPU or GPU.  exp can reference args and x0.
+#define SERIES_BASE(name, args, names, exp) \
+  template<class S> __global__ void name##_base_kernel(S* ys, const S* xs, const int64_t x_nonzero \
+                                                       COMMA_UNPAREN args) { \
+    const S x0 = x_nonzero ? xs[0] : 0; \
+    ys[0] = (exp); \
+  } \
+  template<class T> void name##_base(Series<T>& y, type_identity_t<SeriesView<const T>> x COMMA_UNPAREN args) { \
+    if constexpr (is_device<T>) { \
+      y.set_counts(1, 1); \
+      name##_base_kernel<<<1,1,0,stream()>>>(device_get(y), device_get(x), x.nonzero() COMMA_UNPAREN names); \
+    } else { \
+      const auto x0 = x[0]; \
+      y.set_scalar(1, (exp)); \
+    } \
+  }
 
 // Number of Newton steps needed to go from n0 to n
 static inline int newton_steps(const int64_t n0, const int64_t n) {
@@ -357,14 +381,13 @@ template<class Step> static inline void newton_iterate(int64_t n0, const int64_t
 }
 
 // Reciprocal: y = 1 / x
+SERIES_BASE(inv, (), (), inv(x0))
 SERIES_EXP(inv, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && x.nonzero());
-
-  // Base case
-  y.set_scalar(1, inv(x[0]));
+  inv_base(y, x);
 
   // Newton step:
   //   1/y = x
@@ -389,14 +412,13 @@ SERIES_EXP(inv, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
 }
 
 // Shifted reciprocal: y = z^-s (1 / (1 + z^s x) - 1)
+SERIES_BASE(inv1p, (), (), -x0)
 SERIES_EXP(inv1p, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>& x, const int64_t s)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && s > 0);
-
-  // Base case
-  y.set_scalar(1, x.nonzero() ? -x[0] : 0);
+  inv1p_base(y, x);
 
   // Newton step:
   //   1/(1 + z^s y) = 1 + z^s x
@@ -424,7 +446,7 @@ SERIES_EXP(inv1p, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>
 // Division: y = a / b
 SERIES_EXP(div, y, (class A,class B,bool va,bool vb), (a,b), (a=a.view(),b=b.view()),
            (const Series<A,va>& a, const Series<B,vb>& b)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   slow_assert(!y.alias(a) && !y.alias(b));
   const auto n = min(a.known(), b.known());
 
@@ -450,7 +472,7 @@ SERIES_EXP(div, y, (class A,class B,bool va,bool vb), (a,b), (a=a.view(),b=b.vie
 // Shifted division: y = a / (1 + z^s b)
 SERIES_EXP(div1p, y, (class A,class B,bool va,bool vb), (a,b,s), (a=a.view(),b=b.view(),s),
            (const Series<A,va>& a, const Series<B,vb>& b, const int64_t s)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   slow_assert(!y.alias(a) && !y.alias(b) && s > 0);
   const auto n = min(a.known(), b.known() + s);
 
@@ -496,7 +518,7 @@ SERIES_EXP(integral_shift, y, (class A,bool v), (x,s), (x=x.view(),s), (const Se
 
 // Logarithm: y = log x
 SERIES_EXP(log, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && x.nonzero() && x[0] == 1);
@@ -510,7 +532,7 @@ SERIES_EXP(log, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
 
 // Shifted logarithm: y = z^-s log(1 + z^s x)
 SERIES_EXP(log1p, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>& x, const int64_t s)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && s > 0);
@@ -524,7 +546,7 @@ SERIES_EXP(log1p, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>
 
 // Exponential: y = e^x
 SERIES_EXP(exp, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && (!x.nonzero() || x[0] == 0));
@@ -554,15 +576,16 @@ SERIES_EXP(exp, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
 }
 
 // Shifted exponential: y = z^-s (e^(az^s x) - 1)
+SERIES_BASE(expm1, (const int a), (a), a > 0 ? x0 : -x0)
 SERIES_EXP(expm1, y, (class A,bool v), (x,a,s), (x=x.view(),a,s),
            (const Series<A,v>& x, const int a, const int64_t s)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   slow_assert(!y.alias(x) && abs(a) == 1 && s > 0);
 
   // Base case
   const auto n = x.known();
   if (!n) return y.set_unknown();
-  y.set_scalar(1, x.nonzero() ? a > 0 ? x[0] : -x[0] : 0);
+  expm1_base(y, x, a);
 
   // Newton step:
   //   y = z^-s (exp(az^s x) - 1)
@@ -592,7 +615,7 @@ SERIES_EXP(expm1, y, (class A,bool v), (x,a,s), (x=x.view(),a,s),
 
 // Shifted log1p_exp: y = log1p(e^x, s) = z^-s log (1 + z^s e^x)
 SERIES_EXP(log1p_exp, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>& x, const int64_t s)) {
-  typedef remove_const_t<A> S;
+  typedef Scalar<Series<A>> S;
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && s > 0 && (!x.nonzero() || !x[0]));
@@ -633,6 +656,30 @@ SERIES_EXP(ldexp, y, (class A,bool v), (x,k), (x=x.view(),k), (const Series<A,v>
   y.set_counts(nk, nz);
   for (int64_t i = 0; i < nz; i++)
     y[i] = ldexp(x[i], k);
+}
+
+// For test purposes
+Series<double> approx(const Poly& x, const int64_t n);
+double error(SeriesView<const double> x, SeriesView<const double> y, const bool relative = false);
+double error(SeriesView<const double> x, initializer_list<double>&& ys, const bool relative = false);
+double error(SeriesView<const double> x, const Poly& y, const bool relative = false);
+#define ASSERT_TOL2(tol, x, y) { const auto e = error(x, y); ASSERT_LE(e, tol) << format("e %g, x %g", e, x, y); }
+#define ASSERT_TOL(tol, x, ...) { const Series<double> _y({__VA_ARGS__}); ASSERT_TOL2(tol, x, _y); }
+#define ASSERT_CLOSE(x, ...) ASSERT_TOL(3e-14, x, __VA_ARGS__)
+#define ASSERT_CLOSE2(x, y) ASSERT_TOL2(3e-14, x, y)
+#define ASSERT_EXACT(x, ...) ASSERT_TOL(0, x, __VA_ARGS__)
+#define ASSERT_EXACT2(x, y) ASSERT_TOL2(0, x, y)
+
+// Host to device and backwards
+template<class S> void host_to_device(Series<Device<S>>& y, type_identity_t<SeriesView<const S>> x) {
+  slow_assert(y.limit() >= x.nonzero());
+  y.set_counts(x.known(), x.nonzero());
+  host_to_device(y.span(), x.span());
+}
+template<class S> void device_to_host(Series<S>& y, type_identity_t<SeriesView<const Device<S>>> x) {
+  slow_assert(y.limit() >= x.nonzero());
+  y.set_counts(x.known(), x.nonzero());
+  device_to_host(y.span(), x.span());
 }
 
 }  // namespace mandelbrot

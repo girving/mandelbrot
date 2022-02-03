@@ -7,47 +7,7 @@
 namespace mandelbrot {
 namespace {
 
-using std::numeric_limits;
 using std::runtime_error;
-
-Series<double> approx(const Poly& x, const int64_t n) {
-  slow_assert(n >= x.length());
-  Series<double> y(n);
-  y.set_counts(n, n);
-  for (int64_t i = 0; i < n; i++)
-    y[i] = arf_get_d(arb_midref(x[i]), ARF_RND_NEAR);
-  return y;
-}
-
-double error(SeriesView<const double> x, SeriesView<const double> y, const bool relative = false) {
-  if (x.known() != y.known())
-    return numeric_limits<double>::infinity();
-  double e = 0;
-  const auto both = min(x.nonzero(), y.nonzero());
-  for (int64_t i = 0; i < both; i++) {
-    double d = abs(x[i] - y[i]);
-    if (relative)
-      d /= max(1., abs(y[i]));
-    e = max(e, d);
-  }
-  for (int64_t i = both; i < x.nonzero(); i++)
-    e = max(e, abs(x[i]));
-  for (int64_t i = both; i < y.nonzero(); i++) {
-    double d = abs(y[i]);
-    if (relative)
-      d = min(d, 1.);
-    e = max(e, d);
-  }
-  return e;
-}
-double error(SeriesView<const double> x, initializer_list<double>&& ys, const bool relative = false) {
-  return error(x, Series<double>(move(ys)), relative);
-}
-double error(SeriesView<const double> x, const Poly& y, const bool relative = false) {
-  if (x.known() < y.length())
-    return numeric_limits<double>::infinity();
-  return error(x, approx(y, x.known()), relative);
-}
 
 const int prec = 100, mag_bits = 0;
 
@@ -55,15 +15,6 @@ void poly_rand(Poly& x, Rand& random, const int64_t n) {
   arb_poly_randtest(x, random, n, prec, mag_bits);
   poly_mid(x, x);
 }
-
-#define ASSERT_CLOSE(x, ...) { \
-  const auto e = error(x, {__VA_ARGS__}); \
-  ASSERT_LT(e, 3e-14) << format("e %g, x %g", e, x); }
-
-#define ASSERT_EXACT(x, ...) { \
-  const Series<double> _y({__VA_ARGS__}); \
-  const auto e = error(x, _y); \
-  ASSERT_EQ(e, 0) << format("e %g, x %g != %g (x.known %d)", e, x, _y, x.known()); }
 
 TEST(construct) {
   Series<double> x(5);
