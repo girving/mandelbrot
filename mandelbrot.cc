@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
     if (args.size())
       cmd = args[0];
 
-    const int max_k = 22;
+    const int max_k = 1000;
     const double tol = 1;
     const int prec = 2000;
     const map<string,function<void()>> cmds = {
