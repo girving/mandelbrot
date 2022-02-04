@@ -85,4 +85,9 @@ extern const Known known_areas[16+1];
 //     k 16, 352 s:  mu = 1.753375772356926299663688533777756, error < 3.63e-20
 //     k 17, 833 s:  mu = 1.73618797890571568324245734657981
 
+// CUDA series history (on an A100)
+//   4feb2022, double, first working version:
+//     k 10, 11.0 s: mu = 1.895943075803316, error = 3.41e-15
+//     k 11, 16.4 s: mu = 1.8546567767819579, error = 2.83e-15
+
 }  // namespace mandelbrot
