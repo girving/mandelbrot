@@ -348,7 +348,7 @@ void expansion_arithmetic(const string& path) {
     // Negation
     {
       Blank b;
-      Scope fun("static inline Expansion<%d> operator-(const Expansion<%d> x)", n, n);
+      Scope fun("__host__ __device__ static inline Expansion<%d> operator-(const Expansion<%d> x)", n, n);
       vector<string> nx;
       for (int i = 0; i < n; i++)
         nx.push_back(format("-x.x[%d]", i));
@@ -358,7 +358,8 @@ void expansion_arithmetic(const string& path) {
     // Add, subtract, multiply
     const auto binary = [n](const string& op, const auto& body) {
       Blank b;
-      Scope fun("static inline Expansion<%d> operator%s(const Expansion<%d> x, const Expansion<%d> y)",
+      Scope fun("__host__ __device__ static inline Expansion<%d>\n"
+                "operator%s(const Expansion<%d> x, const Expansion<%d> y)",
                 n, op, n, n);
       line("#ifdef __clang__");
       line("#pragma clang fp reassociate(off)");

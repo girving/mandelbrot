@@ -2,9 +2,12 @@
 #pragma once
 
 #include "complex.h"
+#include "device.h"
 #include "span.h"
 #include <cstdint>
 namespace mandelbrot {
+
+using std::add_const_t;
 
 // Complex size-n fft of x, with n = y.size() and x zero extended to 2n reals.
 template<class S> void fft(span<Complex<S>> y, span<const S> x);
@@ -34,11 +37,11 @@ template<class S> void srfft(span<Complex<S>> y, span<const S> x);
 template<class S> void isrfft(span<S> x, span<Complex<S>> y);
 
 // z[:] = x[:] * y[:] as polynomials
-// Aliasing is allowed.
-template<class S> void fft_mul(span<S> z, span<const S> x, span<const S> y);
+// Aliasing is allowed
+template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const_t<T>> y);
 
 // y[:] = x[:]^2 as polynomials
 // Aliasing is allowed.
-template<class S> void fft_sqr(span<S> y, span<const S> x);
+template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x);
 
 }  // namespace mandelbrot

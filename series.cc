@@ -1,6 +1,7 @@
 // Series arithmetic
 
 #include "series.h"
+#include "expansion.h"
 #include "poly.h"
 namespace mandelbrot {
 
@@ -47,43 +48,42 @@ double error(SeriesView<const double> x, const Poly& y, const bool relative) {
 
 template<class S> __global__ static void add_scalar_kernel(S* ys, const S a) { ys[0] += a; }
 
-template<class T, bool view> void Series<T,view>::operator+=(const S a) const {
-  slow_assert(nonzero_);
-  if constexpr (is_device<T>) add_scalar_kernel<<<1,1,0,stream()>>>(device_get(data()), a);
+template<class T> void add_scalar(Series<T>& x, const typename Series<T>::Scalar a) {
+  slow_assert(x.nonzero());
+  if constexpr (is_device<T>) add_scalar_kernel<<<1,1,0,stream()>>>(device_get(x.data()), a);
   else x[0] += a;
 }
 
-template<class S> __global__
-void high_addsub_kernel(const int n, S* y, const S* x, const int ynz, const int xnz, const int sign, const int s) {
-  GRID_STRIDE_LOOP(n, i) {
-    const auto yi = i < ynz ? y[i] : S(0);
-    auto xi = uint32_t(i-s) < uint32_t(xnz) ? x[i-s] : S(0);
-    if (sign < 0) xi = -xi;
-    y[i] = yi + xi;
-  }
+DEF_LOOP(high_addsub_loop, n, i, (S* y, const S* x, const int ynz, const int xnz, const int sign, const int s),
+  const auto yi = i < ynz ? y[i] : S(0);
+  auto xi = uint32_t(i-s) < uint32_t(xnz) ? x[i-s] : S(0);
+  if (sign < 0) xi = -xi;
+  y[i] = yi + xi;)
+
+template<class T> void high_addsub(Series<T>& y, const int sign, const int64_t s, SeriesView<add_const_t<T>> x) {
+  const auto ynz = y.nonzero(), xnz = x.nonzero();
+  const auto nk = min(y.known(), x.known() + s);
+  const auto nz = min(nk, max(ynz, xnz ? xnz + s : 0));
+  slow_assert(abs(sign) == 1 && !y.alias(x) && nz <= y.limit());
+  high_addsub_loop(nz, y.data(), x.data(), ynz, xnz, sign, s);
+  y.set_counts(nk, nz);
 }
 
-template<class T, bool view> void Series<T,view>::high_addsub(const int sign, const int64_t s, SeriesView<CT> f) {
-  static_assert(!is_const_v<T>);
-  const auto fnz = f.nonzero_;
-  const auto nk = min(known_, f.known_ + s);
-  const auto nz = min(nk, max(nonzero_, fnz ? fnz + s : 0));
-  slow_assert(abs(sign) == 1 && !alias(f) && nz <= limit());
-  if (nz) {
-    if constexpr (is_device<T>)
-      INVOKE_GRID_STRIDE_LOOP(high_addsub_kernel, nz, device_get(data()), device_get(f.data()), nonzero_, fnz, sign, s);
-    else {
-      #define LOOP(op) \
-        for (int64_t i = 0; i < nz; i++) \
-          x[i] = (i < nonzero_ ? x[i] : S(0)) op (uint64_t(i-s) < uint64_t(fnz) ? f.x[i-s] : S(0));
-      if (sign > 1) LOOP(+)
-      else LOOP(-)
-      #undef LOOP
-    }
-  }
-  known_ = nk;
-  nonzero_ = nz;
+DEF_LOOP(mul1p_post_loop, post, i, (S* z, const S* x, const int s, const int xnz),
+  z[i] = (i < s ? S(0) : z[i]) + (i < xnz ? x[i] : S(0));)
+
+template<class T> void mul1p_post(Series<T>& z, SeriesView<add_const_t<T>> x,
+                                  const int64_t post, const int64_t s, const int64_t xnz) {
+  mul1p_post_loop(post, z.data(), x.data(), s, xnz);
 }
 
+#define Ss(S) \
+  template void add_scalar(Series<S>&, const typename Series<S>::Scalar); \
+  template void high_addsub(Series<S>&, const int, const int64_t, SeriesView<const S>); \
+  template void mul1p_post(Series<S>&, SeriesView<const S>, const int64_t, const int64_t, const int64_t);
+Ss(double)
+Ss(Expansion<2>)
+Ss(Device<double>)
+Ss(Device<Expansion<2>>)
 
 }  // namespace mandelbrot

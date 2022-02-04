@@ -165,7 +165,7 @@ TEST(srfft) {
       for (int64_t i = 0; i < n/2; i++) {
         const auto e = abs(y[i]-sy[i]);
         ASSERT_LE(e, tol)
-            << format("p %d, n %d, xn %d, i %d, e %g%s", p, n, xn, i, e,
+            << format("srfft: p %d, n %d, xn %d, i %d, e %g%s", p, n, xn, i, e,
                       n > 16 ? "" : format(":\nx = %g\ny = %g\nsy = %g", x, y, sy));
       }
 
@@ -176,7 +176,7 @@ TEST(srfft) {
         z[i] /= n/2;
       for (int64_t i = 0; i < xn; i++) {
         const auto e = abs(x[i]-z[i]);
-        ASSERT_LE(e, tol) << format("p %d, n %d, xn %d, i %d, e %g:\nx = %g\nz = %g\ny = %g",
+        ASSERT_LE(e, tol) << format("isrfft: p %d, n %d, xn %d, i %d, e %g:\nx = %g\nz = %g\ny = %g",
                                     p, n, xn, i, e, x, z, sy);
       }
     }

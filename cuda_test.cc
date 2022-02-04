@@ -1,10 +1,17 @@
 // CUDA tests
 
+#include "array.h"
 #include "cutil.h"
+#include "loops.h"
 #include "tests.h"
 #include <cuda.h>
+#include <random>
 namespace mandelbrot {
 namespace {
+
+using std::abs;
+using std::mt19937;
+using std::uniform_real_distribution;
 
 template<class S> __global__ void add(const int64_t n, S* x, S* y) {
   for (int64_t i = 0; i < n; i++)
@@ -12,7 +19,7 @@ template<class S> __global__ void add(const int64_t n, S* x, S* y) {
 }
 
 TEST(add_serial) {
-  const int64_t n = 1<<20;
+  const int64_t n = 1024;
   typedef float S;
   vector<S> x(n), y(n);  // CPU memory
 
@@ -24,8 +31,8 @@ TEST(add_serial) {
   
   // Copy to GPU
   const auto s = stream();
-  DeviceArray<S> dx(n);
-  DeviceArray<S> dy(n);
+  Array<Device<S>> dx(n);
+  Array<Device<S>> dy(n);
   host_to_device<S>(dx, x);
   host_to_device<S>(dy, y);
 
@@ -49,7 +56,7 @@ __global__ void sqr1a(const int n, float* y, const float* x, const int a) {
 
 TEST(grid_stride_loop) {
   typedef float S;
-  const int max_n = 1 << 16;
+  const int max_n = 1 << 13;
   const int sentinels = 256;
 
   // Prepare memory
@@ -57,8 +64,8 @@ TEST(grid_stride_loop) {
   vector<S> y(max_n + sentinels, -1);
   for (int i = 0; i < int(x.size()); i++)
     x[i] = i;
-  DeviceArray<S> dx(x.size());
-  DeviceArray<S> dy(y.size());
+  Array<Device<S>> dx(x.size());
+  Array<Device<S>> dy(y.size());
   host_to_device<S>(dx, x);
   host_to_device<S>(dy, y);
 
@@ -69,8 +76,36 @@ TEST(grid_stride_loop) {
     INVOKE_GRID_STRIDE_LOOP(sqr1a, n, device_get(dy), device_get(dx), a);
     device_to_host<S>(span<S>(y).first(ns), dy.span().first(ns));
     for (int i = 0; i < ns; i++)
-      ASSERT_EQ(y[i], i < n ? sqr(x[i] + a) : -1);
+      ASSERT_EQ(y[i], i < n ? sqr(x[i] + a) : -1) << format("n %d, ns %d, a %d, i %d", n, ns, a, i);
   }
+}
+
+DEF_LOOP(some_loop, n, i, (S* y, const S* x, const int a),
+  y[i] = a - sqr(x[i]);)
+
+TEST(loop) {
+  typedef float S;
+  const int n = 1231;
+  const int a = 3;
+  mt19937 mt(7);
+  const S tol = 1e-5;
+
+  // Host
+  Array<S> x(n), y(n);
+  for (int i = 0; i < n; i++)
+    x[i] = uniform_real_distribution<S>(-1, 1)(mt);
+  some_loop(n, y.data(), x.data(), a);
+  for (int i = 0; i < n; i++)
+    ASSERT_LE(abs(y[i] - (a - sqr(x[i]))), tol);
+
+  // Device
+  Array<Device<S>> dx(n), dy(n);
+  host_to_device<S>(dx, x);
+  some_loop(n, dy.data(), dx.data(), a);
+  Array<S> hy(n);
+  device_to_host<S>(hy, dy);
+  for (int i = 0; i < n; i++)
+    ASSERT_LE(abs(y[i] - hy[i]), tol);
 }
 
 }  // namespace

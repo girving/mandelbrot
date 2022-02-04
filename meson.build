@@ -14,6 +14,7 @@ add_global_arguments('-Wno-deprecated-copy', language: 'cpp')
 add_global_arguments('-Wno-c++11-narrowing', language: 'cpp')
 add_global_arguments('-I/usr/local/cuda/include', language: 'cpp')
 add_global_arguments('-x', 'cuda', '--cuda-gpu-arch=sm_80', language: 'cpp')
+add_global_arguments('-Wno-unknown-cuda-version', language: 'cpp')
 add_global_link_arguments('-lc++', language: 'cpp')
 
 cuda = declare_dependency(link_args: ['-L/usr/local/cuda/lib64', '-lcuda', '-lcudart'])
@@ -29,7 +30,9 @@ tinyformat = custom_target('tinyformat', output: 'tinyformat.h',
                                      'aef402d85c1e8f9bf491b72570bfe8938ae26727/tinyformat.h'), '-o', '@OUTPUT@'])
 
 known = declare_dependency(link_with: library('known', ['known.cc']))
-base = declare_dependency(link_with: library('base', ['debug.cc', tinyformat]), sources: [tinyformat])
+base = declare_dependency(
+    link_with: library('base', ['debug.cc', 'shutdown.cc', tinyformat]),
+    sources: [tinyformat])
 tests = declare_dependency(link_with: library('tests', ['tests.cc'], dependencies: [base, m]), dependencies: [base, m])
 cutil = declare_dependency(
     link_with: library('cutil', ['cutil.cc'], dependencies: [base, cuda]),

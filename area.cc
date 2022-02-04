@@ -18,32 +18,27 @@ using std::runtime_error;
 using std::swap;
 
 // z = a*x - 2^(log2_b)*y
+DEF_LOOP(sub_si_2exp_loop, nz, i, (S* z, const int a, const S* x, const int xnz, const int b, const S* y, const int ynz),
+  const auto xi = i < xnz ? x[i] : S(0);
+  const auto yi = i < ynz ? y[i] : S(0);
+  z[i] = a*xi - ldexp(yi, b);)
 SERIES_EXP(sub_si_2exp, z, (class SA,class SB), (a,x,b,y), (a,x=x.view(),b,y=y.view()),
           (const int64_t a, const SA& x, const int b, const SB& y)) {
   const auto nk = min(x.known(), y.known());
   const auto nz = min(nk, max(x.nonzero(), y.nonzero()));
-  const auto both = min(x.nonzero(), y.nonzero());
-  const auto x_only = min(nz, x.nonzero());
-  const auto y_only = min(nz, y.nonzero());
-  const auto zp = z.data();
-  for (int64_t i = 0; i < both; i++)
-    zp[i] = a*x[i] - ldexp(y[i], b);
-  for (int64_t i = both; i < x_only; i++)
-    zp[i] = a*x[i];
-  for (int64_t i = both; i < y_only; i++)
-    zp[i] = -ldexp(y[i], b);
   z.set_counts(nk, nz);
+  sub_si_2exp_loop(nz, z.data(), a, x.data(), x.nonzero(), b, y.data(), y.nonzero());
 }
 
 // h = log escape(k, z*e^-g)^(2^-k) in mandelbrot-area-cupy.ipynb notation
-template<class S> void escape(Series<S>& h, Series<S>& dh, const int k,
-                              SeriesView<const S> g, SeriesView<const S> dg,
+template<class T> void escape(Series<T>& h, Series<T>& dh, const int k,
+                              SeriesView<const T> g, SeriesView<const T> dg,
                               const int64_t n, const int64_t dn) {
   // Base case
   h.set_scalar(n, 0);
   dh.set_scalar(dn, 0);
 
-  Series<S> t(n), dt(dn), s(n), u(dn);
+  Series<T> t(n), dt(dn), s(n), u(dn);
   for (int i = 1; i <= k; i++) {
     const auto p = int64_t(1) << i;
 
@@ -65,26 +60,29 @@ template<class S> void escape(Series<S>& h, Series<S>& dh, const int k,
 }
 
 // escape(k, g) + g
-template<class S> void implicit(Series<S>& F, Series<S>& dF, const int k,
-                                SeriesView<const S> g, SeriesView<const S> dg,
+template<class T> void implicit(Series<T>& F, Series<T>& dF, const int k,
+                                SeriesView<const T> g, SeriesView<const T> dg,
                                 const int64_t n, const int64_t dn) {
   escape(F, dF, k, g, dg, n, dn);
   F += g;
   dF += dg;
 }
 
-template<class A> remove_const_t<A> area(const Series<A>& f) {
-  typedef remove_const_t<A> S;
+template<class A> typename Series<A>::Scalar area(const Series<A>& f) {
+  typedef typename Series<A>::Scalar S;
   S mu = 0;
   const auto nz = f.nonzero();
+  const auto& hf = host_copy(f);
   for (int64_t i = 0; i < nz; i++)
-    mu += (1-i) * sqr(f[i]);
+    mu += (1-i) * sqr(hf[i]);
   return nearest_pi<S>() * mu;
 }
 
-template<class S> void areas(const int max_k, const double tol) {
+template<class T> void areas(const int max_k, const double tol) {
+  typedef Undevice<T> S;
+
   // f = 1, so g = log f = 0
-  Series<S> g(1);
+  Series<T> g(1);
   g.set_scalar(1, 0);
   print("k 0:\n  f = 1\n  g = 0");
 
@@ -101,35 +99,35 @@ template<class S> void areas(const int max_k, const double tol) {
       g.set_known(p);
 
       // dg = 1
-      Series<S> dg(dp);
+      Series<T> dg(dp);
       dg.set_scalar(dp, 1);
 
       if (refine) {
         // Newton update all terms
         static_assert(!is_interval<S>);
         const auto& g0 = g;  // Valid until S is an interval type
-        Series<S> F(p), dF(p), ignore(0);
-        implicit<S>(F, dF, k, g, dg, p, p);
-        implicit<S>(F, ignore, k, g0, dg, p, 0);
+        Series<T> F(p), dF(p), ignore(0);
+        implicit<T>(F, dF, k, g, dg, p, p);
+        implicit<T>(F, ignore, k, g0, dg, p, 0);
         dg = div(F, dF);
         g.high_sub(p/2, dg.high(p/2));
       } else {
         // Newton update only the high terms
-        Series<S> F(p), dF(dp);
-        implicit<S>(F, dF, k, g, dg, p, dp);
+        Series<T> F(p), dF(dp);
+        implicit<T>(F, dF, k, g, dg, p, dp);
         dg = div(F.high(dp), dF);
         g.high_sub(dp, dg);
       }
       const auto elapsed = wall_time() - start;
 
       // Report results
-      Series<S> f(p);
+      Series<T> f(p);
       f = exp(g);
       const S mu = area(f);
       print("    mu = %s", safe(mu));
       if (k < 4) {
-        print("    f = %.3g", f);
-        print("    g = %.3g", g);
+        print("    f = %.3g", host_copy(f));
+        print("    g = %.3g", host_copy(g));
       }
       print("    time = %.3g s", elapsed.seconds());
 
@@ -150,9 +148,11 @@ template<class S> void areas(const int max_k, const double tol) {
   }
 }
 
-#define AREAS(S) \
-  template void areas<S>(const int max_k, const double);
+#define AREAS(T) \
+  template void areas<T>(const int max_k, const double);
 AREAS(double)
 AREAS(Expansion<2>)
+AREAS(Device<double>)
+AREAS(Device<Expansion<2>>)
 
 }  // namespace mandelbrot

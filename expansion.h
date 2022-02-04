@@ -28,38 +28,39 @@ template<int n> struct Expansion {
   static_assert(n >= 2);
   double x[n];  // Ulp-nonoverlapping in decreasing order of magnitude
 
-  Expansion() : x{0} {}
-  Expansion(Unusable*) : x{0} {}  // Allow construction from literal 0
+  __host__ __device__ Expansion() : x{0} {}
+  __host__ __device__ Expansion(Unusable*) : x{0} {}  // Allow construction from literal 0
 
   // These promise that the nonoverlapping invariant already holds
-  Expansion(double x0, double x1, Nonoverlap) : x{x0, x1} { static_assert(n == 2); }
-  Expansion(double x0, double x1, double x2, Nonoverlap) : x{x0, x1, x2} { static_assert(n == 3); }
-  Expansion(double x0, double x1, double x2, double x3, Nonoverlap) : x{x0, x1, x2, x3} { static_assert(n == 4); }
+  __host__ __device__ Expansion(double x0, double x1, Nonoverlap) : x{x0, x1} { static_assert(n == 2); }
+  __host__ __device__ Expansion(double x0, double x1, double x2, Nonoverlap) : x{x0, x1, x2} { static_assert(n == 3); }
+  __host__ __device__ Expansion(double x0, double x1, double x2, double x3, Nonoverlap)
+      : x{x0, x1, x2, x3} { static_assert(n == 4); }
 
   // Conversion from smaller types
-  explicit Expansion(const double a) : x{a, 0} {}
-  explicit Expansion(const int32_t a) : x{double(a), 0} {}
-  explicit Expansion(const int64_t a) : x{0} { x[0] = a; x[1] = a - int64_t(x[0]); }
-  void operator=(const int32_t a) { x[0] = a; for (int i = 1; i < n; i++) x[i] = 0; }
+  __host__ __device__ explicit Expansion(const double a) : x{a, 0} {}
+  __host__ __device__ explicit Expansion(const int32_t a) : x{double(a), 0} {}
+  __host__ __device__ explicit Expansion(const int64_t a) : x{0} { x[0] = a; x[1] = a - int64_t(x[0]); }
+  __host__ __device__ void operator=(const int32_t a) { x[0] = a; for (int i = 1; i < n; i++) x[i] = 0; }
 
   // In place arithmetic
-  void operator+=(const int y) { *this = *this + Expansion(y); }
-  void operator-=(const int y) { *this = *this - Expansion(y); }
-  void operator+=(const Expansion y) { *this = *this + y; }
-  void operator-=(const Expansion y) { *this = *this - y; }
+  __host__ __device__ void operator+=(const int y) { *this = *this + Expansion(y); }
+  __host__ __device__ void operator-=(const int y) { *this = *this - Expansion(y); }
+  __host__ __device__ void operator+=(const Expansion y) { *this = *this + y; }
+  __host__ __device__ void operator-=(const Expansion y) { *this = *this - y; }
 
   // Multiplication by integers which might be too big to fit in a double
-  friend Expansion operator*(const int64_t a, const Expansion x) { return Expansion(a) * x; }
+  friend __host__ __device__ Expansion operator*(const int64_t a, const Expansion x) { return Expansion(a) * x; }
 
   // Division via Newton iteration
-  Expansion operator/(const Expansion b) const;
-  Expansion operator/(const int64_t b) const { return *this / Expansion(b); }
+  __host__ __device__ Expansion operator/(const Expansion b) const;
+  __host__ __device__ Expansion operator/(const int64_t b) const { return *this / Expansion(b); }
 
   // Componentwise-safe operations
   #define CWISE(op) Expansion y; for (int i = 0; i < n; i++) y.x[i] = op; return y;
-  friend Expansion half(const Expansion x) { CWISE(mandelbrot::half(x.x[i])) }
-  friend Expansion twice(const Expansion x) { CWISE(mandelbrot::twice(x.x[i])) }
-  friend Expansion ldexp(const Expansion x, const int e) { CWISE(std::ldexp(x.x[i], e)) }
+  friend __host__ __device__ Expansion half(const Expansion x) { CWISE(mandelbrot::half(x.x[i])) }
+  friend __host__ __device__ Expansion twice(const Expansion x) { CWISE(mandelbrot::twice(x.x[i])) }
+  friend __host__ __device__ Expansion ldexp(const Expansion x, const int e) { CWISE(std::ldexp(x.x[i], e)) }
   #undef CWISE
 
   bool operator==(const int a) const {
@@ -80,17 +81,16 @@ template<int n> struct Expansion {
   explicit operator bool() const;
   bool operator==(const Expansion y) const;
   bool operator!=(const Expansion y) const { return !(*this == y); }
-  SPAN_NAMESPACE::span<const double> span() const;
+  std::span<const double> span() const;
   Arb arb(const int prec) const;
   explicit Expansion(const string& s);
 };
 
 template<int n> int sign(const Expansion<n> x);
 template<int n> Expansion<n> abs(const Expansion<n> x);
-template<int n> Expansion<n> inv(const Expansion<n> x);
 
 // For now, don't try to optimize sqr further
-template<int n> Expansion<n> sqr(const Expansion<n> x) { return x * x; }
+template<int n> __host__ __device__ Expansion<n> sqr(const Expansion<n> x) { return x * x; }
 
 // Dangerous if the exponents are far apart
 template<int n> Arb exact_arb(const Expansion<n> x);
@@ -101,6 +101,41 @@ template<int n> ostream& operator<<(ostream& out, const Expansion<n> e);
 
 // Print enough digits for exact reconstruction
 template<int n> string safe(const Expansion<n> x);
+
+// Reciprocal via Newton's method
+template<int n> __host__ __device__ Expansion<n> inv(const Expansion<n> x) {
+  // Base case
+  Expansion<n> y;
+  y.x[0] = 1 / x.x[0];
+
+  // Newton step:
+  //   1/y = x
+  //   f(y) = 1/y - x
+  //   f'(y) = -1/y^2
+  //   N(y) = y - f(y) / f'(y)
+  //        = y - (1/y - x) / (-1/y^2)
+  //        = y - y(xy - 1)
+  //        = y(2 - xy)
+  const Expansion<n> two(2);
+  for (int i = 0; i < n; i++)
+    y = y*(two - x*y);
+  return y;
+}
+
+// Division via reciprocal multiplication + Newton's method
+template<int n> __host__ __device__ Expansion<n> Expansion<n>::operator/(const Expansion b) const {
+  // Compute the inverse and multiply
+  const auto inv_b = inv(b);
+  Expansion y = *this * inv_b;
+
+  // One more step of Newton refinement:
+  //   y = a/b
+  //   f(y) = by - a
+  //   f'(y) = b
+  //   N(y) = y - (b*y - a)/b
+  y = y - (b*y - *this) * inv_b;
+  return y;
+}
 
 }  // namespace mandelbrot
 

@@ -2,6 +2,7 @@
 
 #include "tests.h"
 #include "print.h"
+#include "shutdown.h"
 #include "wall_time.h"
 #include <functional>
 namespace mandelbrot {
@@ -63,6 +64,7 @@ static int run_tests(const vector<string>& args) {
     for (const auto& name : failed)
       print("%s %s", red("[  FAILED  ]"), name);
   }
+  shutdown();
   return failed.size() ? 1 : 0;
 }
 

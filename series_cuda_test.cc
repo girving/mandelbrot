@@ -6,13 +6,16 @@
 namespace mandelbrot {
 namespace {
 
+using std::min;
 using std::mt19937;
 using std::uniform_real_distribution;
 
-#define ASSERT_CLOSE_D(dx, y) \
-  Series<double> hx(dx.nonzero()); \
-  device_to_host(hx, dx); \
-  ASSERT_CLOSE2(hx, y)
+void assert_rel(SeriesView<const Device<double>> dz, SeriesView<const double> z, const double tol) {
+  Series<double> hz(dz.nonzero());
+  device_to_host(hz, dz);
+  const auto e = error(hz, z, true);
+  ASSERT_LE(e, tol) << format("n %d, e %g\ndz %g\nz %g", z.nonzero(), e, hz, z);
+}
 
 Series<double> random_series(mt19937& mt, const int n) {
   Series<double> x(n);
@@ -22,7 +25,7 @@ Series<double> random_series(mt19937& mt, const int n) {
   return x;
 }
 
-template<class F> void constant_test(const int64_t lo, const int64_t hi, F&& f) {
+template<class F> void constant_test(const int64_t lo, const int64_t hi, F&& f, const double tol = 1e-14) {
   for (int n = lo; n <= hi; n++) {
     // CPU
     Series<double> x(1);
@@ -31,15 +34,19 @@ template<class F> void constant_test(const int64_t lo, const int64_t hi, F&& f) 
     Series<Device<double>> dx(1);
     f(dx);
     // Compare
-    ASSERT_CLOSE_D(dx, x);
+    assert_rel(dx, x, tol);
   }
 }
 
-template<class F> void unary_test(const int64_t lo, const int64_t hi, F&& f) {
+struct Nop { void operator()(auto& x) const {} };
+
+template<class F,class P=Nop> void
+unary_test(const int64_t lo, const int64_t hi, F&& f, const double tol = 1e-14, P project = P()) {
   for (int n = lo; n <= hi; n++) {
     mt19937 mt(7);
     // CPU
-    const Series<double> x = random_series(mt, n);
+    Series<double> x = random_series(mt, n);
+    project(x);
     Series<double> y(n);
     f(y, x.view());
     // GPU
@@ -47,11 +54,11 @@ template<class F> void unary_test(const int64_t lo, const int64_t hi, F&& f) {
     host_to_device(dx, x);
     f(dy, dx.view());
     // Compare
-    ASSERT_CLOSE_D(dy, y);
+    assert_rel(dy, y, tol);
   }
 }
 
-template<class F> void binary_test(const int64_t lo, const int64_t hi, F&& f) {
+template<class F> void binary_test(const int64_t lo, const int64_t hi, F&& f, const double tol = 1e-14) {
   mt19937 mt(7);
   for (int n = lo; n <= hi; n++) {
     // CPU
@@ -65,32 +72,34 @@ template<class F> void binary_test(const int64_t lo, const int64_t hi, F&& f) {
     host_to_device(dy, y);
     f(dz, dx.view(), dy.view());
     // Compare
-    ASSERT_CLOSE_D(dz, z);
+    assert_rel(dz, z, tol);
   }
 }
 
 #define SLOOP(lo, hi) for (int s = lo; s <= hi; s++)
 #define CONSTANT(lo, hi, exp) constant_test(lo, hi, [=](auto& x) { exp; })
-#define UNARY(lo, hi, exp) unary_test(lo, hi, [=](auto& y, const auto x) { exp; })
-#define BINARY(lo, hi, exp) binary_test(lo, hi, [=](auto& z, const auto x, const auto y) { exp; })
+#define UNARY(lo, hi, exp, ...) unary_test(lo, hi, [=](auto& y, const auto x) { exp; } __VA_OPT__(,) __VA_ARGS__)
+#define BINARY(lo, hi, exp, ...) \
+  binary_test(lo, hi, [=](auto& z, const auto x, const auto y) { exp; } __VA_OPT__(,) __VA_ARGS__)
 
 TEST(set_scalar) { CONSTANT(0, 7, x.set_scalar(1, 7.5)); }
 TEST(assign_series) { UNARY(0, 7, y = x); }
 
-TEST(add_int) { UNARY(0, 7, y = x; y += 3); }
-TEST(add_scalar) { UNARY(0, 7, y = x; y += 3.5); }
-TEST(sub_int) { UNARY(0, 7, y = x; y -= 3); }
-TEST(sub_scalar) { UNARY(0, 7, y = x; y -= 3.5); }
+TEST(add_int) { UNARY(1, 7, y = x; y += 3); }
+TEST(add_scalar) { UNARY(1, 7, y = x; y += 3.5); }
+TEST(sub_int) { UNARY(1, 7, y = x; y -= 3); }
+TEST(sub_scalar) { UNARY(2, 7, y = x; y -= 3.5); }
 
-template<int s> void addsub_test() {
-  for (const int k : {0, 2}) {
-    BINARY(0, 32, z = x; z.template high_addsub<s>(k, y));
-    UNARY(0, 32, y.set_counts(x.known(), 0); y.high_addsub<s>(k, x));
-    BINARY(0, 32, z = x; auto w = y.copy(); w.set_counts(y.known(), min(4, y.known())); z.high_addsub<s>(k, w));
+TEST(addsub) {
+  for (const int s : {1, -1}) {
+    for (const int k : {0, 2}) {
+      BINARY(0, 32, z = x; high_addsub(z, s, k, y));
+      UNARY(0, 32, y.set_counts(x.known(), 0); high_addsub(y, s, k, x));
+      BINARY(0, 32, z = x; auto w = y.copy(y.limit()); w.set_counts(y.known(), min(4l, y.known()));
+                    high_addsub(z, s, k, w));
+    }
   }
 }
-TEST(add_series) { addsub_test<1>(); }
-TEST(sub_series) { addsub_test<-1>(); }
 
 TEST(mul) {
   BINARY(0, 128, z = mul(x, y));
@@ -110,18 +119,22 @@ TEST(mul1p) {
   }
 }
 
-TEST(inv) { UNARY(0, 128, y = inv(x)); }
-TEST(div) { BINARY(0, 128, z = div(x, y)); }
-TEST(inv1p) { SLOOP(1, 3) UNARY(0, 128, y = inv1p(x, s)); }
-TEST(div1p) { SLOOP(1, 3) BINARY(0, 128, z = div1p(z, x, y, s));}
-TEST(log) { UNARY(0, 128, y = log(x)); }
-TEST(log1p) { SLOOP(1, 3) UNARY(0, 128, y = log1p(x, s)); }
-TEST(derivative_shift) { SLOOP(0, 3) UNARY(0, 128, y = derivative_shift(x, s));}
-TEST(integral_shift) { SLOOP(0, 3) UNARY(0, 128, y = integral_shift(x, s)); }
-TEST(exp) { UNARY(0, 128, y = exp(x)); }
-TEST(expm1) { SLOOP(1, 3) for (const int a : {1,-1}) UNARY(0, 128, y = expm1(x, a, s));}
-TEST(log1p_exp) { SLOOP(1, 3) UNARY(0, 128, y = log1p_exp(x, s)); }
-TEST(ldexp) { SLOOP(-3, 3) UNARY(0, 128, y = ldexp(x, s)); }
+static auto constant(const int a) {
+  return [a](Series<double>& x) { if (x.nonzero()) x[0] = a; };
+}
+
+TEST(inv) { UNARY(0, 32, y = inv(x), 1e-9); }
+TEST(div) { BINARY(0, 8, z = div(x, y), 1e-7); }
+TEST(inv1p) { SLOOP(1, 3) UNARY(0, 32, y = inv1p(x, s), 1e-9); }
+TEST(div1p) { SLOOP(1, 3) BINARY(0, 32, z = div1p(x, y, s), 1e-10);}
+TEST(log) { UNARY(0, 32, y = log(x), 1e-10, constant(1)); }
+TEST(log1p) { SLOOP(1, 3) UNARY(0, 32, y = log1p(x, s), 1e-10); }
+TEST(derivative_shift) { SLOOP(0, 3) UNARY(0, 32, y = derivative_shift(x, s));}
+TEST(integral_shift) { SLOOP(0, 3) UNARY(0, 32, y = integral_shift(x, s)); }
+TEST(exp) { UNARY(0, 32, y = exp(x), 1e-10, constant(0)); }
+TEST(expm1) { SLOOP(1, 3) for (const int a : {1,-1}) UNARY(0, 32, y = expm1(x, a, s), 1e-10);}
+TEST(log1p_exp) { SLOOP(1, 3) UNARY(0, 16, y = log1p_exp(x, s), 1e-7, constant(0)); }
+TEST(ldexp) { SLOOP(-3, 3) UNARY(0, 32, y = ldexp(x, s), 1e-9); }
 
 }  // namespace
 }  // namespace mandelbrot

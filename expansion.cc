@@ -35,39 +35,6 @@ template<int n> bool Expansion<n>::operator==(const Expansion y) const {
   return !bool(*this - y);
 }
 
-template<int n> Expansion<n> inv(const Expansion<n> x) {
-  // Base case
-  Expansion<n> y;
-  y.x[0] = 1 / x.x[0];
-
-  // Newton step:
-  //   1/y = x
-  //   f(y) = 1/y - x
-  //   f'(y) = -1/y^2
-  //   N(y) = y - f(y) / f'(y)
-  //        = y - (1/y - x) / (-1/y^2)
-  //        = y - y(xy - 1)
-  //        = y(2 - xy)
-  const Expansion<n> two(2);
-  for (int i = 0; i < n; i++)
-    y = y*(two - x*y);
-  return y;
-}
-
-template<int n> Expansion<n> Expansion<n>::operator/(const Expansion b) const {
-  // Compute the inverse and multiply
-  const auto inv_b = inv(b);
-  Expansion y = *this * inv_b;
-
-  // One more step of Newton refinement:
-  //   y = a/b
-  //   f(y) = by - a
-  //   f'(y) = b
-  //   N(y) = y - (b*y - a)/b
-  y = y - (b*y - *this) * inv_b;
-  return y;
-}
-
 template<int n> Arb Expansion<n>::arb(const int prec) const {
   Arb a, t;
   for (int i = n-1; i >= 0; i--) {
@@ -93,7 +60,7 @@ template<int n> Arb exact_arb(const Expansion<n> x) {
 }
 
 template<int n> span<const double> Expansion<n>::span() const {
-  return SPAN_NAMESPACE::span<const double>(x, size_t(n));
+  return std::span<const double>(x, size_t(n));
 }
 
 template<int n> ostream& operator<<(ostream& out, const Expansion<n> e) {
@@ -129,8 +96,6 @@ template<int n> Expansion<n>::Expansion(const string& s) {
   template Arf exact_arf(const Expansion<n>); \
   template span<const double> Expansion<n>::span() const; \
   template ostream& operator<<(ostream&, const Expansion<n>); \
-  template Expansion<n> inv(const Expansion<n>); \
-  template Expansion<n> Expansion<n>::operator/(const Expansion<n>) const; \
   template Expansion<n>::Expansion(const string&); \
   template string safe(const Expansion<n>);
 N(2)

@@ -1,6 +1,7 @@
 // For assertions that scalars aren't intervals
 #pragma once
 
+#include "device.h"
 namespace mandelbrot {
 
 template<int n> struct Expansion;

@@ -2,5 +2,5 @@
 
 cd "${0%/*}"  # Change to script directory
 rm -rf build
-CXX=clang-14 meson setup build/debug --buildtype=debug
-CXX=clang-14 CXXFLAGS='-O3 -march=native' meson setup build/release --buildtype=release
+CXX=clang-13 meson setup build/debug --buildtype=debug
+CXX=clang-13 CXXFLAGS='-O3 -march=native' meson setup build/release --buildtype=release

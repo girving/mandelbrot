@@ -1,4 +1,4 @@
-// CUDA utilities
+// Cuda utilities
 
 #include "cutil.h"
 namespace mandelbrot {
@@ -27,8 +27,13 @@ public:
 };
 
 CUstream stream() {
-  static Stream s;
-  return s;
+  const bool synchronous = false;
+  if (synchronous)
+    return 0;
+  else {
+    static Stream s;
+    return s;
+  }
 }
 
 void cuda_sync() {

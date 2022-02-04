@@ -16,6 +16,6 @@ static inline string safe(const double x) { return format("%.17g", x); }
 }  // namespace mandelbrot
 namespace std {
 template<class T> ostream& operator<<(ostream& out, const vector<T>& x) {
-  return out << SPAN_NAMESPACE::span<const T>(x);
+  return out << span<const T>(x);
 }
 }  // namespace std
