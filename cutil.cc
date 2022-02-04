@@ -1,5 +1,5 @@
 // Cuda utilities
-#ifdef __CUDACC_
+#ifdef __CUDACC__
 
 #include "cutil.h"
 namespace mandelbrot {

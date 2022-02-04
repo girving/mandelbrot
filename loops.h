@@ -23,9 +23,9 @@ template<class I> __device__ static inline int grid_stride_loop_size(const I n) 
        i < _n; i += _stride)
 
 // Call a one-dimensional grid-stride loop
-#define INVOKE_GRID_STRIDE_LOOP(name, n, ...) CUDA_OR_DIE({ \
+#define INVOKE_GRID_STRIDE_LOOP(name, n, ...) CUDA_OR_DIE(({ \
   const int _n = (n);  /* For now, assume we fit in int32_t */ \
-  name<<<32*num_sms(), 256>>>(_n, __VA_ARGS__); })
+  name<<<32*num_sms(), 256>>>(_n, __VA_ARGS__); }))
 
 // Define 1D loop functions on CPU and GPU
 #define DEF_LOOP(name, n, i, args, body) \
