@@ -46,14 +46,11 @@ double error(SeriesView<const double> x, const Poly& y, const bool relative) {
   return error(x, approx(y, x.known()), relative);
 }
 
-IF_CUDA(template<class S> __global__ static void add_scalar_kernel(S* ys, const S a) { ys[0] += a; })
+DEF_SERIAL(add_scalar_kernel, (S* ys, const S a), ys[0] += a;)
 
 template<class T> void add_scalar(Series<T>& x, const typename Series<T>::Scalar a) {
   slow_assert(x.nonzero());
-  IF_CUDA(if constexpr (is_device<T>)
-    add_scalar_kernel<<<1,1,0,stream()>>>(device_get(x.data()), a);
-  else)
-    x[0] += a;
+  add_scalar_kernel(x.data(), a);
 }
 
 DEF_LOOP(high_addsub_loop, n, i, (S* y, const S* x, const int ynz, const int xnz, const int sign, const int s),

@@ -43,4 +43,16 @@ template<class I> __device__ static inline int grid_stride_loop_size(const I n) 
       name##_host(n, std::forward<Args>(xs)...); \
   }
 
+// Define a serial function on CPU and GPU (not a loop, but meh).
+// This is for reducing the number of total kernel invocations in base cases.
+#define DEF_SERIAL(name, args, body) \
+  IF_CUDA(template<class S> __global__ static void name##_device(UNPAREN args) { body }) \
+  template<class S> static void name##_host(UNPAREN args) { body } \
+  template<class... Args> static inline void name(Args&&... xs) { \
+    if constexpr ((... || is_device<Args>)) \
+      CUDA_OR_DIE(name##_device<<<1, 1, 0, stream()>>>(undevice(xs)...)); \
+    else \
+      name##_host(std::forward<Args>(xs)...); \
+  }
+
 }  // namespace mandelbrot

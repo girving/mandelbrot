@@ -107,5 +107,24 @@ TEST(loop) {
     ASSERT_LE(abs(y[i] - hy[i]), tol);
 }
 
+DEF_SERIAL(some_serial, (S* x, const S a), *x = sqr(a);)
+
+TEST(serial) {
+  typedef float S;
+  const S a = 3;
+
+  // Host
+  S x = 0;
+  some_serial(&x, a);
+  ASSERT_EQ(x, sqr(a));
+
+  // Device
+  Array<Device<S>> dx(1);
+  some_serial(dx.data(), a);
+  Array<S> hx(1);
+  device_to_host<S>(hx, dx);
+  ASSERT_EQ(hx[0], sqr(a));
+}
+
 }  // namespace
 }  // namespace mandelbrot

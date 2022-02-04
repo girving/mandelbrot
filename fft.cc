@@ -433,7 +433,8 @@ template<class S> void isrfft(span<S> x, span<Complex<S>> y) {
   isrfft_scramble(x, y);
 }
 
-IF_CUDA(template<class S> __global__ static void mul_base_kernel(S* z, const S* x, const S* y) { z[0] = x[0] * y[0]; })
+DEF_SERIAL(mul_base, (S* z, const S* x, const int nx, const S* y, const int ny),
+  z[0] = nx && ny ? x[0] * y[0] : S(0);)
 
 DEF_LOOP(mul_cwise_loop, fn2, i, (Complex<S>* fx, const Complex<S>* fy, const S a),
   fx[i] = a * fx[i] * fy[i];)
@@ -444,15 +445,9 @@ template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const
   slow_assert(nz <= relu(nx + ny - 1));
   if (!nz)
     return;
-  else if (nz == 1) {
-    if constexpr (is_device<T>) {
-      CUDA_OR_DIE(
-        if (nx && ny) mul_base_kernel<<<1,1,0,stream()>>>(device_get(z), device_get(x), device_get(y));
-        else single_host_to_device(z.data(), S(0));
-      );
-    } else
-      z[0] = nx && ny ? x[0] * y[0] : 0;
-  } else {
+  else if (nz == 1)
+    mul_base(z.data(), x.data(), nx, y.data(), ny);
+  else {
     // FFT multiplication for large n
     const int64_t fn = bit_ceil(uint64_t(2*nz));
     const Array<AddComplex<T>> buffer(fn);
@@ -465,6 +460,9 @@ template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const
   }
 }
 
+DEF_SERIAL(sqr_base, (S* y, const S* x, const int nx),
+  y[0] = nx ? sqr(x[0]) : S(0);)
+
 DEF_LOOP(sqr_cwise_loop, fn2, i, (Complex<S>* fx, const S a),
   fx[i] = a * sqr(fx[i]);)
 
@@ -475,13 +473,7 @@ template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x) {
   if (!ny)
     return;
   else if (ny == 1)
-    if constexpr (is_device<T>) {
-      CUDA_OR_DIE(
-        if (nx) mul_base_kernel<<<1,1,0,stream()>>>(device_get(y), device_get(x), device_get(x));
-        else single_host_to_device(y.data(), S(0));
-      );
-    } else
-      y[0] = nx ? sqr(x[0]) : 0;
+    sqr_base(y.data(), x.data(), nx);
   else {
     // FFT squaring for large n
     const int64_t fn = bit_ceil(uint64_t(2*ny));
