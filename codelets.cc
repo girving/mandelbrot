@@ -37,6 +37,7 @@ using std::ofstream;
 using std::optional;
 using std::ostream;
 using std::remove_cvref_t;
+using std::shared_ptr;
 using std::string_view;
 using std::tie;
 using std::tuple;
