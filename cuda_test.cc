@@ -4,7 +4,6 @@
 #include "cutil.h"
 #include "loops.h"
 #include "tests.h"
-#include <cuda.h>
 #include <random>
 namespace mandelbrot {
 namespace {

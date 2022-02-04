@@ -17,8 +17,6 @@ Here we try to compute more terms.
 
 ## Dependencies
 
-To install `meson` and `arb`:
-
     # On Mac
     brew install meson arb
 

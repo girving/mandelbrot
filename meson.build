@@ -6,23 +6,45 @@ project('mandelbrot', 'cpp',
             'werror=true',
         ])
 
+# Library search paths
+libpaths = []
+
+# Are we on Mac?
+darwin = build_machine.system() == 'darwin'
+if darwin
+  # Add Homebrew paths
+  brew = run_command('brew', '--prefix', check: true).stdout().strip()
+  add_global_arguments('-I' + brew + '/include', language: 'cpp')
+  libpaths += [brew + '/lib']
+endif
+
+# Linker flags
+linkflags = []
+foreach p : libpaths
+  linkflags += ['-L' + p]
+endforeach
+
 add_global_arguments('-stdlib=libc++', language: 'cpp')
 add_global_arguments('-Wsign-compare', language: 'cpp')
 add_global_arguments('-Wno-gnu-statement-expression', language: 'cpp')
 add_global_arguments('-Wno-unused-parameter', language: 'cpp')
 add_global_arguments('-Wno-deprecated-copy', language: 'cpp')
 add_global_arguments('-Wno-c++11-narrowing', language: 'cpp')
-add_global_arguments('-I/usr/local/cuda/include', language: 'cpp')
-add_global_arguments('-x', 'cuda', '--cuda-gpu-arch=sm_80', language: 'cpp')
-add_global_arguments('-Wno-unknown-cuda-version', language: 'cpp')
 add_global_link_arguments('-lc++', language: 'cpp')
 
-cuda = declare_dependency(link_args: ['-L/usr/local/cuda/lib64', '-lcuda', '-lcudart'])
-gmp = declare_dependency(link_args: ['-lgmp'])
-flint = declare_dependency(link_args: ['-lflint'], dependencies: [gmp])
-m = declare_dependency(link_args: ['-lm'])
-arb = declare_dependency(link_args: ['-lflint-arb'], dependencies: [flint, m])
+cpp = meson.get_compiler('cpp')
+gmp = cpp.find_library('gmp', dirs: libpaths)
+m = cpp.find_library('m')
+flint = declare_dependency(link_args: ['-lflint'] + linkflags, dependencies: [gmp])
+arb = declare_dependency(link_args: [darwin ? '-larb' : '-lflint-arb'] + linkflags, dependencies: [flint, m])
 threads = dependency('threads')
+
+cuda = dependency('cuda', version: '>=11.3', required: false)
+if cuda.found()
+  add_global_arguments('-I/usr/local/cuda/include', language: 'cpp')
+  add_global_arguments('-x', 'cuda', '--cuda-gpu-arch=sm_80', language: 'cpp')
+  add_global_arguments('-Wno-unknown-cuda-version', language: 'cpp')
+endif
 
 # Download tinyformat.h
 tinyformat = custom_target('tinyformat', output: 'tinyformat.h',
@@ -58,8 +80,11 @@ test('arb_area', executable('arb_area_test', ['arb_area_test.cc'], dependencies:
 test('poly', executable('poly_test', ['poly_test.cc'], dependencies: [arb_area, tests]))
 test('fft', executable('fft_test', ['fft_test.cc'], dependencies: [area, tests]))
 test('series', executable('series_test', ['series_test.cc'], dependencies: [area, tests]))
-test('series_cuda', executable('series_cuda_test', ['series_cuda_test.cc'], dependencies: [area, cutil, tests]))
-test('cuda', executable('cuda_test', ['cuda_test.cc'], dependencies: [cutil, tests]))
 test('area', executable('area_test', ['area_test.cc'], dependencies: [area, arb_area, tests]))
+if cuda.found()
+  test('series_cuda', executable('series_cuda_test', ['series_cuda_test.cc'], dependencies: [area, cutil, tests]))
+  test('cuda', executable('cuda_test', ['cuda_test.cc'], dependencies: [cutil, tests]))
+  test('area_cuda', executable('area_cuda_test', ['area_cuda_test.cc'], dependencies: [area, arb_area, tests]))
+endif
 
 executable('mandelbrot', ['mandelbrot.cc'], dependencies: [area, arb_area])

@@ -46,12 +46,14 @@ double error(SeriesView<const double> x, const Poly& y, const bool relative) {
   return error(x, approx(y, x.known()), relative);
 }
 
-template<class S> __global__ static void add_scalar_kernel(S* ys, const S a) { ys[0] += a; }
+IF_CUDA(template<class S> __global__ static void add_scalar_kernel(S* ys, const S a) { ys[0] += a; })
 
 template<class T> void add_scalar(Series<T>& x, const typename Series<T>::Scalar a) {
   slow_assert(x.nonzero());
-  if constexpr (is_device<T>) add_scalar_kernel<<<1,1,0,stream()>>>(device_get(x.data()), a);
-  else x[0] += a;
+  IF_CUDA(if constexpr (is_device<T>)
+    add_scalar_kernel<<<1,1,0,stream()>>>(device_get(x.data()), a);
+  else)
+    x[0] += a;
 }
 
 DEF_LOOP(high_addsub_loop, n, i, (S* y, const S* x, const int ynz, const int xnz, const int sign, const int s),
@@ -83,7 +85,9 @@ template<class T> void mul1p_post(Series<T>& z, SeriesView<add_const_t<T>> x,
   template void mul1p_post(Series<S>&, SeriesView<const S>, const int64_t, const int64_t, const int64_t);
 Ss(double)
 Ss(Expansion<2>)
-Ss(Device<double>)
-Ss(Device<Expansion<2>>)
+IF_CUDA(
+  Ss(Device<double>)
+  Ss(Device<Expansion<2>>)
+)
 
 }  // namespace mandelbrot

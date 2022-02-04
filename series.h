@@ -285,16 +285,16 @@ SERIES_EXP(sqr, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
 
 // Set y[0] = exp(x[0]) on either CPU or GPU.  exp can reference args and x0.
 #define SERIES_BASE(name, args, names, exp) \
-  template<class S> __global__ void name##_base_kernel(S* ys, const S* xs, const int64_t x_nonzero \
+  IF_CUDA(template<class S> __global__ void name##_base_kernel(S* ys, const S* xs, const int64_t x_nonzero \
                                                        COMMA_UNPAREN args) { \
     const S x0 = x_nonzero ? xs[0] : 0; \
     ys[0] = (exp); \
-  } \
+  }) \
   template<class T> void name##_base(Series<T>& y, type_identity_t<SeriesView<const T>> x COMMA_UNPAREN args) { \
     if constexpr (is_device<T>) { \
       y.set_counts(1, 1); \
-      name##_base_kernel<<<1,1,0,stream()>>>(device_get(y.data()), device_get(x.data()), \
-                                             x.nonzero() COMMA_UNPAREN names); \
+      IF_CUDA(name##_base_kernel<<<1,1,0,stream()>>>( \
+          device_get(y.data()), device_get(x.data()), x.nonzero() COMMA_UNPAREN names)); \
     } else { \
       const auto x0 = x[0]; \
       y.set_scalar(1, (exp)); \

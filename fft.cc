@@ -433,9 +433,7 @@ template<class S> void isrfft(span<S> x, span<Complex<S>> y) {
   isrfft_scramble(x, y);
 }
 
-template<class S> __global__ static void mul_base_kernel(S* z, const S* x, const S* y) {
-  z[0] = x[0] * y[0];
-}
+IF_CUDA(template<class S> __global__ static void mul_base_kernel(S* z, const S* x, const S* y) { z[0] = x[0] * y[0]; })
 
 DEF_LOOP(mul_cwise_loop, fn2, i, (Complex<S>* fx, const Complex<S>* fy, const S a),
   fx[i] = a * fx[i] * fy[i];)
@@ -448,8 +446,10 @@ template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const
     return;
   else if (nz == 1) {
     if constexpr (is_device<T>) {
-      if (nx && ny) mul_base_kernel<<<1,1,0,stream()>>>(device_get(z), device_get(x), device_get(y));
-      else single_host_to_device(z.data(), S(0));
+      CUDA_OR_DIE(
+        if (nx && ny) mul_base_kernel<<<1,1,0,stream()>>>(device_get(z), device_get(x), device_get(y));
+        else single_host_to_device(z.data(), S(0));
+      );
     } else
       z[0] = nx && ny ? x[0] * y[0] : 0;
   } else {
@@ -476,8 +476,10 @@ template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x) {
     return;
   else if (ny == 1)
     if constexpr (is_device<T>) {
-      if (nx) mul_base_kernel<<<1,1,0,stream()>>>(device_get(y), device_get(x), device_get(x));
-      else single_host_to_device(y.data(), S(0));
+      CUDA_OR_DIE(
+        if (nx) mul_base_kernel<<<1,1,0,stream()>>>(device_get(y), device_get(x), device_get(x));
+        else single_host_to_device(y.data(), S(0));
+      );
     } else
       y[0] = nx ? sqr(x[0]) : 0;
   else {
@@ -503,7 +505,9 @@ template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x) {
 REST(double)
 MUL(double)
 MUL(Expansion<2>)
-MUL(Device<double>)
-MUL(Device<Expansion<2>>)
+IF_CUDA(
+  MUL(Device<double>)
+  MUL(Device<Expansion<2>>)
+)
 
 }  // namespace mandelbrot

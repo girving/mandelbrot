@@ -152,7 +152,9 @@ template<class T> void areas(const int max_k, const double tol) {
   template void areas<T>(const int max_k, const double);
 AREAS(double)
 AREAS(Expansion<2>)
-AREAS(Device<double>)
-AREAS(Device<Expansion<2>>)
+IF_CUDA(
+  AREAS(Device<double>)
+  AREAS(Device<Expansion<2>>)
+)
 
 }  // namespace mandelbrot

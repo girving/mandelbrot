@@ -1,7 +1,12 @@
 // Arrays that live on host or device
 #pragma once
 
+#include "arith.h"
 #include "cutil.h"
+#include "device.h"
+#include "noncopyable.h"
+#include "span.h"
+#include <memory>
 namespace mandelbrot {
 
 using std::conditional_t;
@@ -9,6 +14,8 @@ using std::enable_if_t;
 using std::is_const_v;
 using std::is_trivially_copyable_v;
 using std::is_trivially_destructible_v;
+using std::remove_const_t;
+using std::unique_ptr;
 
 template<class T> struct Array : public Noncopyable {
   typedef remove_const_t<Undevice<T>> S;
@@ -19,8 +26,10 @@ protected:
   struct Unusable {};
   struct Deleter { void operator()(T* p) const {
     if (!p) return;
-    if constexpr (is_device<T>) cuda_check(cudaFreeAsync(undevice(p), stream()));
-    else free(p);
+    if constexpr (is_device<T>)
+      cuda_check(cudaFreeAsync(undevice(p), stream()));
+    else
+      free(p);
   }};
   int64_t size_;  // Allocated terms
   unique_ptr<T,Deleter> x;

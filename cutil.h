@@ -1,6 +1,17 @@
 // Cuda utilities
 #pragma once
 
+#ifndef __CUDACC__
+
+#define __host__
+#define __device__
+#define cuda_check(...) ((void)0)
+#define IF_CUDA(...)
+#define CUDA_OR_DIE(...) die("No CUDA")
+#include "debug.h"
+
+#else  // __CUDACC__
+
 #include "arith.h"
 #include "debug.h"
 #include "device.h"
@@ -20,6 +31,9 @@ using std::remove_const_t;
 using std::shared_ptr;
 using std::type_identity_t;
 using std::unique_ptr;
+
+#define IF_CUDA(...) __VA_ARGS__
+#define CUDA_OR_DIE(...) __VA_ARGS__
 
 void __attribute__((noreturn, cold))
 cuda_check_fail(cudaError_t code, const char* function, const char* file, unsigned int line,
@@ -61,16 +75,27 @@ template<class T> static inline void device_to_device(span<Device<T>> dst, type_
                              src.size()*sizeof(T), cudaMemcpyDeviceToDevice, stream()));
 }
 
+// Number of SMs
+int num_sms();
+
+}  // namespace mandelbrot
+#endif  // __CUDACC__
+
+#include "device.h"
+#include "debug.h"
+#include "span.h"
+namespace mandelbrot {
+
+using std::type_identity_t;
+
 // Host to host or device to device
 template<class T> static inline void same_to_same(span<T> dst, type_identity_t<span<const T>> src) {
-  if constexpr (is_device<T>) device_to_device(dst, src);
+  if constexpr (is_device<T>)
+    CUDA_OR_DIE(device_to_device(dst, src));
   else {
     slow_assert(dst.size() == src.size());
     memcpy(dst.data(), src.data(), dst.size() * sizeof(T));
   }
 }
-
-// Number of SMs
-int num_sms();
 
 }  // namespace mandelbrot

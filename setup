@@ -2,5 +2,11 @@
 
 cd "${0%/*}"  # Change to script directory
 rm -rf build
-CXX=clang-13 meson setup build/debug --buildtype=debug
-CXX=clang-13 CXXFLAGS='-O3 -march=native' meson setup build/release --buildtype=release
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+  export CXX=clang-13
+else
+  export CPPPATH=`brew --prefix`/include
+  export LDPATH=`brew --prefix`/lib
+fi
+meson setup build/debug --buildtype=debug
+CXXFLAGS='-O3 -march=native' meson setup build/release --buildtype=release

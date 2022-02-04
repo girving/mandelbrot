@@ -1,4 +1,5 @@
 // Cuda utilities
+#ifdef __CUDACC_
 
 #include "cutil.h"
 namespace mandelbrot {
@@ -51,3 +52,4 @@ int num_sms() {
 }
 
 }  // namespace mandelbrot
+#endif  // __CUDACC_

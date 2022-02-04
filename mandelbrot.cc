@@ -29,9 +29,9 @@ int main(int argc, char** argv) {
     const map<string,function<void()>> cmds = {
       {"arb", [&]() { arb_areas(max_k, prec); }},
       {"double", [&]() { areas<double>(max_k, tol); }},
-      {"cuda-double", [&]() { areas<Device<double>>(max_k, tol); }},
       {"exp2", [&]() { areas<Expansion<2>>(max_k, tol); }},
-      {"cuda-exp2", [&]() { areas<Device<Expansion<2>>>(max_k, tol); }},
+      IF_CUDA({"cuda-double", [&]() { areas<Device<double>>(max_k, tol); }},)
+      IF_CUDA({"cuda-exp2", [&]() { areas<Device<Expansion<2>>>(max_k, tol); }},)
     };
 
     const auto it = cmds.find(cmd);

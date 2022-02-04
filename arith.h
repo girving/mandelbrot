@@ -1,6 +1,7 @@
 // Basic math functions
 #pragma once
 
+#include "cutil.h"
 #include <algorithm>
 #include <cmath>
 namespace mandelbrot {
