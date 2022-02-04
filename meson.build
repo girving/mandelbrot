@@ -68,11 +68,14 @@ arb_area = declare_dependency(
     dependencies: [base, arb, arb_cc, known])
 
 codelets = executable('codelets', ['codelets.cc'], dependencies: [base, m])
-gen_expansion = custom_target('gen_expansion', output: 'gen-expansion.h', command: [codelets, '@OUTPUT@'])
+generated = [
+    custom_target('gen_expansion', output: 'gen-expansion.h', command: [codelets, '@OUTPUT@']),
+    custom_target('gen_mul_bases', output: 'gen-mul-bases.h', command: [codelets, '@OUTPUT@']),
+]
 area = declare_dependency(
-    link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc', gen_expansion],
+    link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc'] + generated,
                        dependencies: [base, arb_cc, cutil, known, m]),
-    sources: [gen_expansion], dependencies: [arb_cc, cutil, known, m])
+    sources: generated, dependencies: [arb_cc, cutil, known, m])
 
 test('bit', executable('bit_test', ['bit_test.cc'], dependencies: [tests]))
 test('expansion', executable('expansion_test', ['expansion_test.cc'], dependencies: [area, tests]))

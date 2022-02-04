@@ -89,5 +89,8 @@ extern const Known known_areas[16+1];
 //   4feb2022, double, first working version:
 //     k 10, 11.0 s: mu = 1.895943075803316, error = 3.41e-15
 //     k 11, 16.4 s: mu = 1.8546567767819579, error = 2.83e-15
+//   4feb2022, double, mul/sqr base cases:
+//     k 10:  8.0 s: mu = 1.8959430758033156, error = 3.85e-15
+//     k 11: 12.4 s: mu = 1.8546567767819575, error = 3.27e-15
 
 }  // namespace mandelbrot

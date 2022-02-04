@@ -8,6 +8,7 @@
 #include "device.h"
 #include "debug.h"
 #include "expansion.h"
+#include "gen-mul-bases.h"
 #include "loops.h"
 #include "nearest.h"
 #include "print.h"
@@ -433,9 +434,6 @@ template<class S> void isrfft(span<S> x, span<Complex<S>> y) {
   isrfft_scramble(x, y);
 }
 
-DEF_SERIAL(mul_base, (S* z, const S* x, const int nx, const S* y, const int ny),
-  z[0] = nx && ny ? x[0] * y[0] : S(0);)
-
 DEF_LOOP(mul_cwise_loop, fn2, i, (Complex<S>* fx, const Complex<S>* fy, const S a),
   fx[i] = a * fx[i] * fy[i];)
 
@@ -443,10 +441,8 @@ template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const
   typedef Undevice<T> S;
   const int64_t nz = z.size(), nx = x.size(), ny = y.size();
   slow_assert(nz <= relu(nx + ny - 1));
-  if (!nz)
-    return;
-  else if (nz == 1)
-    mul_base(z.data(), x.data(), nx, y.data(), ny);
+  if (nz <= mul_base_n)
+    mul_base(z.data(), nz, x.data(), nx, y.data(), ny);
   else {
     // FFT multiplication for large n
     const int64_t fn = bit_ceil(uint64_t(2*nz));
@@ -460,9 +456,6 @@ template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const
   }
 }
 
-DEF_SERIAL(sqr_base, (S* y, const S* x, const int nx),
-  y[0] = nx ? sqr(x[0]) : S(0);)
-
 DEF_LOOP(sqr_cwise_loop, fn2, i, (Complex<S>* fx, const S a),
   fx[i] = a * sqr(fx[i]);)
 
@@ -470,10 +463,8 @@ template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x) {
   typedef Undevice<T> S;
   const int64_t ny = y.size(), nx = x.size();
   slow_assert(ny <= relu(2*nx - 1));
-  if (!ny)
-    return;
-  else if (ny == 1)
-    sqr_base(y.data(), x.data(), nx);
+  if (ny <= sqr_base_n)
+    sqr_base(y.data(), ny, x.data(), nx);
   else {
     // FFT squaring for large n
     const int64_t fn = bit_ceil(uint64_t(2*ny));

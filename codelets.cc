@@ -12,6 +12,7 @@
 #include <optional>
 #include <tuple>
 #include <type_traits>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 namespace mandelbrot {
@@ -20,19 +21,25 @@ using std::any_of;
 using std::array;
 using std::common_type_t;
 using std::cout;
+using std::declval;
 using std::deque;
 using std::endl;
+using std::make_pair;
 using std::move;
 using std::nullopt;
 using std::ofstream;
 using std::optional;
 using std::ostream;
+using std::remove_cvref_t;
 using std::string_view;
 using std::tie;
 using std::tuple;
 using std::unique_ptr;
+using std::unordered_map;
 using std::unordered_set;
 using std::vector;
+
+struct Unit {};
 
 // Container utilities
 template<class P> auto& deref(const P& p) { slow_assert(p); return *p; }
@@ -58,6 +65,21 @@ template<class C> string join(const C& ss, const string& sep = ", ") {
 }
 bool startswith(const string_view s, const string_view start) { return s.substr(0, start.size()) == start; }
 bool endswith(const string_view s, const string_view end) { return s.substr(relu(s.size() - end.size())) == end; }
+
+// Cache a function
+template<class A,class F> struct Cache {
+  typedef decltype(declval<F>()(declval<A>())) B;
+  const F f;
+  unordered_map<A,B> cache;
+  B operator()(const A& x) {
+    const auto it = cache.find(x);
+    if (it != cache.end()) return it->second;
+    const auto y = f(x);
+    cache.insert(make_pair(x, y));
+    return y;
+  }
+};
+template<class A,class F> auto cache(F&& f) { return Cache<A,remove_cvref_t<F>>{f, {}}; }
 
 // Function object for nonzeroness
 struct Nonzero { template<class T> bool operator()(T&& x) const { return bool(x); } };
@@ -87,12 +109,14 @@ template<class T> void line(T&& x) {
 template<class... Args> void line(const Args&... args) { line(format(args...)); }
 
 struct Scope : public Noncopyable {
+  const string close;
   unique_ptr<Indent> i;
-  template<class... Args> Scope(const Args&... args) {
-    line(format(args...) + " {");
+  template<class... Args> Scope(const string& close, const Args&... args)
+    : close(close) {
+    line(format(args...));
     i.reset(new Indent);
   }
-  ~Scope() { i.reset(); line("}"); }
+  ~Scope() { i.reset(); line(close); }
 };
 
 struct Blank : public Noncopyable { ~Blank() { line(); }};
@@ -129,7 +153,7 @@ struct VarHash {
   auto operator()(const Var& x) const { return std::hash<string>()(x.name); }
 };
 
-// List of variables
+// Lists of variables
 vector<Var> vars(const string& prefix, const int n) {
   vector<Var> xs;
   for (int i = 0; i < n; i++)
@@ -187,6 +211,16 @@ LEFT_TO_RIGHT_OP(*, 5)
 Exp fma(const Exp& x, const Exp& y, const Exp& s) {
   return Exp{format("__builtin_fma(%s, %s, %s)", x, y, s), 2, {x, y, s}};
 }
+
+template<class Op> Exp reduce(const Op& op, const vector<Exp>& xs) {
+  const size_t n = xs.size();
+  slow_assert(n);
+  if (n == 1) return xs[0];
+  const auto p = xs.begin();
+  return op(reduce(op, vector<Exp>(p, p + n/2)),
+            reduce(op, vector<Exp>(p + n/2, p + n)));
+}
+Exp sum(const vector<Exp>& xs) { return reduce(std::plus<void>(), xs); }
 
 // const type name = exp;
 struct Stmt {
@@ -348,7 +382,7 @@ void expansion_arithmetic(const string& path) {
     // Negation
     {
       Blank b;
-      Scope fun("__host__ __device__ static inline Expansion<%d> operator-(const Expansion<%d> x)", n, n);
+      Scope fun("}", "__host__ __device__ static inline Expansion<%d> operator-(const Expansion<%d> x) {", n, n);
       vector<string> nx;
       for (int i = 0; i < n; i++)
         nx.push_back(format("-x.x[%d]", i));
@@ -358,8 +392,8 @@ void expansion_arithmetic(const string& path) {
     // Add, subtract, multiply
     const auto binary = [n](const string& op, const auto& body) {
       Blank b;
-      Scope fun("__host__ __device__ static inline Expansion<%d>\n"
-                "operator%s(const Expansion<%d> x, const Expansion<%d> y)",
+      Scope fun("}", "__host__ __device__ static inline Expansion<%d>\n"
+                "operator%s(const Expansion<%d> x, const Expansion<%d> y) {",
                 n, op, n, n);
       line("#ifdef __clang__");
       line("#pragma clang fp reassociate(off)");
@@ -379,6 +413,66 @@ void expansion_arithmetic(const string& path) {
   }
 }
 
+// Base cases for series multiplication and squaring
+void mul_bases(const string& path) {
+  Header h(path, "Multiplication and squaring base cases", {"loops.h"});
+  const int n = 8;
+  line("static constexpr int mul_base_n = %d;", n);
+  line("static constexpr int sqr_base_n = %d;\n", n);
+
+  // Zero extension
+  const auto extend = [](const string& x) {
+    return cache<int>([x](const int i) {
+      const auto v = format("%s%d", x, i);
+      line("const auto %s = %d < n%s ? %s[%d] : S(0);", v, i, x, x, i);
+      return Exp(Var(v));
+    });
+  };
+
+  const auto early = [](const string& n) {
+    return cache<int>([n](const int i) { line("if (%s <= %d) return;", n, i); return Unit(); });
+  };
+
+  // Multiplication
+  {
+    Blank b;
+    Scope fun(")", "DEF_SERIAL(mul_base, (S* z, const int nz, const S* x, const int nx, const S* y, const int ny),");
+    auto exit = early("nz");
+    exit(0);
+    auto xi = extend("x");
+    auto yi = extend("y");
+    // Cache inputs so that aliasing works
+    for (int i = 0; i < n; i++) xi(i);
+    for (int i = 0; i < n; i++) yi(i);
+    line();
+    for (int i = 0; i < n; i++) {
+      exit(i);
+      vector<Exp> ts;
+      for (int j = 0; j <= i; j++)
+        ts.push_back(xi(j) * yi(i - j));
+      line("z[%d] = %s;", i, sum(ts));
+    }
+  };
+
+  // Squaring
+  {
+    Blank b;
+    Scope fun(")", "DEF_SERIAL(sqr_base, (S* y, const int ny, const S* x, const int nx),");
+    auto exit = early("ny");
+    exit(0);
+    auto xi = extend("x");
+    for (int i = 0; i < n; i++) xi(i); // Cache inputs so that aliasing works
+    line();
+    for (int i = 0; i < n; i++) {
+      exit(i);
+      vector<Exp> ts;
+      for (int j = 0; j <= i; j++)
+        ts.push_back(xi(j) * xi(i - j));
+      line("y[%d] = %s;", i, sum(ts));
+    }
+  };
+}
+
 }  // namespace mandelbrot
 using namespace mandelbrot;
 
@@ -386,10 +480,9 @@ int main(int argc, char** argv) {
   try {
     const vector<string> paths(argv + 1, argv + argc);
     for (const auto& path : paths) {
-      if (endswith(path, "gen-expansion.h"))
-        expansion_arithmetic(path);
-      else
-        die("Unmatched path '%s'", path);
+      if (endswith(path, "gen-expansion.h")) expansion_arithmetic(path);
+      else if (endswith(path, "gen-mul-bases.h")) mul_bases(path);
+      else die("Unmatched path '%s'", path);
     }
   } catch (const std::exception& e) {
     std::cerr << e.what() << std::endl;
