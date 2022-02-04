@@ -237,6 +237,12 @@ TEST(add_series) {
   }
 }
 
+TEST(neg) {
+  Series<double> x(3, {3, 5, 7}), y(3);
+  y = neg(x);
+  ASSERT_EXACT(y, -3, -5, -7);
+}
+
 TEST(mul) {
   // Small n
   Series<double> x(3, {3, 5, 7}), y(3, {2, 3, 4});
@@ -522,14 +528,14 @@ TEST(integral_shift) {
 TEST(exp) {
   Rand random;
   Poly ay, ax;
-  for (const int n : {0, 1, 2, 3, 4, 5, 11, 16, 23}) {
+  for (const int n : {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 16, 23}) {
     poly_rand(ax, random, n);
     arb_poly_set_coeff_si(ax, 0, 0);
     arb_poly_exp_series(ay, ax, n, prec);
     Series<double> y(n);
     y = exp(approx(ax, n));
     const auto e = error(y, ay);
-    ASSERT_LT(e, 1e-13) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
+    ASSERT_LT(e, 1e-13) << format("n %d, e = %g\nx = %.3g\ny = %.3g\nay = %.3g", n, e, approx(ax, n), y, ay);
   }
 }
 

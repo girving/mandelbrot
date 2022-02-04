@@ -1,15 +1,19 @@
 // Code generation
 
+#define CODELETS 1
+
 #include "arith.h"
 #include "debug.h"
 #include "format.h"
 #include "noncopyable.h"
 #include "print.h"
+#include "series.h"
 #include <array>
 #include <deque>
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <random>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -24,8 +28,10 @@ using std::cout;
 using std::declval;
 using std::deque;
 using std::endl;
+using std::independent_bits_engine;
 using std::make_pair;
-using std::move;
+using std::make_tuple;
+using std::mt19937;
 using std::nullopt;
 using std::ofstream;
 using std::optional;
@@ -64,7 +70,10 @@ template<class C> string join(const C& ss, const string& sep = ", ") {
   return j;
 }
 bool startswith(const string_view s, const string_view start) { return s.substr(0, start.size()) == start; }
-bool endswith(const string_view s, const string_view end) { return s.substr(relu(s.size() - end.size())) == end; }
+bool endswith(const string_view s, const string_view end) {
+  if (s.size() < end.size()) return false;
+  return s.substr(s.size() - end.size()) == end;
+}
 
 // Cache a function
 template<class A,class F> struct Cache {
@@ -80,6 +89,121 @@ template<class A,class F> struct Cache {
   }
 };
 template<class A,class F> auto cache(F&& f) { return Cache<A,remove_cvref_t<F>>{f, {}}; }
+
+// Signatures for polynomials (values modulo a variety of small primes) for Schwartz–Zippel testing
+static const uint64_t primes[] = {
+  9223372036854775837ul,
+  9223372036854775907ul,
+  9223372036854775931ul,
+  9223372036854775939ul,
+};
+struct Sig {
+  static constexpr int n = sizeof(primes) / sizeof(uint64_t);
+  uint64_t x[n];
+
+  Sig() : x{0} {}
+
+  explicit Sig(const int a) {
+    for (int i = 0; i < n; i++)
+      x[i] = a >= 0 ? a : a + primes[i];
+  }
+
+  bool operator==(const Sig s) const {
+    for (int i = 0; i < n; i++)
+      if (x[i] != s.x[i]) return false;
+    return true;
+  }
+
+  friend ostream& operator<<(ostream& out, const Sig s) {
+    const bool first = true;
+    if (first) out << s.x[0];
+    else out << span<const uint64_t>(s.x);
+    return out;
+  }
+
+  Sig operator-() const {
+    Sig r;
+    for (int i = 0; i < n; i++) r.x[i] = x[i] ? primes[i] - x[i] : 0;
+    return r;
+  }
+
+  Sig operator+(const Sig s) const {
+    Sig r;
+    for (int i = 0; i < n; i++) {
+      const auto t = __uint128_t(x[i]) + s.x[i];
+      r.x[i] = t < primes[i] ? t : t - primes[i];
+    }
+    return r;
+  }
+
+  Sig operator-(const Sig s) const { return *this + (-s); }
+
+  Sig operator*(const Sig s) const {
+    Sig r;
+    for (int i = 0; i < n; i++)
+      r.x[i] = (__uint128_t(x[i]) * s.x[i]) % primes[i];
+    return r;
+  }
+};
+
+// Find s,t s.t. sx + tp = 1, so that a^{-1} = s (mod p)
+// From https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm#Pseudocode.
+uint64_t inv_mod(const uint64_t x, const uint64_t p) {
+  // Work in signed 128 bits for super laziness.
+  __int128_t rp = x, r = p;
+  __int128_t sp = 1, s = 0;
+  __int128_t tp = 0, t = 1;
+  while (r) {
+    const auto q = rp / r;
+    tie(rp, r) = make_tuple(r, rp - q*r);
+    tie(sp, s) = make_tuple(s, sp - q*s);
+    tie(tp, t) = make_tuple(t, tp - q*t);
+  }
+  slow_assert(sp*x + tp*p == 1);
+  // 1 = sx + tp = (s+p)x + (t-x)p
+  if (sp < 0) sp += p;
+  slow_assert(sp >= 0);
+  return sp;
+}
+
+Sig inv(const Sig s) {
+  Sig r;
+  for (int i = 0; i < Sig::n; i++)
+    r.x[i] = inv_mod(s.x[i], primes[i]);
+  slow_assert(r * s == Sig(1));
+  return r;
+}
+
+Sig random_sig() {
+  static independent_bits_engine<mt19937,64,uint64_t> mt(7);
+  Sig s;
+  for (int i = 0; i < Sig::n; i++) {
+    const auto bits = mt();
+    static_assert(is_same_v<decltype(bits),const uint64_t>);
+    s.x[i] = bits;
+  }
+  return s;
+}
+
+struct SigHash {
+  // The first value is random enough for a hash
+  auto operator()(const Sig& s) const { return std::hash<uint64_t>()(s.x[0]); }
+};
+
+// Detect small signatures
+static unordered_map<Sig,int,SigHash> make_smalls() {
+  unordered_map<Sig,int,SigHash> smalls;
+  for (int i = 0; i <= 32; i++) {
+    smalls[Sig(i)] = i;
+    smalls[-Sig(i)] = -i;
+  }
+  return smalls;
+}
+optional<int> unsmall(const Sig s) {
+  static const auto smalls = make_smalls();
+  const auto it = smalls.find(s);
+  return it != smalls.end() ? optional<int>(it->second) : nullopt;
+}
 
 // Function object for nonzeroness
 struct Nonzero { template<class T> bool operator()(T&& x) const { return bool(x); } };
@@ -142,8 +266,9 @@ struct Header : public Noncopyable {
 
 struct Var {
   string name;
+  Sig sig;
 
-  explicit Var(const string& name) : name(name) {}
+  Var(const string& name, const Sig sig) : name(name), sig(sig) {}
   Var(const Var& x) = default;
   bool operator==(const Var& x) const { return name == x.name; }
   friend ostream& operator<<(ostream& out, const Var& x) { return out << x.name; }
@@ -153,63 +278,125 @@ struct VarHash {
   auto operator()(const Var& x) const { return std::hash<string>()(x.name); }
 };
 
-// Lists of variables
-vector<Var> vars(const string& prefix, const int n) {
+// Variables with random signatures
+Var input_var(const string& name) { return Var(name, random_sig()); }
+vector<Var> input_vars(const string& prefix, const int n) {
   vector<Var> xs;
   for (int i = 0; i < n; i++)
-    xs.push_back(Var(format("%s%d", prefix, i)));
+    xs.push_back(input_var(format("%s%d", prefix, i)));
   return xs;
 }
 
 struct Exp {
-  string exp;
-  int prec;  // Precedence, following https://en.wikipedia.org/wiki/Operators_in_C_and_C++#Operator_precedence
-  vector<Exp> args;
-  unordered_set<Var,VarHash> deps;
+private:
+  struct Data {
+    string exp;
+    bool atom;
+    int prec;  // Precedence, following https://en.wikipedia.org/wiki/Operators_in_C_and_C++#Operator_precedence
+    Sig sig;
+    vector<Exp> args;
+  };
+  shared_ptr<const Data> e;
+public:
 
-  Exp(const Var& x) : exp(x.name), prec(0), deps{x} {}
+  Exp() : Exp(Var("nonsense", random_sig())) {}
+  Exp(const Var& x) : e(new Data{x.name, true, 0, x.sig, {}}) {}
+  Exp(const int a) : e(new Data{format("%d", a), true, 0, Sig(a), {}}) {}
+  Exp(const string& exp, const int prec, const Sig s, const vector<Exp>& args)
+    : e(new Data{exp, false, prec, s, args}) {}
+  Exp(const Exp& e) : e(e.e) {}
+  Exp(Exp&& e) : e(e.e) {}  // Stay valid on move
+  Exp& operator=(const Exp& f) { e = f.e; return *this; }
 
-  Exp(const string& exp, const int prec, const vector<Exp>& args)
-    : exp(exp), prec(prec), args(args) {
-    for (const auto& e : args)
-      for (const auto& v : e.deps)
-        this->deps.insert(v);
+  bool zero() const { return e->exp == "0"; }
+  bool one() const { return e->exp == "1"; }
+  bool atom() const { return e->atom; }
+  int prec() const { return e->prec; }
+  const Sig& sig() const { return e->sig; }
+  const string& exp() const { return e->exp; }
+  bool negation() const { return prec() == 3 && startswith(exp(), "-"); }
+  bool parens() const { return prec() == 2 && startswith(exp(), "(") && endswith(exp(), ")"); }
+  const Exp& arg() const { slow_assert(e->args.size() == 1, exp()); return e->args[0]; }
+
+  unordered_set<string> deps() const {
+    unordered_set<string> deps;
+    for (const auto& a : e->args)
+      for (const auto& v : a.deps())
+        deps.insert(v);
+    if (atom())
+      deps.insert(exp());
+    return deps;
   }
 
   // Wrap in parens
-  Exp parens() const {
-    Exp e = *this;
-    if (!(startswith(exp, "(") && endswith(exp, ")"))) {
-      e.exp = format("(%s)", e.exp);
-      e.prec = 2;
-    }
-    return e;
+  Exp add_parens() const {
+    if (atom() || parens()) return *this;
+    return Exp(format("(%s)", exp()), 2, sig(), {*this});
   }
 
   // Ensure we have precedence <= prec
-  Exp ensure(const int prec) const { return this->prec <= prec ? *this : parens(); }
+  Exp ensure(const int prec) const { return this->prec() <= prec ? *this : add_parens(); }
 
   Exp operator-() const {
+    if (zero()) return *this;
+    if (negation()) {
+      if (atom()) {
+        const int i = atoi(exp().c_str());
+        slow_assert(i < 0);
+        return Exp(-i);
+      }
+      return arg();
+    }
     const auto e = ensure(3);
-    return Exp(format("-%s", e.exp), 3, {e});
+    return Exp(format("-%s", e.exp()), 3, -sig(), {e});
   }
 
-  friend ostream& operator<<(ostream& out, const Exp& e) { return out << e.exp; }
+  friend ostream& operator<<(ostream& out, const Exp& e) { return out << e.exp(); }
 };
+
+template<> struct IsIntervalT<Exp> { static constexpr bool value = false; };
 
 vector<Exp> exps(const vector<Var>& x) { return vector<Exp>(x.begin(), x.end()); }
 
-#define LEFT_TO_RIGHT_OP(op, prec) \
-  Exp operator op(const Exp& x, const Exp& y) { \
-    return Exp{format("%s " #op " %s", x.ensure(prec), y.ensure(prec-1)), prec, {x, y}}; \
-  }
-LEFT_TO_RIGHT_OP(+, 6)
-LEFT_TO_RIGHT_OP(-, 6)
-LEFT_TO_RIGHT_OP(*, 5)
-#undef LEFT_TO_RIGHT_OP
+Exp operator+(const Exp& x, const Exp& y);
+Exp operator-(const Exp& x, const Exp& y);
+
+Exp operator+(const Exp& x, const Exp& y) {
+  if (x.zero()) return y;
+  if (y.zero()) return x;
+  if (x.negation()) return y - (-x);
+  if (y.negation()) return x - (-y);
+  return Exp{format("%s + %s", x.ensure(6), y.ensure(5)), 6, x.sig() + y.sig(), {x, y}};
+}
+
+Exp operator-(const Exp& x, const Exp& y) {
+  if (x.zero()) return -y;
+  if (y.zero()) return x;
+  if (x.negation()) return -((-x) + y);
+  if (y.negation()) return x + (-y);
+  return Exp{format("%s - %s", x.ensure(6), y.ensure(5)), 6, x.sig() - y.sig(), {x, y}};
+}
+
+Exp operator*(const Exp& x, const Exp& y) {
+  if (x.zero() || y.zero()) return 0;
+  if (x.negation()) return -((-x) * y);
+  if (y.negation()) return -(x * (-y));
+  if (x.one()) return y;
+  if (y.one()) return x;
+  const auto sig = x.sig() * y.sig();
+  if (x.exp() == y.exp()) return Exp{format("sqr(%s)", x), 2, sig, {x}};
+  return Exp{format("%s * %s", x.ensure(5), y.ensure(4)), 5, sig, {x, y}};
+}
+
+Exp operator/(const Exp& x, const int a) {
+  slow_assert(a);
+  if (a == 1) return x;
+  if (a == -1) return -x;
+  return Exp{format("%s / %d", x.ensure(5), a), 5, x.sig() * inv(Sig(a)), {x}};
+}
 
 Exp fma(const Exp& x, const Exp& y, const Exp& s) {
-  return Exp{format("__builtin_fma(%s, %s, %s)", x, y, s), 2, {x, y, s}};
+  return Exp{format("__builtin_fma(%s, %s, %s)", x, y, s), 2, random_sig(), {x, y, s}};
 }
 
 template<class Op> Exp reduce(const Op& op, const vector<Exp>& xs) {
@@ -224,52 +411,135 @@ Exp sum(const vector<Exp>& xs) { return reduce(std::plus<void>(), xs); }
 
 // const type name = exp;
 struct Stmt {
-  Var var;
+  optional<Var> var;
   string type;
   Exp exp;
 
+  Stmt(const Var& var, const string& type, const Exp& exp) : var(var), type(type), exp(exp) {}
+  explicit Stmt(const string& s) : type("void"), exp(s, 100, Sig(), {}) {}
+  Stmt() : Stmt("") {}
+
   friend ostream& operator<<(ostream& out, const Stmt& s) {
-    return out << "const " << s.type << ' ' << s.var << " = " << s.exp << ';';
+    const bool sigs = true;
+    if (s.var) {
+      out << "const " << s.type << ' ' << *s.var << " = " << s.exp << ';';
+      if (sigs) out << "  // sig = " << s.exp.sig();
+    } else
+      if (!s.exp.exp().empty())
+        out << s.exp << ';';
+    return out;
   }
 };
 
 // A basic block
-struct Block {
+struct Block : public Noncopyable {
+private:
+  static Block* active_;
+public:
+  const bool sz_cse;  // Whether to use Schwartz-Zippel for CSE
   vector<Stmt> stmts;
+  unordered_map<string,Var> expressions;  // For CSE on string expressions
+  unordered_map<Sig,Var,SigHash> signatures;  // For CSE via Schwartz–Zippel
   unordered_set<string> names;
 
-  Block(const vector<Var>& inputs) {
+  Block(const vector<Var>& inputs, const bool sz_cse)
+    : sz_cse(sz_cse) {
+    slow_assert(!active_);
+    active_ = this;
     for (const auto& x : inputs)
       names.insert(x.name);
   }
+  ~Block() { active_ = 0; }
 
-  Var fresh(const string& prefix) {
-    for (int n = 0;; n++) {
-      const auto s = n ? format("%s%d", prefix, n) : prefix;
+  static Block& active() { slow_assert(active_); return *active_; }
+
+  string fresh(const string& prefix) {
+    for (int n = -1;; n++) {
+      const auto s = n < 0 ? prefix : format("%s%d", prefix, n);
       if (names.insert(s).second)
-        return Var(s);
+        return s;
     }
   }
 
-  Exp add(const string& prefix, const string& type, Exp&& exp) {
-    const auto name = fresh(prefix);
-    stmts.push_back(Stmt{name, type, move(exp)});
-    return name;
+  Exp add(const string& prefix, const string& type, const Exp& exp) {
+    if (exp.atom()) return exp;
+    if (exp.negation()) return -add(prefix, type, exp.arg());
+    if (exp.parens()) return add(prefix, type, exp.arg());
+    // CSE
+    if (sz_cse) {
+      const auto small = unsmall(exp.sig());
+      if (small) return Exp(*small);
+      const auto it = signatures.find(exp.sig());
+      if (it != signatures.end()) return it->second;
+    } else {
+      const auto it = expressions.find(exp.exp());
+      if (it != expressions.end()) return it->second;
+    }
+    // Fine, compute it
+    const Var var(fresh(prefix), exp.sig());
+    stmts.push_back(Stmt(var, type, exp));
+    // Remember
+    signatures.insert(make_pair(exp.sig(), var));
+    expressions.insert(make_pair(exp.exp(), var));
+    return var;
   }
-  Exp add(const string& prefix, Exp&& exp) { return add(prefix, "auto", move(exp)); }
+  Exp add(const string& prefix, const Exp& exp) { return add(prefix, "auto", exp); }
 
-  void strip(const vector<Exp>& live_exps) {
-    unordered_set<Var, VarHash> live;
-    for (const auto& e : live_exps)
-      for (const auto& x : e.deps)
+  Exp sum(const string& prefix, const vector<Exp>& exps) {
+    return reduce([this,&prefix](const auto& x, const auto& y) { return add(prefix, x + y); }, exps);
+  }
+
+  void strip(span<const Exp> roots) {
+    unordered_set<string> live;
+    for (const auto& e : roots)
+      for (const auto& x : e.deps())
         live.insert(x);
     for (int i = int(stmts.size()) - 1; i >= 0; i--) {
       const auto s = stmts.begin() + i;
-      if (contains(live, s->var))
-        for (const auto& d : s->exp.deps)
+      slow_assert(s->var);
+      if (contains(live, s->var->name))
+        for (const auto& d : s->exp.deps())
           live.insert(d);
       else
         stmts.erase(s);
+    }
+  }
+
+  // Reorder statements so that each exp can be returned in order
+  void multi_strip(span<const Exp> roots, span<const vector<Stmt>> returns) {
+    // Sort statements into classed based on the earliest root that depends on them
+    const int rn = roots.size();
+    slow_assert(returns.empty() || rn == int(returns.size()));
+    unordered_map<string,int> earliest;
+    const auto depend = [&earliest](const string& s, int r) {
+      const auto it = earliest.find(s);
+      r = it != earliest.end() ? min(r, it->second) : r;
+      earliest[s] = r;
+    };
+    for (int r = 0; r < rn; r++)
+      for (const auto& x : roots[r].deps())
+        depend(x, r);
+    vector<vector<Stmt>> reorder(rn);
+    for (int i = int(stmts.size()) - 1; i >= 0; i--) {
+      const auto& s = stmts[i];
+      slow_assert(s.var);
+      const auto it = earliest.find(s.var->name);
+      if (it != earliest.end()) {
+        const int r = it->second;
+        for (const auto& d : s.exp.deps())
+          depend(d, r);
+        reorder[r].push_back(s);
+      }
+    }
+
+    // Output reordered statements
+    stmts.clear();
+    for (int r = 0; r < rn; r++) {
+      for (int i = int(reorder[r].size()) - 1; i >= 0; i--)
+        stmts.push_back(reorder[r][i]);
+      if (returns.size())
+        for (const auto& s : returns[r])
+          stmts.push_back(s);
     }
   }
 
@@ -279,8 +549,12 @@ struct Block {
   }
 };
 
+Block* Block::active_ = 0;
+
 struct ExpansionBlock : public Block {
-  using Block::Block;
+  // No Schwartz-Zippel for expansion arithmetic!
+  static constexpr bool sz_cse = false;
+  ExpansionBlock(const vector<Var>& inputs) : Block(inputs, sz_cse) {}
 
   // For each i, ulp(x[i]) >= |x[i+1]|
   typedef tuple<Exp,Exp> E2;
@@ -299,7 +573,7 @@ struct ExpansionBlock : public Block {
   E2 two_sum(const Exp& a, const Exp& b) {
     const auto x = add("x", a + b);
     const auto v = add("v", x - a);
-    const auto y = add("y", (a - (x - v)).parens() + (b - v));
+    const auto y = add("y", (a - (x - v)) + (b - v));
     return {x, y};
   }
 
@@ -398,10 +672,10 @@ void expansion_arithmetic(const string& path) {
       line("#ifdef __clang__");
       line("#pragma clang fp reassociate(off)");
       line("#endif  // __clang__");
-      const auto x = vars("x", n), y = vars("y", n);
+      const auto x = input_vars("x", n), y = input_vars("y", n);
       line("const auto [%s] = x.x;", join(x));
       line("const auto [%s] = y.x;", join(y));
-      ExpansionBlock B(concat(vector<Var>{Var("x"), Var("y")}, x, y));
+      ExpansionBlock B(concat(vector<Var>{input_var("x"), input_var("y")}, x, y));
       const auto s = body(B, exps(x), exps(y));
       B.strip(s);
       B.lines();
@@ -413,6 +687,20 @@ void expansion_arithmetic(const string& path) {
   }
 }
 
+// Zero extension
+auto extend(const string& x) {
+  return cache<int>([x](const int i) {
+    const auto v = format("%s%d", x, i);
+    line("const auto %s = %d < n%s ? %s[%d] : S(0);", v, i, x, x, i);
+    return Exp(input_var(v));
+  });
+};
+
+// Early exit
+const auto early = [](const string& n) {
+  return cache<int>([n](const int i) { line("if (%s <= %d) return;", n, i); return Unit(); });
+};
+
 // Base cases for series multiplication and squaring
 void mul_bases(const string& path) {
   Header h(path, "Multiplication and squaring base cases", {"loops.h"});
@@ -420,23 +708,10 @@ void mul_bases(const string& path) {
   line("static constexpr int mul_base_n = %d;", n);
   line("static constexpr int sqr_base_n = %d;\n", n);
 
-  // Zero extension
-  const auto extend = [](const string& x) {
-    return cache<int>([x](const int i) {
-      const auto v = format("%s%d", x, i);
-      line("const auto %s = %d < n%s ? %s[%d] : S(0);", v, i, x, x, i);
-      return Exp(Var(v));
-    });
-  };
-
-  const auto early = [](const string& n) {
-    return cache<int>([n](const int i) { line("if (%s <= %d) return;", n, i); return Unit(); });
-  };
-
   // Multiplication
   {
     Blank b;
-    Scope fun(")", "DEF_SERIAL(mul_base, (S* z, const int nz, const S* x, const int nx, const S* y, const int ny),");
+    Scope f(")", "DEF_SERIAL(mul_base, (S* z, const int nz, const S* x, const int nx, const S* y, const int ny),");
     auto exit = early("nz");
     exit(0);
     auto xi = extend("x");
@@ -457,7 +732,7 @@ void mul_bases(const string& path) {
   // Squaring
   {
     Blank b;
-    Scope fun(")", "DEF_SERIAL(sqr_base, (S* y, const int ny, const S* x, const int nx),");
+    Scope f(")", "DEF_SERIAL(sqr_base, (S* y, const int ny, const S* x, const int nx),");
     auto exit = early("ny");
     exit(0);
     auto xi = extend("x");
@@ -473,6 +748,84 @@ void mul_bases(const string& path) {
   };
 }
 
+// Override series arithmetic
+void add_scalar(Series<Exp>& x, const Exp a) {
+  slow_assert(x.nonzero());
+  auto& B = Block::active();
+  x[0] = B.add("s", x[0] + a);
+}
+void high_addsub(Series<Exp>& y, const int sign, const int64_t s, SeriesView<const Exp> x) {
+  auto& B = Block::active();
+  const auto ynz = y.nonzero(), xnz = x.nonzero();
+  const auto nk = min(y.known(), x.known() + s);
+  const auto nz = min(nk, max(ynz, xnz ? xnz + s : 0));
+  slow_assert(abs(sign) == 1 && nz <= y.limit());
+  const auto x_ = x.copy(xnz);  // Watch for aliasing
+  y.set_counts(nk, nz);
+  for (int i = 0; i < nz; i++) {
+    const auto yi = i < ynz ? y[i] : Exp(0);
+    auto xi = uint32_t(i-s) < uint32_t(xnz) ? x_[i-s] : Exp(0);
+    if (sign < 0) xi = -xi;
+    y[i] = B.add("s", yi + xi);
+  }
+}
+void fft_mul(span<Exp> z, span<const Exp> x, span<const Exp> y) {
+  // Actually, we use naive multiplication
+  auto& B = Block::active();
+  const int nz = z.size(), nx = x.size(), ny = y.size();
+  for (int i = 0; i < nz; i++) {
+    vector<Exp> ts;
+    for (int j = 0; j <= i; j++)
+      if (j < nx && i - j < ny)
+        ts.push_back(B.add("t", x[j] * y[i - j]));
+    z[i] = B.sum("z", ts);
+  }
+}
+
+Exp inv(const Exp& x) { return Block::active().add("r", Exp{format("inv(%s)", x), 2, inv(x.sig()), {x}}); }
+
+// Base cases for series functions
+void series_bases(const string& path) {
+  Header h(path, "Series function base cases", {"loops.h"});
+  const int n = 4;
+  const bool sz_cse = true;
+
+  // Unary
+  const auto unary = [n](const string& name, const int leading, auto&& set) {
+    {
+      Blank b;
+      Scope f(")", "DEF_SERIAL(%s_base_serial, (S* y, const int ny, const S* x, const int nx),", name);
+      vector<Var> inputs{input_var("y"), input_var("ny"), input_var("x"), input_var("nx")};
+      for (int i = 0; i < leading; i++) inputs.push_back(input_var(format("x%d", i)));  // Make names nicer
+      Block B(inputs, sz_cse);
+      Series<Exp> x(n), y(n);
+      x.set_counts(n, n);
+      for (int i = 0; i < n; i++)
+        x[i] = i < leading ? Exp(0) : B.add("x", Exp(format("%d < nx ? x[%d] : S(0)", i, i), 16, random_sig(), {}));
+      set(y, x.view());
+      vector<vector<Stmt>> returns(n);
+      for (int i = 0; i < n; i++) {
+        returns[i].push_back(Stmt(format("y[%d] = %s", i, y[i])));
+        if (i+1 < n) {
+          returns[i].push_back(Stmt());
+          returns[i].push_back(Stmt(format("if (ny == %d) return", i+1)));
+        }
+      }
+      B.multi_strip(y, returns);
+      B.lines();
+    } {
+      Blank b;
+      Scope f("}", "template<class T> void %s_base(Series<T>& y, type_identity_t<SeriesView<const T>> x) {", name);
+      line("const int ny = min(%d, int(x.known()));", n);
+      line("y.set_counts(ny, ny);");
+      line("if (ny) %s_base_serial(y.data(), ny, x.data(), x.nonzero());", name);
+    }
+  };
+  #define UNARY(name, leading) unary(#name, leading, [=](auto& y, const auto x) { y = name(x); });
+  UNARY(inv, 0)
+  UNARY(exp, 1)
+}
+
 }  // namespace mandelbrot
 using namespace mandelbrot;
 
@@ -482,6 +835,7 @@ int main(int argc, char** argv) {
     for (const auto& path : paths) {
       if (endswith(path, "gen-expansion.h")) expansion_arithmetic(path);
       else if (endswith(path, "gen-mul-bases.h")) mul_bases(path);
+      else if (endswith(path, "gen-series-bases.h")) series_bases(path);
       else die("Unmatched path '%s'", path);
     }
   } catch (const std::exception& e) {

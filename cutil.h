@@ -94,7 +94,7 @@ template<class T> static inline void same_to_same(span<T> dst, type_identity_t<s
     CUDA_OR_DIE(device_to_device(dst, src));
   else {
     slow_assert(dst.size() == src.size());
-    memcpy(dst.data(), src.data(), dst.size() * sizeof(T));
+    std::copy(src.data(), src.data() + src.size(), dst.data());
   }
 }
 

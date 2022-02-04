@@ -19,17 +19,14 @@ using std::unique_ptr;
 
 template<class T> struct Array : public Noncopyable {
   typedef remove_const_t<Undevice<T>> S;
-  static_assert(is_trivially_copyable_v<S>);
-  static_assert(is_trivially_destructible_v<S>);
   typedef T* Data;
 protected:
   struct Unusable {};
   struct Deleter { void operator()(T* p) const {
     if (!p) return;
-    if constexpr (is_device<T>)
-      cuda_check(cudaFreeAsync(undevice(p), stream()));
-    else
-      free(p);
+    if constexpr (is_device<T>) cuda_check(cudaFreeAsync(undevice(p), stream()));
+    else if constexpr (is_trivially_destructible_v<S>) free(p);
+    else delete[] p;
   }};
   int64_t size_;  // Allocated terms
   unique_ptr<T,Deleter> x;
@@ -40,7 +37,8 @@ public:
     if (size_) {
       T* p;
       if constexpr (is_device<T>) cuda_check(cudaMallocAsync(&p, size_ * sizeof(S), stream()));
-      else p = static_cast<T*>(malloc(size_ * sizeof(T)));
+      else if constexpr (is_trivially_destructible_v<S>) p = static_cast<T*>(malloc(size_ * sizeof(T)));
+      else p = new T[size_];
       x.reset(p);
     }
   }

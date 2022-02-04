@@ -10,6 +10,7 @@ using std::string;
 using tinyformat::format;
 
 static inline string format() { return string(); }
+static inline const string& format(const string& s) { return s; }
 
 static inline string safe(const double x) { return format("%.17g", x); }
 

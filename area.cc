@@ -89,7 +89,6 @@ template<class T> void areas(const int max_k, const double tol) {
   for (int k = 1; k <= max_k; k++) {
     print("\nk %d:", k);
     for (int refine = 0; refine < 2; refine++) {
-      print("  refine %d:", refine);
       const auto start = wall_time();
       const int p = 1 << k;
       const int dp = refine ? p : p / 2;
@@ -120,30 +119,35 @@ template<class T> void areas(const int max_k, const double tol) {
       }
       const auto elapsed = wall_time() - start;
 
-      // Report results
+      // Estimate area!
       Series<T> f(p);
       f = exp(g);
       const S mu = area(f);
-      print("    mu = %s", safe(mu));
+
+      // Check against known results
+      double error = 0;
+      string error_s;
+      const span<const Known> knowns(known_areas);
+      if (k < int(knowns.size())) {
+        const int prec = 1000;
+        Arb known, error_a;
+        arb_set_str(known, knowns[k].value, prec);
+        const Arb ours = exact_arb(mu);
+        arb_sub(error_a, known, ours, prec);
+        error = bound(error_a);
+        error_s = format(", error = %.3g", error);
+      }
+
+      // Report results
+      print("  k %d, %.3g s: mu = %s%s", k, elapsed.seconds(), safe(mu), error_s);
       if (k < 4) {
         print("    f = %.3g", host_copy(f));
         print("    g = %.3g", host_copy(g));
       }
-      print("    time = %.3g s", elapsed.seconds());
 
-      // Check against known results
-      const span<const Known> knowns(known_areas);
-      if (k < int(knowns.size())) {
-        const int prec = 1000;
-        Arb known, error;
-        arb_set_str(known, knowns[k].value, prec);
-        const Arb ours = exact_arb(mu);
-        arb_sub(error, known, ours, prec);
-        const double e = bound(error);
-        print("    error = %.3g", e);
-        const auto t = refine ? tol : 1e-6;
-        slow_assert(e <= t, "error %g > %g", e, t);
-      }
+      // Bail if we're inaccurate
+      const auto goal = refine ? tol : 1e-6;
+      slow_assert(error <= goal, "error %g > %g", error, goal);
     }
   }
 }

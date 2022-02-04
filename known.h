@@ -86,11 +86,24 @@ extern const Known known_areas[16+1];
 //     k 17, 833 s:  mu = 1.73618797890571568324245734657981
 
 // CUDA series history (on an A100)
-//   4feb2022, double, first working version:
+//   4feb2022, cuda-double, first working version:
 //     k 10, 11.0 s: mu = 1.895943075803316, error = 3.41e-15
 //     k 11, 16.4 s: mu = 1.8546567767819579, error = 2.83e-15
-//   4feb2022, double, mul/sqr base cases:
-//     k 10:  8.0 s: mu = 1.8959430758033156, error = 3.85e-15
-//     k 11: 12.4 s: mu = 1.8546567767819575, error = 3.27e-15
+//   4feb2022, cuda-double, mul/sqr base cases:
+//     k 10,  8.0 s: mu = 1.8959430758033156, error = 3.85e-15
+//     k 11, 12.4 s: mu = 1.8546567767819575, error = 3.27e-15
+//   4feb2022, cuda-double, inv/exp base cases:
+//     k 11, 10.1 s: mu = 1.8546567767819564, error = 4.38e-15
+//     k 12, 15.0 s: mu = 1.834655732626151, error = 4.65e-15
+//     k 13, 21.7 s: mu = 1.8061788858565135, error = 8.98e-15
+//     k 14, 30.5 s: mu = 1.78638971655198, error = 5.28e-15
+//     k 15, 41.7 s: mu = 1.7668376741940959, error = 1.28e-14
+//     k 16, 56.1 s: mu = 1.7533757723569496, error = 2.33e-14
+//     k 17, 74.0 s: mu = 1.7361879789057115, error ≈ 5e-15 (vs. exp2)
+//     k 18, 96.3 s: mu = 1.7261637845417952
+//     k 19, 124 s:  mu = 1.7125569540291936
+//     k 20, 160 s:  mu = 1.7032798671348994, error ≲ 1e-3 (vs. Bittner 1M)
+//     k 21, 213 s:  mu = 1.6933586065947914, error ≲ 1e-3 (vs. Bittner 2M)
+//     k 22, 301 s:  mu = 1.6858651156374813, error ≲ 1e-3 (vs. Bittner 4M)
 
 }  // namespace mandelbrot

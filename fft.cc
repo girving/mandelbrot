@@ -50,7 +50,6 @@ public:
 
   // Ensure that we know up to twiddle(:1<<s, 2<<s)
   void ensure(const int s) {
-    slow_assert(s <= 22);
     const int64_t size = int64_t(1) << (s+1);
     const int64_t prev = twiddles.size();
     if (size <= prev) return;

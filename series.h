@@ -4,6 +4,7 @@
 #include "arith.h"
 #include "array.h"
 #include "bit.h"
+#include "codelets.h"
 #include "cutil.h"
 #include "debug.h"
 #include "fft.h"
@@ -11,6 +12,7 @@
 #include "loops.h"
 #include "noncopyable.h"
 #include "preprocessor.h"
+#include "print.h"
 #include "span.h"
 #include <algorithm>
 #include <cstring>
@@ -39,6 +41,7 @@ using std::swap;
 using std::type_identity_t;
 using std::unique_ptr;
 struct Poly;
+struct Sig;
 
 template<class T, bool view = false> struct Series;
 template<class T> using SeriesView = Series<T,true>;
@@ -54,8 +57,6 @@ template<class T> void high_addsub(Series<T>& y, const int sign, const int64_t s
 
 template<class T, bool view_> struct Series : public conditional_t<view_,span<T>,Array<T>> {
   static_assert(!IsSeries<T>::value);  // Catch template bugs early
-  static_assert(is_trivially_copyable_v<T>);
-  static_assert(is_trivially_destructible_v<T>);
   typedef Undevice<remove_const_t<T>> Scalar;
   typedef Scalar value_type;
   typedef conditional_t<view_,span<T>,Array<T>> Base;
@@ -252,6 +253,15 @@ template<class... Args> using Scalar = typename ScalarT<Args...>::type;
   } \
   template<UNPAREN Ts, class Dst> void set_##name(Dst& y, UNPAREN args)
 
+// Negation: y = -x
+DEF_LOOP(neg_loop, n, i, (S* y, const S* x),
+  y[i] = -x[i];)
+SERIES_EXP(neg, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) {
+  const auto nk = x.known(), nz = x.nonzero();
+  y.set_counts(nk, nz);
+  neg_loop(nz, y.data(), x.data());
+}
+
 // Multiplication: z = xy
 SERIES_EXP(mul, z, (class A,class B,bool va,bool vb), (x,y), (x=x.view(),y=y.view()),
            (const Series<A,va>& x, const Series<B,vb>& y)) {
@@ -284,22 +294,18 @@ SERIES_EXP(sqr, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
 }
 
 // Set y[0] = exp(x[0]) on either CPU or GPU.  exp can reference args and x0.
+#if CODELETS  // Make a simple base case so that codelets can run
 #define SERIES_BASE(name, args, names, exp) \
-  IF_CUDA(template<class S> __global__ void name##_base_kernel(S* ys, const S* xs, const int64_t x_nonzero \
-                                                       COMMA_UNPAREN args) { \
-    const S x0 = x_nonzero ? xs[0] : 0; \
-    ys[0] = (exp); \
-  }) \
+  DEF_SERIAL(name##_base_serial, (S* ys, const S* xs, const int nx COMMA_UNPAREN args), \
+    const S x0 = nx ? xs[0] : 0; \
+    ys[0] = (exp);) \
   template<class T> void name##_base(Series<T>& y, type_identity_t<SeriesView<const T>> x COMMA_UNPAREN args) { \
-    if constexpr (is_device<T>) { \
-      y.set_counts(1, 1); \
-      IF_CUDA(name##_base_kernel<<<1,1,0,stream()>>>( \
-          device_get(y.data()), device_get(x.data()), x.nonzero() COMMA_UNPAREN names)); \
-    } else { \
-      const auto x0 = x[0]; \
-      y.set_scalar(1, (exp)); \
-    } \
+    y.set_counts(1, 1); \
+    name##_base_serial(y.data(), x.data(), x.nonzero() COMMA_UNPAREN names); \
   }
+#else
+#define SERIES_BASE(...)  // codelets.cc will generate these for us
+#endif
 
 // Number of Newton steps needed to go from n0 to n
 static inline int newton_steps(const int64_t n0, const int64_t n) {
@@ -353,7 +359,7 @@ SERIES_EXP(inv, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
   //        = y0 - (1/y0 - x) / (-1/y^2)
   //        = y0 - y0(x y0 - 1)(y/y0)^2
   Series<DS> dy(n);
-  newton_iterate(1, n, [&y, &x, &dy](const int64_t m0, const int64_t m, const bool refine) {
+  newton_iterate(y.known(), n, [&y, &x, &dy](const int64_t m0, const int64_t m, const bool refine) {
     y.set_known(m);
 
     // dy = y0(xy0-1)(y/y0)^2
@@ -368,14 +374,19 @@ SERIES_EXP(inv, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
 }
 
 // Shifted reciprocal: y = z^-s (1 / (1 + z^s x) - 1)
-SERIES_BASE(inv1p, (), (), -x0)
 SERIES_EXP(inv1p, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>& x, const int64_t s)) {
   typedef Scalar<Series<A>> S;
   typedef remove_const_t<A> DS;
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && s > 0);
-  inv1p_base(y, x);
+
+  // Base case:
+  //   y = z^-s (1 / (1 + z^s x) - 1)
+  //     = z^-s (1 - z^s x + O(z^2s) - 1)
+  //     = z^-s (-z^s x + O(z^2s))
+  //     = -x + O(z^s)
+  y = neg(x.low(s));
 
   // Newton step:
   //   1/(1 + z^s y) = 1 + z^s x
@@ -386,7 +397,7 @@ SERIES_EXP(inv1p, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>
   //        = y0 + z^-s (1 + z^s y0)(1 - (1 + z^s y0) - z^s x(1 + z^s y0)) ((1 + z^s y)/(1 + z^s y0))^2
   //        = y0 - (1 + z^s y0)(y0 + x(1 + z^s y0)) ((1 + z^s y)/(1 + z^s y0))^2
   Series<DS> dy(n), t(n);
-  newton_iterate(1, n, [&y, &x, &dy, &t, s](const int64_t m0, const int64_t m, const bool refine) {
+  newton_iterate(y.known(), n, [&y, &x, &dy, &t, s](const int64_t m0, const int64_t m, const bool refine) {
     y.set_known(m);
 
     // dy = y0(xy0-1)(y/y0)^2
@@ -481,7 +492,7 @@ SERIES_EXP(log, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && x.nonzero());
-  if constexpr (!is_device<DS>) slow_assert(x[0] == 1);
+  if constexpr (!codelets && !is_device<DS>) slow_assert(x[0] == 1);
 
   // log via y' = x'/x
   Series<DS> dx(n);
@@ -505,16 +516,15 @@ SERIES_EXP(log1p, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>
 }
 
 // Exponential: y = e^x
+SERIES_BASE(exp, (), (), S(1))
 SERIES_EXP(exp, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) {
   typedef Scalar<Series<A>> S;
   typedef remove_const_t<A> DS;
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x));
-  if constexpr (!is_device<A>) slow_assert(!x.nonzero() || x[0] == 0);
-
-  // Base case
-  y.set_scalar(1, 1);
+  if constexpr (!codelets && !is_device<A>) slow_assert(!x.nonzero() || x[0] == 0);
+  exp_base(y, x);
 
   // Newton step:
   //   f(y) = log y - x
@@ -523,7 +533,7 @@ SERIES_EXP(exp, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
   //        = y0 - (log(y0) - x)/(1/y)
   //        = y0 - y*(log(y0) - x)
   Series<DS> dy(n);
-  newton_iterate(1, n, [&x, &y, &dy](const int64_t m0, const int64_t m, const bool refine) {
+  newton_iterate(y.known(), n, [&x, &y, &dy](const int64_t m0, const int64_t m, const bool refine) {
     y.set_known(m);
 
     // dy = y*(log(y0) - x)
@@ -538,17 +548,20 @@ SERIES_EXP(exp, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
 }
 
 // Shifted exponential: y = z^-s (e^(az^s x) - 1)
-SERIES_BASE(expm1, (const int a), (a), a > 0 ? x0 : -x0)
 SERIES_EXP(expm1, y, (class A,bool v), (x,a,s), (x=x.view(),a,s),
            (const Series<A,v>& x, const int a, const int64_t s)) {
   typedef Scalar<Series<A>> S;
   typedef remove_const_t<A> DS;
   slow_assert(!y.alias(x) && abs(a) == 1 && s > 0);
 
-  // Base case
+  // Base case:
+  //   y = z^-s (e^(az^s x) - 1)
+  //     = z^-s (1 + az^s x + O(z^2s) - 1)
+  //     = z^-s (az^s x + O(z^2s))
+  //     = ax + O(z^s)
   const auto n = x.known();
-  if (!n) return y.set_unknown();
-  expm1_base(y, x, a);
+  if (a > 0) y = x.low(s);
+  else y = neg(x.low(s));
 
   // Newton step:
   //   y = z^-s (exp(az^s x) - 1)
@@ -561,7 +574,7 @@ SERIES_EXP(expm1, y, (class A,bool v), (x,a,s), (x=x.view(),a,s),
   //   N(y) = y0 - f(y0) / f'(y)
   //        = y0 - (1 + z^s y)(log1p(y0, s) - ax)
   Series<DS> dy(n), t(n);
-  newton_iterate(1, n, [&x, &y, &dy, &t, a, s](const int64_t m0, const int64_t m, const bool refine) {
+  newton_iterate(y.known(), n, [&x, &y, &dy, &t, a, s](const int64_t m0, const int64_t m, const bool refine) {
     y.set_known(m);
 
     // dy = (1 + z^s y)(log1p(y0, s) - ax)
@@ -582,10 +595,12 @@ SERIES_EXP(log1p_exp, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<
   const auto n = x.known();
   if (!n) return y.set_unknown();
   slow_assert(!y.alias(x) && s > 0);
-  if constexpr (!is_device<A>) slow_assert(!x.nonzero() || !x[0]);
 
-  // Base case
-  y.set_scalar(1, 1);
+  // Base case:
+  //   y = z^-s log (1 + z^s e^x)
+  //     = z^-s (z^s e^x + O(z^2s))
+  //     = e^x + O(z^s)
+  y = exp(x.low(s));
 
   // Newton step:
   //   y = z^-s log(1 + z^s e^x)
@@ -599,7 +614,7 @@ SERIES_EXP(log1p_exp, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<
   //        = y0 - e^(z^s (y0-y)) (z^-s (1 - e^(-z^s y0)) - e^(x-z^s y0))
   //        = y0 + e^(z^s (y0-y)) (expm1(-y0, s) + e^(x-z^s y0))
   Series<DS> ndy(n), t(n);
-  newton_iterate(1, n, [&x, &y, &ndy, &t, s](const int64_t m0, const int64_t m, const bool refine) {
+  newton_iterate(y.known(), n, [&x, &y, &ndy, &t, s](const int64_t m0, const int64_t m, const bool refine) {
     y.set_known(m);
 
     // dy = expm1(-y0, s) + e^(x-z^s y0)
@@ -658,3 +673,8 @@ host_copy(const Series<T,v>& x) {
 }
 
 }  // namespace mandelbrot
+
+// Pull in autogenerated codelets
+#if !CODELETS
+#include "gen-series-bases.h"
+#endif

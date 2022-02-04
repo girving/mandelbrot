@@ -71,6 +71,7 @@ codelets = executable('codelets', ['codelets.cc'], dependencies: [base, m])
 generated = [
     custom_target('gen_expansion', output: 'gen-expansion.h', command: [codelets, '@OUTPUT@']),
     custom_target('gen_mul_bases', output: 'gen-mul-bases.h', command: [codelets, '@OUTPUT@']),
+    custom_target('gen_series_bases', output: 'gen-series-bases.h', command: [codelets, '@OUTPUT@']),
 ]
 area = declare_dependency(
     link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc'] + generated,
