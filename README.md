@@ -15,7 +15,9 @@ and the area of the Mandelbrot set is
 
 Here we try to compute more terms.
 
-## Dependencies
+## Building
+
+First, install dependencies:
 
     # On Mac
     brew install meson arb
@@ -27,3 +29,16 @@ Here we try to compute more terms.
         python3 python3-pip python3-setuptools python3-wheel ninja-build \
         libmpfr-dev libflint-dev libflint-arb-dev
     pip3 install --user meson
+
+Then build and test with
+
+    ./setup
+    cd build/release  # Or build/debug
+    meson compile
+    meson test
+
+## CUDA profiling
+
+    # https://developer.nvidia.com/nsight-systems
+    # https://docs.nvidia.com/nsight-systems/UserGuide/index.html#example-single-command-lines
+    nsys profile --stats=true ./build/release/area_cuda_test
