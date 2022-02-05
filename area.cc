@@ -68,14 +68,21 @@ template<class T> void implicit(Series<T>& F, Series<T>& dF, const int k,
   dF += dg;
 }
 
-template<class A> typename Series<A>::Scalar area(const Series<A>& f) {
-  typedef typename Series<A>::Scalar S;
-  S mu = 0;
-  const auto nz = f.nonzero();
-  const auto& hf = host_copy(f);
-  for (int64_t i = 0; i < nz; i++)
-    mu += (1-i) * sqr(hf[i]);
-  return nearest_pi<S>() * mu;
+template<class S> S area(SeriesView<S> f) {
+  // Sum via arb out of paranoia
+  return nearest<S>([f](const int prec) {
+    Arb mu, pi;
+    for (int64_t i = 0; i < f.nonzero(); i++) {
+      // mu += (1-i) f[i]^2
+      auto t = exact_arb(f[i]);
+      arb_sqr(t, t, prec);
+      arb_mul_si(t, t, 1-i, prec);
+      arb_add(mu, mu, t, prec);
+    }
+    arb_const_pi(pi, prec);
+    arb_mul(mu, mu, pi, prec);
+    return mu;
+  });
 }
 
 template<class T> void areas(const int max_k, const double tol) {
@@ -117,12 +124,12 @@ template<class T> void areas(const int max_k, const double tol) {
         dg = div(F.high(dp), dF);
         g.high_sub(dp, dg);
       }
-      const auto elapsed = wall_time() - start;
 
       // Estimate area!
       Series<T> f(p);
       f = exp(g);
-      const S mu = area(f);
+      const S mu = area<S>(host_copy(f));
+      const auto elapsed = wall_time() - start;
 
       // Check against known results
       double error = 0;
