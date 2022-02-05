@@ -7,7 +7,7 @@ namespace mandelbrot {
 using std::tuple;
 
 // Estimate area given computed f (warning: not g)
-template<class S> S area(SeriesView<S> f);
+template<class S> S area(SeriesView<const S> f);
 
 // f = 1, so g = log f = 0 + O(z)
 template<class T> Series<T> bottcher_base();

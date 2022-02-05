@@ -57,11 +57,15 @@ argparse = custom_target('argparse', output: 'argparse.hpp',
                                    '79df7808d2164b8d2186014c8de039c8b2dc00e7/include/argparse/argparse.hpp'),
                                    '-o', '@OUTPUT@'])
 
-known = declare_dependency(link_with: library('known', ['known.cc']))
 base = declare_dependency(
     link_with: library('base', ['debug.cc', 'print.cc', 'shutdown.cc', tinyformat, argparse]),
     sources: [tinyformat, argparse])
-tests = declare_dependency(link_with: library('tests', ['tests.cc'], dependencies: [base, m]), dependencies: [base, m])
+tests = declare_dependency(
+    link_with: library('tests', ['tests.cc'], dependencies: [base, m]),
+    dependencies: [base, m])
+known = declare_dependency(
+    link_with: library('known', ['known.cc'], dependencies: [base]),
+    dependencies: [base])
 cutil = declare_dependency(
     link_with: library('cutil', ['cutil.cc'], dependencies: [base, cuda]),
     dependencies: [base, cuda])

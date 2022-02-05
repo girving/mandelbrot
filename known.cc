@@ -1,7 +1,29 @@
 // Known Mandelbrot area bounds
 
 #include "known.h"
+#include "debug.h"
+#include "format.h"
 namespace mandelbrot {
+
+// Bittner et al.'s Tables 1 and 2 (https://arxiv.org/abs/1410.1212):
+static Bittner bittner(const string& s, const double v) {
+  slow_assert(s.size() && s[s.size()-1] == 'M');
+  const int t = int(atof(s.substr(0, s.size()-1).c_str()) * 1e6);
+  slow_assert(s == format("%.1fM", 1e-6*t));
+  return Bittner{t, v};
+}
+extern const Bittner bittner_areas[10] = {
+  bittner("0.5M", 1.72),  // Ewing-Schober
+  bittner("1.0M", 1.70393),
+  bittner("1.5M", 1.69702),
+  bittner("2.0M", 1.69388),
+  bittner("2.5M", 1.69096),
+  bittner("3.0M", 1.68895),  // 9 days
+  bittner("3.5M", 1.6874),   // 10.8 days
+  bittner("4.0M", 1.68633),  // 12.5 days
+  bittner("4.5M", 1.68447),  // 14.4 days
+  bittner("5.0M", 1.68288),  // 16.2 days
+};
 
 // Times are all screwed up due laptop sleep and power control
 const Known known_areas[16+1] = {

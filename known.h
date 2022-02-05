@@ -11,6 +11,13 @@ struct Known {
 };
 extern const Known known_areas[16+1];
 
+// Bittner et al.'s Tables 1 and 2 (https://arxiv.org/abs/1410.1212):
+struct Bittner {
+  int terms;
+  double value;
+};
+extern const Bittner bittner_areas[10];
+
 // 8 terms of f and g = log f:
 //   f = [(1 +/- 0), (-0.5 +/- 0), (0.125 +/- 0), (-0.25 +/- 9.3345e-61),
 //        (0.117 +/- 1.3224e-60), (2.33e-62 +/- 1.7859e-60), (-0.0459 +/- 3.3449e-60), (-0.0625 +/- 4.9784e-60)]
@@ -36,18 +43,6 @@ extern const Known known_areas[16+1];
 //   17jan2022, prec 200, solve in g = log f space:
 //     k 11 refine, 26.7 s: mu = 1.854656777 +/- 8.9856e-46
 //     k 12 refine, 84.4 s: mu = 1.834655733 +/- 2.7409e-43
-
-// Bittner et al.'s Tables 1 and 2 (https://arxiv.org/abs/1410.1212):
-//     0.5M: 1.72 (Ewing-Schober)
-//     1.0M: 1.70393
-//     1.5M: 1.69702
-//     2.0M: 1.69388
-//     2.5M: 1.69096
-//     3.0M: 1.68895, 9 days
-//     3.5M: 1.6874,  10.8 days
-//     4.0M: 1.68633, 12.5 days
-//     4.5M: 1.68447, 14.4 days
-//     5.0M: 1.68288, 16.2 days
 
 // Series history:
 //   22jan2022, double, fft_mul:

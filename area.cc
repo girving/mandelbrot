@@ -69,7 +69,7 @@ template<class T> void implicit(Series<T>& F, Series<T>& dF, const int k,
   dF += dg;
 }
 
-template<class S> S area(SeriesView<S> f) {
+template<class S> S area(SeriesView<const S> f) {
   // Sum via arb out of paranoia
   return nearest<S>([f](const int prec) {
     Arb mu, pi;
@@ -137,7 +137,8 @@ template<class T> tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const
     // Estimate area!
     Series<T> f(p);
     f = exp(g);
-    const S mu = area<S>(host_copy(f));
+    const auto& hf = host_copy(f);
+    const S mu = area<S>(hf);
     const auto elapsed = wall_time() - start;
 
     // Check against known results
@@ -157,8 +158,21 @@ template<class T> tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const
     // Report results
     print("  k %d, %.3g s: mu = %s%s", k, elapsed.seconds(), safe(mu), error_s);
     if (k < 4) {
-      print("    f = %.3g", host_copy(f));
+      print("    f = %.3g", hf);
       print("    g = %.3g", host_copy(g));
+    }
+
+    // Report Bittner comparisons
+    if (refine) {
+      for (const auto& b : bittner_areas) {
+        if (p/2 <= b.terms && b.terms <= p) {
+          const auto ours = area<S>(hf.low(b.terms));
+          const int prec = 1000;
+          auto diff = exact_arb(ours);
+          arb_sub(diff, diff, exact_arb(b.value), prec);
+          print("  bittner %d = %.5g, ours = %s, error = %.3g", b.terms, b.value, safe(ours), bound(diff));
+        }
+      }
     }
 
     // Bail if we're inaccurate
@@ -181,7 +195,7 @@ template<class T> void areas(const int max_k, const double tol) {
   template tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const double tol); \
   template void areas<T>(const int max_k, const double);
 #define AREAS(S) \
-  template S area(SeriesView<S> f); \
+  template S area(SeriesView<const S> f); \
   SERIES(S)
 AREAS(double)
 AREAS(Expansion<2>)
