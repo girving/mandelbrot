@@ -13,8 +13,9 @@ using std::ostream;
 int register_test(const char* name, void (*test)());
 void test_throw_fail(const char* sx, const char* se, const char* function, const int line);
 struct test_error : public exception {};
-string green(const string& s);
 string red(const string& s);
+string green(const string& s);
+string blue(const string& s);
 
 #define TEST(name) \
   static void name##_test(); \

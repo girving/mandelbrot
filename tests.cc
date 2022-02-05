@@ -5,11 +5,13 @@
 #include "shutdown.h"
 #include "wall_time.h"
 #include <functional>
+#include <unordered_set>
 namespace mandelbrot {
 
 using std::exception;
 using std::function;
 using std::tuple;
+using std::unordered_set;
 
 typedef vector<tuple<string,function<void()>>> Tests;
 static Tests& tests() { static Tests tests; return tests; }
@@ -26,16 +28,30 @@ void test_throw_fail(const char* sx, const char* se, const char* function, const
 
 // See https://stackoverflow.com/questions/2616906/how-do-i-output-coloured-text-to-a-linux-terminal
 static string color(const string& s, const int color) { return format("\033[%dm%s\033[0m", color, s); }
-string green(const string& s) { return color(s, 32); }
 string red(const string& s) { return color(s, 31); }
+string green(const string& s) { return color(s, 32); }
+string blue(const string& s) { return color(s, 34); }
 
 static int run_tests(const vector<string>& args) {
+  const auto& tests = mandelbrot::tests();
+  const unordered_set<string> chosen(args.begin() + 1, args.end());
+  const auto skip = [&chosen](const string& name) {
+    return chosen.size() && chosen.find(name) == chosen.end();
+  };
   const auto count = [](const int n) { return format("%d %s", n, n == 1 ? "test" : "tests"); };
   wall_time_t total;
-  print("%s %s: %s", green("[==========]"), args[0], count(tests().size()));
+  print("%s %s: %s", green("[==========]"), args[0], count(tests.size()));
+
+  // Log skipped tests
+  for (const auto& [name, test] : tests)
+    if (skip(name))
+      print("%s %s", blue("[   SKIP   ]"), name);
+
+  // Run non-skipped tests
   int passed = 0;
   vector<string> failed;
-  for (const auto& [name, test] : tests()) {
+  for (const auto& [name, test] : tests) {
+    if (skip(name)) continue;
     print("%s %s", green("[ RUN      ]"), name);
     const auto start = wall_time();
     bool good;
@@ -57,7 +73,7 @@ static int run_tests(const vector<string>& args) {
   }
 
   // Finish up
-  print("%s %s ran (%d ms total)", green("[==========]"), count(tests().size()), int(rint(total.milliseconds())));
+  print("%s %s ran (%d ms total)", green("[==========]"), count(tests.size()), int(rint(total.milliseconds())));
   print("%s %s", green("[  PASSED  ]"), count(passed));
   if (failed.size()) {
     print("%s %s", red("[  FAILED  ]"), count(failed.size()));
