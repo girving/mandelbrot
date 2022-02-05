@@ -1,6 +1,7 @@
 // Assertions
 
 #include "debug.h"
+#include "print.h"
 #include <signal.h>
 #include <iostream>
 namespace mandelbrot {
@@ -13,8 +14,7 @@ void assertion_failed(const char* function, const char* file, unsigned int line,
                               message.size() ? message : "Assertion failed", condition);
   static const bool break_on_assert = getenv("BREAK_ON_ASSERT") != 0;
   if (break_on_assert) {
-    std::cout << std::flush;
-    std::cerr << "\n\n*** Error: " << error << '\n' << std::endl;
+    print_error("\n\n*** Error: %s\n", error);
     raise(SIGINT);
   }
   throw runtime_error(error);
@@ -22,7 +22,7 @@ void assertion_failed(const char* function, const char* file, unsigned int line,
 
 void die(const string& msg) {
   if (msg.size())
-    std::cerr << "\nerror: " << msg << std::endl;
+    print_error("\nerror: %s", msg);
   if (getenv("BREAK_ON_ASSERT"))
     raise(SIGINT);
   exit(1);

@@ -6,6 +6,7 @@
 #include "debug.h"
 #include "format.h"
 #include "nearest.h"
+#include "print.h"
 #include "span.h"
 namespace mandelbrot {
 
@@ -69,13 +70,14 @@ template<int n> ostream& operator<<(ostream& out, const Expansion<n> e) {
 
 template<int n> string safe(const Expansion<n> x) {
   const auto a = exact_arf(x);
-  for (int p = 1; p < 20*n; p++) {
+  for (int p = 1; p < 1000*n; p++) {
     const string s = format("%.*g", p, a);
     const Expansion<n> y(s);
     if (x == y)
       return s;
   }
-  die("ran out of precision trying to stringify x = %.100g (%.17g)", x, x.span());
+  // Fall back to span printing to avoid losing data if there is a logic but here.
+  return format("%.17g", x.span());
 }
 
 template<int n> Expansion<n>::Expansion(const string& s) {

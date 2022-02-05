@@ -14,6 +14,7 @@ namespace mandelbrot {
 
 using std::min;
 using std::max;
+using std::make_tuple;
 using std::runtime_error;
 using std::swap;
 
@@ -85,87 +86,108 @@ template<class S> S area(SeriesView<S> f) {
   });
 }
 
-template<class T> void areas(const int max_k, const double tol) {
-  typedef Undevice<T> S;
-
-  // f = 1, so g = log f = 0
+// f = 1, so g = log f = 0
+template<class T> Series<T> bottcher_base() {
   Series<T> g(1);
   g.set_scalar(1, 0);
   print("k 0:\n  f = 1\n  g = 0");
+  return g;
+}
 
-  for (int k = 1; k <= max_k; k++) {
-    print("\nk %d:", k);
-    for (int refine = 0; refine < 2; refine++) {
-      const auto start = wall_time();
-      const int p = 1 << k;
-      const int dp = refine ? p : p / 2;
+template<class T> tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const double tol) {
+  typedef Undevice<T> S;
 
-      // Reallocate and extend
-      g.copy(p).swap(g);
-      g.set_known(p);
+  // Determine k.  For now, we assume it's a power of two.
+  const int k = 1 + int(countr_zero(uint64_t(g.known())));
+  slow_assert(2*g.known() == int64_t(1) << k, "g.known = %d is not a power of two", g.known());
+  const int64_t p = 1 << k;
+  print("\nk %d:", k);
 
-      // dg = 1
-      Series<T> dg(dp);
-      dg.set_scalar(dp, 1);
+  // One step of Newton extension, then one step of Newton refinement
+  // The loop runs for 2 iterations, but returns within for scoping reasons
+  for (int refine = 0; /* refine < 2 */; refine++) {
+    const auto start = wall_time();
+    const int dp = refine ? p : p / 2;
 
-      if (refine) {
-        // Newton update all terms
-        static_assert(!is_interval<S>);
-        const auto& g0 = g;  // Valid until S is an interval type
-        Series<T> F(p), dF(p), ignore(0);
-        implicit<T>(F, dF, k, g, dg, p, p);
-        implicit<T>(F, ignore, k, g0, dg, p, 0);
-        dg = div(F, dF);
-        g.high_sub(p/2, dg.high(p/2));
-      } else {
-        // Newton update only the high terms
-        Series<T> F(p), dF(dp);
-        implicit<T>(F, dF, k, g, dg, p, dp);
-        dg = div(F.high(dp), dF);
-        g.high_sub(dp, dg);
-      }
+    // Reallocate and extend
+    g.copy(p).swap(g);
+    g.set_known(p);
 
-      // Estimate area!
-      Series<T> f(p);
-      f = exp(g);
-      const S mu = area<S>(host_copy(f));
-      const auto elapsed = wall_time() - start;
+    // dg = 1
+    Series<T> dg(dp);
+    dg.set_scalar(dp, 1);
 
-      // Check against known results
-      double error = 0;
-      string error_s;
-      const span<const Known> knowns(known_areas);
-      if (k < int(knowns.size())) {
-        const int prec = 1000;
-        Arb known, error_a;
-        arb_set_str(known, knowns[k].value, prec);
-        const Arb ours = exact_arb(mu);
-        arb_sub(error_a, known, ours, prec);
-        error = bound(error_a);
-        error_s = format(", error = %.3g", error);
-      }
-
-      // Report results
-      print("  k %d, %.3g s: mu = %s%s", k, elapsed.seconds(), safe(mu), error_s);
-      if (k < 4) {
-        print("    f = %.3g", host_copy(f));
-        print("    g = %.3g", host_copy(g));
-      }
-
-      // Bail if we're inaccurate
-      const auto goal = refine ? tol : 1e-6;
-      slow_assert(error <= goal, "error %g > %g", error, goal);
+    if (refine) {
+      // Newton update all terms
+      static_assert(!is_interval<S>);
+      const auto& g0 = g;  // Valid until S is an interval type
+      Series<T> F(p), dF(p), ignore(0);
+      implicit<T>(F, dF, k, g, dg, p, p);
+      implicit<T>(F, ignore, k, g0, dg, p, 0);
+      dg = div(F, dF);
+      g.high_sub(p/2, dg.high(p/2));
+    } else {
+      // Newton update only the high terms
+      Series<T> F(p), dF(dp);
+      implicit<T>(F, dF, k, g, dg, p, dp);
+      dg = div(F.high(dp), dF);
+      g.high_sub(dp, dg);
     }
+
+    // Estimate area!
+    Series<T> f(p);
+    f = exp(g);
+    const S mu = area<S>(host_copy(f));
+    const auto elapsed = wall_time() - start;
+
+    // Check against known results
+    double error = 0;
+    string error_s;
+    const span<const Known> knowns(known_areas);
+    if (k < int(knowns.size())) {
+      const int prec = 1000;
+      Arb known, error_a;
+      arb_set_str(known, knowns[k].value, prec);
+      const Arb ours = exact_arb(mu);
+      arb_sub(error_a, known, ours, prec);
+      error = bound(error_a);
+      error_s = format(", error = %.3g", error);
+    }
+
+    // Report results
+    print("  k %d, %.3g s: mu = %s%s", k, elapsed.seconds(), safe(mu), error_s);
+    if (k < 4) {
+      print("    f = %.3g", host_copy(f));
+      print("    g = %.3g", host_copy(g));
+    }
+
+    // Bail if we're inaccurate
+    const auto goal = refine ? tol : 1e-6;
+    slow_assert(error <= goal, "error %g > %g", error, goal);
+
+    // Return both f and mu if we're done
+    if (refine) return make_tuple(move(f), mu);
   }
 }
 
-#define AREAS(T) \
+template<class T> void areas(const int max_k, const double tol) {
+  auto g = bottcher_base<T>();
+  for (int k = 1; k <= max_k; k++)
+    bottcher_step(g, tol);
+}
+
+#define SERIES(T) \
+  template Series<T> bottcher_base(); \
+  template tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const double tol); \
   template void areas<T>(const int max_k, const double);
+#define AREAS(S) \
+  template S area(SeriesView<S> f); \
+  SERIES(S)
 AREAS(double)
 AREAS(Expansion<2>)
 IF_CUDA(
-  AREAS(Device<double>)
-  AREAS(Device<Expansion<2>>)
+  SERIES(Device<double>)
+  SERIES(Device<Expansion<2>>)
 )
 
 }  // namespace mandelbrot

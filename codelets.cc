@@ -24,7 +24,6 @@ namespace mandelbrot {
 using std::any_of;
 using std::array;
 using std::common_type_t;
-using std::cout;
 using std::declval;
 using std::deque;
 using std::endl;
@@ -223,13 +222,13 @@ struct Indent : public Noncopyable {
 };
 
 void line() {
-  if (debug) cout << endl;
+  if (debug) print();
   deref(out) << endl;
 }
 template<class T> void line(T&& x) {
-  const string dent(indent, ' ');
-  if (debug) cout << dent << x << endl;
-  deref(out) << dent << x << endl;
+  const auto s = format("%*s%s", indent, "", x);
+  if (debug) print(s);
+  deref(out) << s << endl;
 }
 template<class... Args> void line(const Args&... args) { line(format(args...)); }
 
@@ -840,7 +839,6 @@ int main(int argc, char** argv) {
       else die("Unmatched path '%s'", path);
     }
   } catch (const std::exception& e) {
-    std::cerr << e.what() << std::endl;
-    return 1;
+    die(e.what());
   }
 }
