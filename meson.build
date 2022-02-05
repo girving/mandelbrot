@@ -51,10 +51,16 @@ tinyformat = custom_target('tinyformat', output: 'tinyformat.h',
                            command: ['curl', ('https://raw.githubusercontent.com/c42f/tinyformat/' +
                                      'aef402d85c1e8f9bf491b72570bfe8938ae26727/tinyformat.h'), '-o', '@OUTPUT@'])
 
+# Download argparse.hpp
+argparse = custom_target('argparse', output: 'argparse.hpp',
+                         command: ['curl', ('https://raw.githubusercontent.com/p-ranav/argparse/' +
+                                   '79df7808d2164b8d2186014c8de039c8b2dc00e7/include/argparse/argparse.hpp'),
+                                   '-o', '@OUTPUT@'])
+
 known = declare_dependency(link_with: library('known', ['known.cc']))
 base = declare_dependency(
-    link_with: library('base', ['debug.cc', 'shutdown.cc', tinyformat]),
-    sources: [tinyformat])
+    link_with: library('base', ['debug.cc', 'shutdown.cc', tinyformat, argparse]),
+    sources: [tinyformat, argparse])
 tests = declare_dependency(link_with: library('tests', ['tests.cc'], dependencies: [base, m]), dependencies: [base, m])
 cutil = declare_dependency(
     link_with: library('cutil', ['cutil.cc'], dependencies: [base, cuda]),

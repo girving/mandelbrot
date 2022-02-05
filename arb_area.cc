@@ -79,7 +79,7 @@ void area(arb_t mu, const Poly& f, const int prec) {
 }
 
 void arb_areas(const int max_k, const int prec) {
-  print("prec = %d (%d digits)\n\n", prec, int(prec*log10(2)));
+  print("prec = %d (%d digits)\n", prec, int(prec*log10(2)));
 
   // f = 1, so g = log f = 0
   Poly g;
