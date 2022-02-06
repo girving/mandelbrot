@@ -69,23 +69,29 @@ template<int n> ostream& operator<<(ostream& out, const Expansion<n> e) {
 }
 
 template<int n> string safe(const Expansion<n> x) {
-  const auto a = exact_arf(x);
-  for (int p = 1; p < 1000*n; p++) {
-    const string s = format("%.*g", p, a);
-    const Expansion<n> y(s);
-    if (x == y)
-      return s;
-  }
-  // Fall back to span printing to avoid losing data if there is a logic but here.
+  // Use list syntax to keep the logic simple.  We used to use decimal, but it was scary.
+  // We still test back conversion from the old version via expansion_test.cc:old_safe.
   return format("%.17g", x.span());
 }
 
 template<int n> Expansion<n>::Expansion(const string& s) {
-  *this = nearest<Expansion<n>>([&s](const int prec) {
-    Arb a;
-    arb_set_str(a, s.c_str(), prec);
-    return a;
-  });
+  slow_assert(s.size(), s);
+  if (s[0] == '[') {
+    const char* p = s.c_str() + 1;
+    for (int i = 0; i < n; i++) {
+      char* end;
+      x[i] = strtod(p, &end);
+      slow_assert(end > p && *end == (i+1 < n ? ',' : ']'), s);
+      p = end + 1;
+    }
+    slow_assert(p == s.c_str() + s.size(), s);
+  } else {
+    *this = nearest<Expansion<n>>([&s](const int prec) {
+      Arb a;
+      arb_set_str(a, s.c_str(), prec);
+      return a;
+    });
+  }
 }
 
 #define N(n) \

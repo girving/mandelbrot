@@ -285,6 +285,30 @@ template<int n> void equal_test() {
   }
 }
 
+template<int n> static string old_safe(const Expansion<n> x) {
+  const auto a = exact_arf(x);
+  for (int p = 1; p < 1000*n; p++) {
+    const string s = format("%.*g", p, a);
+    const Expansion<n> y(s);
+    if (x == y)
+      return s;
+  }
+  die("ran out of precision in old_safe");
+}
+
+template<int n> void safe_test() {
+  typedef Expansion<n> E;
+  mt19937 mt(7);
+
+  for (int i = 0; i < 1024; i++) {
+    const E x = random_expansion<n>(mt);
+    const E y = E(safe(x));
+    for (int j = 0; j < n; j++)
+      ASSERT_EQ(x.x[j], y.x[j]) << format("x %.17g\ny %.17g", x.span(), y.span());
+    ASSERT_EQ(x, E(old_safe(x)));
+  }
+}
+
 #define TESTS(n) \
   TEST(random_expansion##n) { random_expansion_test<n>(); } \
   TEST(convert##n) { convert_test<n>(); } \
@@ -298,7 +322,8 @@ template<int n> void equal_test() {
   TEST(mul##n) { mul_test<n>(); } \
   TEST(equal##n) { equal_test<n>(); } \
   TEST(inv##n) { inv_test<n>(); } \
-  TEST(div##n) { div_test<n>(); }
+  TEST(div##n) { div_test<n>(); } \
+  TEST(safe##n) { safe_test<n>(); }
 TESTS(2)
 TESTS(3)
 
