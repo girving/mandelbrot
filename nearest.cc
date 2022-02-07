@@ -32,7 +32,7 @@ template<class S> optional<Complex<S>> round_nearest(const acb_t z, const int pr
 }
 
 template<int n> Expansion<n> RoundNear<Expansion<n>>::round(const arf_t c) {
-  const int max_prec = 1600;
+  const int max_prec = 10000;
   Expansion<n> e;
   Arb dc, t;
   for (int prec = 60*n; prec <= max_prec; prec <<= 1) {
