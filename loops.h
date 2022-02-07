@@ -4,10 +4,15 @@
 #include "cutil.h"
 #include "debug.h"
 #include "preprocessor.h"
+#include "print.h"
+#include <omp.h>
+#include <optional>
 #include <type_traits>
 namespace mandelbrot {
 
 using std::is_signed_v;
+using std::optional;
+using std::tuple;
 
 // For now, assume we fit in int32_t
 template<class I> __device__ static inline int grid_stride_loop_size(const I n) {
@@ -33,6 +38,7 @@ template<class I> __device__ static inline int grid_stride_loop_size(const I n) 
     GRID_STRIDE_LOOP(n, i) { body } \
   }) \
   template<class S> static void name##_host(const int n, UNPAREN args) { \
+    _Pragma("omp parallel for") \
     for (int64_t i = 0; i < n; i++) { body } \
   } \
   template<class... Args> static inline void name(const int64_t n, Args&&... xs) { \
@@ -54,5 +60,38 @@ template<class I> __device__ static inline int grid_stride_loop_size(const I n) 
     else \
       name##_host(std::forward<Args>(xs)...); \
   }
+
+// Chop a loop into [start,end) chunks
+tuple<int64_t,int64_t> partition_loop(const int64_t steps, const int threads, const int thread);
+
+// OpenMP reductions that assume only associativity.
+// Formally, if (reduce(y, a), reduce(y, b)) is equivalent to (reduce(a, b), reduce(y, a)), then
+// this routine is equivalent to:
+//   for (int64_t i = 0; i < n; i++)
+//     reduce(y, map(i));
+template<class Y, class R, class M> void map_reduce(Y& y, R&& reduce, M&& map, const int64_t n) {
+  vector<optional<Y>> partials;
+  #pragma omp parallel
+  {
+    const int threads = omp_get_num_threads();
+    const int thread = omp_get_thread_num();
+    const auto [start, end] = partition_loop(n, threads, thread);
+    if (start < end) {
+      #pragma omp critical
+      {
+        partials.resize(threads);
+      }
+      auto& p = partials[thread];
+      for (int64_t i = start; i < end; i++) {
+        auto fx = map(i);
+        if (i == start) p = move(fx);
+        else reduce(*p, fx);
+      }
+    }
+  }
+  for (const auto& t : partials)
+    if (t)
+      reduce(y, *t);
+}
 
 }  // namespace mandelbrot

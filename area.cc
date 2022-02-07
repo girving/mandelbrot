@@ -72,14 +72,19 @@ template<class T> void implicit(Series<T>& F, Series<T>& dF, const int k,
 template<class S> S area(SeriesView<const S> f) {
   // Sum via arb out of paranoia
   return nearest<S>([f](const int prec) {
-    Arb mu, pi;
-    for (int64_t i = 0; i < f.nonzero(); i++) {
-      // mu += (1-i) f[i]^2
+    // mu = sum_i (1-i) f[i]^2
+    Arb mu;
+    const auto reduce = [prec](Arb& y, const Arb& x) {
+      arb_add(y, y, x, prec);
+    };
+    const auto map = [f,prec](const int64_t i) {
       auto t = exact_arb(f[i]);
       arb_sqr(t, t, prec);
       arb_mul_si(t, t, 1-i, prec);
-      arb_add(mu, mu, t, prec);
-    }
+      return t;
+    };
+    map_reduce(mu, reduce, map, f.nonzero());
+    Arb pi;
     arb_const_pi(pi, prec);
     arb_mul(mu, mu, pi, prec);
     return mu;

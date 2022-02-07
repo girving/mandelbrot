@@ -37,8 +37,11 @@ template<class T,bool v> void write_series(const string& path, vector<string> co
     out << "# " << c << endl;
 
   // Write series terms in plain text
-  for (const auto& t : host_copy(x))
-    out << safe(t) << endl;
+  string s;
+  const auto reduce = [](string& y, const string& x) { y += x; };
+  const auto map = [&x](const int64_t i) { auto s = safe(x[i]); s += '\n'; return s; };
+  map_reduce(s, reduce, map, x.nonzero());
+  out << s;
 }
 
 template<class T> void areas(const string& output, const string& mode, const int max_k, const double tol) {

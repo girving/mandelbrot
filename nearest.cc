@@ -82,39 +82,40 @@ template<class S> Complex<S> nearest_twiddle(const int64_t a, const int64_t b) {
   });
 }
 
-// exp(2𝜋i a/b) for a ∈ [0,zs.size())
+// exp(2𝜋i a/b) for a ∈ [0,zs.size()).
 template<class S> void nearest_twiddles(span<Complex<S>> zs, const int64_t b) {
-  const int max_prec = 1600;
+  // We try to computed factored using low precision, filling in holes using nonfactored evaluation
+  const int prec = 200;
   const int64_t n = zs.size();
+
   // Write n <= n0 * n1, so that j = j0*n1 + j1
   const auto n0 = int64_t(ceil(sqrt(double(n))));
   const auto n1 = (n + n0 - 1) / n0;
-  Fmpq t;
-  Acb z, zs0;
-  vector<Acb> zs1(n1);
-  for (int prec = 200; prec <= max_prec; prec <<= 1) {
-    // Compute low twiddles
-    for (int64_t j1 = 0; j1 < n1; j1++) {
-      fmpq_set_si(t, 2*j1, b);
-      cis_pi(zs1[j1], t, prec);
+
+  vector<Acb> factors(n0 + n1);  // Each twiddle(j0*n1, b), then each twiddle(j1, b)
+  #pragma omp parallel
+  {
+    // Compute low and high twiddles
+    Fmpq t;
+    #pragma omp for
+    for (int64_t j = 0; j < n0+n1; j++) {
+      const auto j0 = j, j1 = j - n0;
+      fmpq_set_si(t, j < n0 ? 2*j0*n1 : 2*j1, b);
+      cis_pi(factors[j], t, prec);
     }
+
     // Compute all twiddles
-    for (int64_t j0 = 0; j0 < n0; j0++) {
-      fmpq_set_si(t, 2*j0*n1, b);
-      cis_pi(zs0, t, prec);
-      for (int64_t j1 = 0; j1 < n1; j1++) {
-        const auto j = j0*n1 + j1;
-        if (j >= n) break;
-        acb_mul(z, zs0, zs1[j1], prec);
-        const auto z_ = round_nearest<S>(z, prec);
-        if (!z_) goto fail;
-        zs[j0*n1 + j1] = *z_;
-      }
+    Acb z;
+    #pragma omp for
+    for (int64_t j = 0; j < n; j++) {
+      const auto j0 = j / n1, j1 = j - j0*n1;
+      acb_mul(z, factors[j0], factors[n0 + j1], prec);
+      if (auto r = round_nearest<S>(z, prec))
+        zs[j] = *r;
+      else
+        zs[j] = nearest_twiddle<S>(j, b);  // TODO: Verify that we fall back to this occasionally but rarely
     }
-    return;  // Success!
-    fail:;  // Not enough precision
   }
-  die("nearest_twiddles ran out of precision (max prec = %g)", max_prec);
 }
 
 #define NEAREST(S) \

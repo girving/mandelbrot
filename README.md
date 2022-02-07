@@ -20,7 +20,8 @@ Here we try to compute more terms.
 First, install dependencies:
 
     # On Mac
-    brew install meson arb
+    # We need llvm since Apple clang doesn't have OpenMP
+    brew install meson arb llvm
 
     # On Debian Buster
     echo deb http://apt.llvm.org/buster/ llvm-toolchain-buster-13 main | sudo tee -a /etc/apt/sources.list
