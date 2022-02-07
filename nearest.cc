@@ -83,46 +83,50 @@ template<class S> Complex<S> nearest_twiddle(const int64_t a, const int64_t b) {
 }
 
 // exp(2𝜋i a/b) for a ∈ [0,zs.size()).
-template<class S> void nearest_twiddles(span<Complex<S>> zs, const int64_t b) {
-  // We try to computed factored using low precision, filling in holes using nonfactored evaluation
-  const int prec = 200;
-  const int64_t n = zs.size();
-
+template<class S> int64_t nearest_twiddles(span<Complex<S>> zs, const int64_t b, const int fast_prec) {
   // Write n <= n0 * n1, so that j = j0*n1 + j1
+  const int64_t n = zs.size();
   const auto n0 = int64_t(ceil(sqrt(double(n))));
   const auto n1 = (n + n0 - 1) / n0;
 
+  int64_t fallbacks = 0;
   vector<Acb> factors(n0 + n1);  // Each twiddle(j0*n1, b), then each twiddle(j1, b)
   #pragma omp parallel
   {
-    // Compute low and high twiddles
+    // Compute j0*n1 and j1 twiddles
     Fmpq t;
     #pragma omp for
     for (int64_t j = 0; j < n0+n1; j++) {
       const auto j0 = j, j1 = j - n0;
       fmpq_set_si(t, j < n0 ? 2*j0*n1 : 2*j1, b);
-      cis_pi(factors[j], t, prec);
+      cis_pi(factors[j], t, fast_prec);
     }
 
-    // Compute all twiddles
+    // First compute factored using low precision, filling in holes using nonfactored evaluation
     Acb z;
+    int64_t thread_fallbacks = 0;
     #pragma omp for
     for (int64_t j = 0; j < n; j++) {
       const auto j0 = j / n1, j1 = j - j0*n1;
-      acb_mul(z, factors[j0], factors[n0 + j1], prec);
-      if (auto r = round_nearest<S>(z, prec))
+      acb_mul(z, factors[j0], factors[n0 + j1], fast_prec);
+      if (auto r = round_nearest<S>(z, fast_prec))
         zs[j] = *r;
-      else
-        zs[j] = nearest_twiddle<S>(j, b);  // TODO: Verify that we fall back to this occasionally but rarely
+      else {
+        zs[j] = nearest_twiddle<S>(j, b);
+        thread_fallbacks++;
+      }
     }
+    #pragma omp atomic
+    fallbacks += thread_fallbacks;
   }
+  return fallbacks;
 }
 
 #define NEAREST(S) \
   template S nearest_pi(); \
   template S nearest_sqrt(const int64_t, const int64_t); \
   template Complex<S> nearest_twiddle(const int64_t, const int64_t); \
-  template void nearest_twiddles(span<Complex<S>>, const int64_t); 
+  template int64_t nearest_twiddles(span<Complex<S>>, const int64_t, const int fast_prec);
 NEAREST(double)
 
 #define EXPANSION(n) \

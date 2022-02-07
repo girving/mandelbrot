@@ -47,6 +47,8 @@ template<class S> S nearest_sqrt(const int64_t a, const int64_t b);
 template<class S> Complex<S> nearest_twiddle(const int64_t a, const int64_t b);
 
 // exp(2𝜋i a/b) for a ∈ [0,zs.size())
-template<class S> void nearest_twiddles(span<Complex<S>> zs, const int64_t b);
+// We first compute factored using fast_prec, filling in holes using nonfactored evaluation.
+// Returns the number of times the fallback occurs.
+template<class S> int64_t nearest_twiddles(span<Complex<S>> zs, const int64_t b, const int fast_prec);
 
 }  // namespace mandelbrot

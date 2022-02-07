@@ -58,7 +58,7 @@ public:
     for (int p = 0; p <= s; p++) {
       const auto m = int64_t(1) << p;
       if (prev < 2*m)
-        nearest_twiddles(span<Complex<S>>(twiddles.data() + m, m), 2*m);
+        nearest_twiddles(span<Complex<S>>(twiddles.data() + m, m), 2*m, 200);
     }
   }
 
