@@ -9,6 +9,7 @@ namespace mandelbrot {
 using std::cout;
 using std::exception;
 using std::ostream;
+using std::string_view;
 
 int register_test(const char* name, void (*test)());
 void test_throw_fail(const char* sx, const char* se, const char* function, const int line);
@@ -57,5 +58,11 @@ test_compare(const char* sx, X&& x, const char* sy, Y&& y, Op&& op, const char* 
 
 #define ASSERT_THROW(x, e) ({ \
   try { x; test_throw_fail(#x, #e, __FUNCTION__, __LINE__); } catch (const e&) {} })
+
+struct Tmpfile {
+  const string path;
+  Tmpfile(string_view prefix);
+  ~Tmpfile();
+};
 
 }  // namespace mandelbrot

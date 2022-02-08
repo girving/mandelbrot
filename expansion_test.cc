@@ -28,12 +28,6 @@ using std::uniform_int_distribution;
 using std::uniform_real_distribution;
 using std::vector;
 
-int exponent(const double x) {
-  int e;
-  frexp(x, &e);
-  return e;
-}
-
 // Goldberg's definition, according to Collange et al.
 double ulp(const double x) {
   constexpr int p = numeric_limits<double>::digits;
@@ -73,25 +67,6 @@ template<int n> int ulp_slop(const Expansion<n>& e) {
       slop = max(slop, exponent(y) - exponent(ulp(x)));
   }
   return slop;
-}
-
-template<int n> Expansion<n> random_expansion_with_exponent(mt19937& mt, int e) {
-  Expansion<n> a;
-  for (int i = 0; i < n; i++) {
-    a.x[i] = ldexp(uniform_real_distribution<double>(-1, 1)(mt), e);
-    e = exponent(a.x[i]) - 52 - 1;
-  }
-  return a;
-}
-
-template<int n> Expansion<n> random_expansion(mt19937& mt) {
-  const int e = uniform_int_distribution<int>(-20, 20)(mt);
-  return random_expansion_with_exponent<n>(mt, e);
-}
-
-template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<n> x) {
-  const int e = exponent(x.x[0]) - uniform_int_distribution<int>(1, 52*n)(mt);
-  return (bernoulli_distribution(0.5)(mt) ? x : -x) + random_expansion_with_exponent<n>(mt, e);
 }
 
 // Returns an upper bound for |x|

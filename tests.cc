@@ -5,6 +5,7 @@
 #include "shutdown.h"
 #include "wall_time.h"
 #include <functional>
+#include <unistd.h>
 #include <unordered_set>
 namespace mandelbrot {
 
@@ -25,6 +26,15 @@ void test_throw_fail(const char* sx, const char* se, const char* function, const
   print("%s %s didn't throw %s", red(format("%s:%d:", function, line)), sx, se);
   throw test_error();
 }
+
+Tmpfile::Tmpfile(string_view prefix) {
+  string p = "/tmp/" + string(prefix) + "XXXXXX";
+  const int fd = mkstemp(p.data());
+  slow_assert(fd >= 0, strerror(errno));
+  const_cast<string&>(path) = p;
+}
+
+Tmpfile::~Tmpfile() { if (path.size()) unlink(path.c_str()); }
 
 // See https://stackoverflow.com/questions/2616906/how-do-i-output-coloured-text-to-a-linux-terminal
 static string color(const string& s, const int color) { return format("\033[%dm%s\033[0m", color, s); }

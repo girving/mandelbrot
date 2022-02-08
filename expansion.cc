@@ -8,7 +8,12 @@
 #include "nearest.h"
 #include "print.h"
 #include "span.h"
+#include <random>
 namespace mandelbrot {
+
+using std::bernoulli_distribution;
+using std::uniform_int_distribution;
+using std::uniform_real_distribution;
 
 template<int n> int sign(const Expansion<n> x) {
   for (int i = 0; i < n; i++)
@@ -82,6 +87,8 @@ template<int n> string safe(const Expansion<n> x) {
   return s.size() ? s : format("%.17g", x.span());
 }
 
+template<int n> Expansion<n>::Expansion(string_view s) : Expansion(string(s)) {}
+
 template<int n> Expansion<n>::Expansion(const string& s) {
   slow_assert(s.size(), s);
   if (s[0] == '[') {
@@ -102,6 +109,25 @@ template<int n> Expansion<n>::Expansion(const string& s) {
   }
 }
 
+template<int n> Expansion<n> random_expansion_with_exponent(mt19937& mt, int e) {
+  Expansion<n> a;
+  for (int i = 0; i < n; i++) {
+    a.x[i] = ldexp(uniform_real_distribution<double>(-1, 1)(mt), e);
+    e = exponent(a.x[i]) - 52 - 1;
+  }
+  return a;
+}
+
+template<int n> Expansion<n> random_expansion(mt19937& mt) {
+  const int e = uniform_int_distribution<int>(-20, 20)(mt);
+  return random_expansion_with_exponent<n>(mt, e);
+}
+
+template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<n> x) {
+  const int e = exponent(x.x[0]) - uniform_int_distribution<int>(1, 52*n)(mt);
+  return (bernoulli_distribution(0.5)(mt) ? x : -x) + random_expansion_with_exponent<n>(mt, e);
+}
+
 #define N(n) \
   template int sign(const Expansion<n>); \
   template Expansion<n> abs(const Expansion<n>); \
@@ -113,8 +139,12 @@ template<int n> Expansion<n>::Expansion(const string& s) {
   template span<const double> Expansion<n>::span() const; \
   template ostream& operator<<(ostream&, const Expansion<n>); \
   template Expansion<n>::Expansion(const string&); \
+  template Expansion<n>::Expansion(string_view); \
   template string safe(const Expansion<n>); \
-  template string maybe_nice_safe(const Expansion<n>);
+  template string maybe_nice_safe(const Expansion<n>); \
+  template Expansion<n> random_expansion(mt19937&); \
+  template Expansion<n> random_expansion_near(mt19937&, const Expansion<n>); \
+  template Expansion<n> random_expansion_with_exponent(mt19937&, int);
 N(2)
 N(3)
 

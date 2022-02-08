@@ -8,7 +8,6 @@
 #include "expansion.h"
 #include "print.h"
 #include <exception>
-#include <fstream>
 #include <functional>
 #include <map>
 #include <sys/stat.h>
@@ -18,31 +17,10 @@ using std::endl;
 using std::function;
 using std::map;
 using std::min;
-using std::ofstream;
 using std::numeric_limits;
 using std::vector;
 using namespace mandelbrot;
 static const double inf = numeric_limits<double>::infinity();
-
-// Write a series to a file in a simple text format
-template<class T,bool v> void write_series(const string& path, vector<string> comments, const Series<T,v>& x) {
-  ofstream out(path);
-
-  // From https://stackoverflow.com/questions/16357999/current-date-and-time-as-string/16358264
-  const auto t = std::time(nullptr);
-  const auto tm = *std::localtime(&t);
-  comments.push_back(format("time = %s", std::put_time(&tm, "%F %T")));
-
-  for (const auto& c : comments)
-    out << "# " << c << endl;
-
-  // Write series terms in plain text
-  string s;
-  const auto reduce = [](string& y, const string& x) { y += x; };
-  const auto map = [&x](const int64_t i) { auto s = safe(x[i]); s += '\n'; return s; };
-  map_reduce(s, reduce, map, x.nonzero());
-  out << s;
-}
 
 template<class T> void areas(const string& output, const string& mode, const int max_k, const double tol) {
   auto g = bottcher_base<T>();
@@ -52,12 +30,8 @@ template<class T> void areas(const string& output, const string& mode, const int
       const auto write = [&output,&mode,k,mu=mu](const string& n, const string& name, const auto& x) {
         write_series(
             format("%s/%c-k%d", output, n, k),
-            {name,
-             format("mode = %s", mode),
-             format("k = %d", k),
-             format("terms = %d", x.known()),
-             format("mu = %s", safe(mu))},
-            x);
+            {name, format("mode = %s", mode), format("k = %d", k), format("mu = %s", safe(mu))},
+            x.view());
       };
       write("g", "g = log(f)", g);
       write("f", "f = f(z) = 1/phi(1/z)", f);

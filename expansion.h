@@ -5,6 +5,7 @@
 #include "span.h"
 #include <cmath>
 #include <ostream>
+#include <random>
 namespace mandelbrot {
 
 // References:
@@ -17,14 +18,17 @@ namespace mandelbrot {
 
 struct Arb;
 struct Arf;
+using std::mt19937;
 using std::string;
+using std::string_view;
 using std::ostream;
 
 struct Nonoverlap {};
 constexpr Nonoverlap nonoverlap;
 
-template<int n> struct Expansion {
+template<int n_> struct Expansion {
   struct Unusable {};
+  static constexpr int n = n_;
   static_assert(n >= 2);
   double x[n];  // Ulp-nonoverlapping in decreasing order of magnitude
 
@@ -84,6 +88,7 @@ template<int n> struct Expansion {
   std::span<const double> span() const;
   Arb arb(const int prec) const;
   explicit Expansion(const string& s);
+  explicit Expansion(string_view s);
 };
 
 template<int n> int sign(const Expansion<n> x);
@@ -137,6 +142,11 @@ template<int n> __host__ __device__ Expansion<n> Expansion<n>::operator/(const E
   y = y - (b*y - *this) * inv_b;
   return y;
 }
+
+// Random numbers for unit tests
+template<int n> Expansion<n> random_expansion(mt19937& mt);
+template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<n> x);
+template<int n> Expansion<n> random_expansion_with_exponent(mt19937& mt, int e);
 
 }  // namespace mandelbrot
 
