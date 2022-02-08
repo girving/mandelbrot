@@ -47,7 +47,9 @@ template<int n> Expansion<n> RoundNear<Expansion<n>>::round(const arf_t c) {
     return e;
     fail:;
   }
-  die("ran out of precision rounding arf_t to Expansion<%d> (max prec = %d)", n, max_prec);
+  Arf a;
+  arf_set(a, c);
+  die("ran out of precision rounding arf_t %s to Expansion<%d> (max prec = %d)", a, n, max_prec);
 }
 
 // 𝜋

@@ -299,13 +299,32 @@ template<int n> static string old_safe(const Expansion<n> x) {
 template<int n> void safe_test() {
   typedef Expansion<n> E;
   mt19937 mt(7);
-
-  for (int i = 0; i < 1024; i++) {
+  const auto identical = [](const E x, const E y) { return arf_equal(exact_arf(x), exact_arf(y)); };
+  for (int i = 0; i < (1<<12); i++) {
     const E x = random_expansion<n>(mt);
-    const E y = E(safe(x));
-    for (int j = 0; j < n; j++)
-      ASSERT_EQ(x.x[j], y.x[j]) << format("x %.17g\ny %.17g", x.span(), y.span());
-    ASSERT_EQ(x, E(old_safe(x)));
+    // Default version of safe()
+    const string nice = safe(x);
+    const E yn = E(nice);
+    ASSERT_TRUE(identical(x, yn)) << format("nice %s\nx %.17g\ny %.17g", nice, x.span(), yn.span());
+    // Simple span printing fallback
+    const string simple = format("%.17g", x.span());
+    const E ys = E(simple);
+    ASSERT_TRUE(identical(x, ys)) << format("simple %s\nx %.17g\ny %.17g", simple, x.span(), ys.span());
+    // Verify that maybe_nice_safe does the adaptation
+    const string maybe = maybe_nice_safe(x);
+    if (maybe.size())
+      ASSERT_EQ(maybe, nice);
+    else
+      ASSERT_EQ(simple, nice);
+  }
+  // Force span printing fallback by spacing the exponents way apart
+  for (int i = 0; i < 256; i++) {
+    E x = random_expansion<n>(mt);
+    x.x[n-1] = ldexp(x.x[n-1], -200);
+    const string nice = safe(x);
+    const string simple = format("%.17g", x.span());
+    ASSERT_EQ(nice, simple);
+    ASSERT_EQ(x, E(simple));
   }
 }
 

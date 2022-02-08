@@ -99,8 +99,9 @@ template<int n> Arf exact_arf(const Expansion<n> x);
 // Dangerous if the exponents are far apart, since it calls exact_arf()
 template<int n> ostream& operator<<(ostream& out, const Expansion<n> e);
 
-// Print enough digits for exact reconstruction
+// Print enough digits for exact reconstruction, or fall back to list syntax if we run out of precision
 template<int n> string safe(const Expansion<n> x);
+template<int n> string maybe_nice_safe(const Expansion<n> x);  // Might return "" if decimal printing fails
 
 // Reciprocal via Newton's method
 template<int n> __host__ __device__ Expansion<n> inv(const Expansion<n> x) {

@@ -68,10 +68,18 @@ template<int n> ostream& operator<<(ostream& out, const Expansion<n> e) {
   return out << exact_arf(e);
 }
 
+template<int n> string maybe_nice_safe(const Expansion<n> x) {
+  const auto a = exact_arf(x);
+  for (int p = 15*n-2; p <= 30*n; p++) {
+    auto s = format("%.*g", p, a);
+    if (x == Expansion<n>(s)) return s;
+  }
+  return string();
+}
+
 template<int n> string safe(const Expansion<n> x) {
-  // Use list syntax to keep the logic simple.  We used to use decimal, but it was scary.
-  // We still test back conversion from the old version via expansion_test.cc:old_safe.
-  return format("%.17g", x.span());
+  auto s = maybe_nice_safe(x);
+  return s.size() ? s : format("%.17g", x.span());
 }
 
 template<int n> Expansion<n>::Expansion(const string& s) {
@@ -105,7 +113,8 @@ template<int n> Expansion<n>::Expansion(const string& s) {
   template span<const double> Expansion<n>::span() const; \
   template ostream& operator<<(ostream&, const Expansion<n>); \
   template Expansion<n>::Expansion(const string&); \
-  template string safe(const Expansion<n>);
+  template string safe(const Expansion<n>); \
+  template string maybe_nice_safe(const Expansion<n>);
 N(2)
 N(3)
 
