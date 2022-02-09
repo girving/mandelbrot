@@ -38,7 +38,10 @@ template<int n> Expansion<n>::operator bool() const {
 }
 
 template<int n> bool Expansion<n>::operator==(const Expansion y) const {
-  return !bool(*this - y);
+  for (int i = 0; i < n; i++)
+    if (x[i] != y.x[i])
+      return false;
+  return true;
 }
 
 template<int n> Arb Expansion<n>::arb(const int prec) const {

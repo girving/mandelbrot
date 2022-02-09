@@ -7,6 +7,7 @@
 #include <functional>
 #include <unistd.h>
 #include <unordered_set>
+#include <filesystem>
 namespace mandelbrot {
 
 using std::exception;
@@ -34,7 +35,21 @@ Tmpfile::Tmpfile(string_view prefix) {
   const_cast<string&>(path) = p;
 }
 
-Tmpfile::~Tmpfile() { if (path.size()) unlink(path.c_str()); }
+Tmpfile::~Tmpfile() {
+  if (path.size())
+    unlink(path.c_str());
+}
+
+Tmpdir::Tmpdir(string_view prefix) {
+  string p = "/tmp/" + string(prefix) + "XXXXXX";
+  slow_assert(mkdtemp(p.data()), strerror(errno));
+  const_cast<string&>(path) = p;
+}
+
+Tmpdir::~Tmpdir() {
+  if (path.size())
+    std::filesystem::remove_all(path);
+}
 
 // See https://stackoverflow.com/questions/2616906/how-do-i-output-coloured-text-to-a-linux-terminal
 static string color(const string& s, const int color) { return format("\033[%dm%s\033[0m", color, s); }

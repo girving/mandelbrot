@@ -99,12 +99,19 @@ template<class T> Series<T> bottcher_base() {
   return g;
 }
 
+// Determine k.  We assume it's a power of two.
+int known_to_k(const int64_t known) {
+  const int k = int(countr_zero(uint64_t(known)));
+  slow_assert(known == int64_t(1) << k, "known = %d is not a power of two", known);
+  return k;
+}
+
 template<class T> tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const double tol) {
   typedef Undevice<T> S;
 
-  // Determine k.  For now, we assume it's a power of two.
-  const int k = 1 + int(countr_zero(uint64_t(g.known())));
-  slow_assert(2*g.known() == int64_t(1) << k, "g.known = %d is not a power of two", g.known());
+  // Determine k
+  const int k0 = known_to_k(g.known());
+  const int k = k0 + 1;
   const int64_t p = 1 << k;
   print("\nk %d:", k);
 
@@ -195,10 +202,37 @@ template<class T> void areas(const int max_k, const double tol) {
     bottcher_step(g, tol);
 }
 
+template<class S> void write_bottcher(const string& output, const string& mode,
+                                      const S mu, SeriesView<const S> f, SeriesView<const S> g) {
+  const int k = known_to_k(f.known());
+  slow_assert(f.known() == g.known());
+  slow_assert(f[0] == 1 && g[0] == 0, "f[0] = %g, g[0] = %g", f[0], g[0]);  // Make sure f and g aren't flipped
+  const auto write = [&output,&mode,k,mu=mu](const string& n, const string& name, const auto& x) {
+    write_series(
+        format("%s/%c-k%d", output, n, k),
+        {name, format("mode = %s", mode), format("k = %d", k), format("mu = %s", safe(mu))},
+        x);
+  };
+  write("g", "g = log(f)", g);
+  write("f", "f = f(z) = 1/phi(1/z)", f);
+}
+
+template<class S> Series<S> read_bottcher(const string& input) {
+  auto [comments, g] = read_series<S>(input);
+  print("reading from '%s':", input);
+  for (const auto& c : comments)
+    print("  %s", c);
+  slow_assert(comments.size() && comments[0] == "g = log(f)", "bad comments: %s", comments);
+  return move(g);
+}
+
 #define SERIES(T) \
   template Series<T> bottcher_base(); \
   template tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const double tol); \
-  template void areas<T>(const int max_k, const double);
+  template void areas<T>(const int max_k, const double); \
+  template void write_bottcher(const string&, const string&, const Undevice<T>, \
+                               SeriesView<const T>, SeriesView<const T> g); \
+  template Series<T> read_bottcher(const string&);
 #define AREAS(S) \
   template S area(SeriesView<const S> f); \
   SERIES(S)
