@@ -3,6 +3,7 @@
 
 #include "debug.h"
 #include "format.h"
+#include "noncopyable.h"
 #include "print.h"
 namespace mandelbrot {
 
@@ -60,10 +61,16 @@ test_compare(const char* sx, X&& x, const char* sy, Y&& y, Op&& op, const char* 
 #define ASSERT_THROW(x, e) \
   test_throw([&]() { x; }, #x, #e, __FUNCTION__, __LINE__)
 
-struct Tmpfile {
+struct Tmpfile : public Noncopyable {
   const string path;
   Tmpfile(string_view prefix);
   ~Tmpfile();
+};
+
+struct Tmpdir : public Noncopyable {
+  const string path;
+  Tmpdir(string_view prefix);
+  ~Tmpdir();
 };
 
 }  // namespace mandelbrot

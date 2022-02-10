@@ -234,7 +234,7 @@ template<int n> void equal_test() {
     for (int i = 0; i < 2*n; i++)
       pieces[i] = ldexp(double(uniform_int_distribution<int>(-32,32)(mt)), -6*i);
 
-    // Equality should hold between first + second halves and odds + evens
+    // The first + second halves and odds + evens should have difference equal to 0
     E x, y;
     for (int i = 0; i < n; i++) {
       x.x[0] += pieces[i];
@@ -242,7 +242,7 @@ template<int n> void equal_test() {
       y.x[0] += pieces[2*i];
       y.x[1] += pieces[2*i+1];
     }
-    ASSERT_EQ(x, y);
+    ASSERT_FALSE(x - y);
 
     // Equality should not hold if we tweak anything a little bit
     const double inf = numeric_limits<double>::infinity();
@@ -255,6 +255,10 @@ template<int n> void equal_test() {
         ASSERT_NE(tx, y);
         ASSERT_NE(ty, x);
         ASSERT_NE(ty, y);
+        ASSERT_TRUE(tx - x);
+        ASSERT_TRUE(tx - y);
+        ASSERT_TRUE(ty - x);
+        ASSERT_TRUE(ty - y);
       }
     }
   }
@@ -274,17 +278,16 @@ template<int n> static string old_safe(const Expansion<n> x) {
 template<int n> void safe_test() {
   typedef Expansion<n> E;
   mt19937 mt(7);
-  const auto identical = [](const E x, const E y) { return arf_equal(exact_arf(x), exact_arf(y)); };
   for (int i = 0; i < (1<<12); i++) {
     const E x = random_expansion<n>(mt);
     // Default version of safe()
     const string nice = safe(x);
     const E yn = E(nice);
-    ASSERT_TRUE(identical(x, yn)) << format("nice %s\nx %.17g\ny %.17g", nice, x.span(), yn.span());
+    ASSERT_EQ(x, yn) << format("nice %s\nx %.17g\ny %.17g", nice, x.span(), yn.span());
     // Simple span printing fallback
     const string simple = format("%.17g", x.span());
     const E ys = E(simple);
-    ASSERT_TRUE(identical(x, ys)) << format("simple %s\nx %.17g\ny %.17g", simple, x.span(), ys.span());
+    ASSERT_EQ(x, ys) << format("simple %s\nx %.17g\ny %.17g", simple, x.span(), ys.span());
     // Verify that maybe_nice_safe does the adaptation
     const string maybe = maybe_nice_safe(x);
     if (maybe.size())

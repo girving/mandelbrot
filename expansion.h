@@ -68,10 +68,12 @@ template<int n_> struct Expansion {
   #undef CWISE
 
   bool operator==(const int a) const {
-    double e = a;
-    for (int i = 0; i < n; i++)
-      e -= x[i];
-    return e == 0;
+    if (x[0] != a)
+      return false;
+    for (int i = 1; i < n; i++)
+      if (x[i])
+        return false;
+    return true;
   }
 
   explicit operator double() const {
