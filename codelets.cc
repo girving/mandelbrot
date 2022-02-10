@@ -310,11 +310,12 @@ public:
 
   bool zero() const { return e->exp == "0"; }
   bool one() const { return e->exp == "1"; }
+  bool two() const { return e->exp == "2"; }
   bool atom() const { return e->atom; }
   int prec() const { return e->prec; }
   const Sig& sig() const { return e->sig; }
   const string& exp() const { return e->exp; }
-  bool negation() const { return prec() == 3 && startswith(exp(), "-"); }
+  bool negation() const { return prec() <= 3 && startswith(exp(), "-"); }
   bool parens() const { return prec() == 2 && startswith(exp(), "(") && endswith(exp(), ")"); }
   const Exp& arg() const { slow_assert(e->args.size() == 1, exp()); return e->args[0]; }
 
@@ -385,6 +386,8 @@ Exp operator*(const Exp& x, const Exp& y) {
   if (y.one()) return x;
   const auto sig = x.sig() * y.sig();
   if (x.exp() == y.exp()) return Exp{format("sqr(%s)", x), 2, sig, {x}};
+  if (x.two()) return Exp{format("twice(%s)", y), 2, sig, {y}};
+  if (y.two()) return Exp{format("twice(%s)", x), 2, sig, {x}};
   return Exp{format("%s * %s", x.ensure(5), y.ensure(4)), 5, sig, {x, y}};
 }
 
@@ -392,7 +395,11 @@ Exp operator/(const Exp& x, const int a) {
   slow_assert(a);
   if (a == 1) return x;
   if (a == -1) return -x;
-  return Exp{format("%s / %d", x.ensure(5), a), 5, x.sig() * inv(Sig(a)), {x}};
+  if (a < 0) return -(x / -a);
+  if (x.negation()) return -((-x) / a);
+  const auto sig = x.sig() * inv(Sig(a));
+  if (a == 2) return Exp(format("half(%s)", x), 2, sig, {x});
+  return Exp{format("%s / %d", x.ensure(5), a), 5, sig, {x}};
 }
 
 Exp fma(const Exp& x, const Exp& y, const Exp& s) {
@@ -787,7 +794,7 @@ Exp inv(const Exp& x) { return Block::active().add("r", Exp{format("inv(%s)", x)
 // Base cases for series functions
 void series_bases(const string& path) {
   Header h(path, "Series function base cases", {"loops.h"});
-  const int n = 4;
+  const int n = 5;
   const bool sz_cse = true;
 
   // Unary
@@ -821,9 +828,14 @@ void series_bases(const string& path) {
       line("if (ny) %s_base_serial(y.data(), ny, x.data(), x.nonzero());", name);
     }
   };
-  #define UNARY(name, leading) unary(#name, leading, [=](auto& y, const auto x) { y = name(x); });
-  UNARY(inv, 0)
-  UNARY(exp, 1)
+  unary("inv", 0, [=](auto& y, const auto x) {
+    Series<Exp> r(n), rx(n), inv_rx(n);
+    r.set_scalar(n, inv(x[0]));
+    rx = mul(r, x);
+    inv_rx = inv(rx);
+    y = mul(r, inv_rx);
+  });
+  unary("exp", 1, [=](auto& y, const auto x) { y = exp(x); });
 }
 
 }  // namespace mandelbrot
