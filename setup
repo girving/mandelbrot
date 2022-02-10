@@ -4,11 +4,17 @@ cd "${0%/*}"  # Change to script directory
 rm -rf build
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   export CXX=clang-13
+  opt='-O3 -march=native'
 else
   prefix=`brew --prefix`
   export CPPPATH=$prefix/include
   export LDPATH=$prefix/lib
-  export CXX=$prefix/opt/llvm/bin/clang-13
+  if [[ `machine` == "arm64e" ]]; then
+    opt='-O3 -mcpu=apple-m1'
+  else
+    opt='-O3 -march=native'
+  fi
 fi
 meson setup build/debug --buildtype=debug
-CXXFLAGS='-O3 -march=native' meson setup build/release --buildtype=release
+CXXFLAGS=$opt meson setup build/debugoptimized --buildtype=debugoptimized
+CXXFLAGS=$opt meson setup build/release --buildtype=release

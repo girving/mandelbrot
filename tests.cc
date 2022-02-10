@@ -22,7 +22,16 @@ int register_test(const char* name, void (*test)()) {
   return 0;
 }
 
-void test_throw_fail(const char* sx, const char* se, const char* function, const int line) {
+void test_throw(const function<void()>& f, const char* sx, const char* se, const char* function, const int line) {
+  try {
+    f();
+  } catch (const exception& e) {
+    const string s = typeid(e).name();
+    if (s.find(string(se)) != string::npos)
+      return;
+    print("%s %s threw %s, not %s", red(format("%s:%d:", function, line)), sx, s, se);
+    throw test_error();
+  }
   print("%s %s didn't throw %s", red(format("%s:%d:", function, line)), sx, se);
   throw test_error();
 }

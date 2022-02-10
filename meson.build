@@ -38,7 +38,7 @@ m = cpp.find_library('m')
 flint = declare_dependency(link_args: ['-lflint'] + linkflags, dependencies: [gmp])
 arb = declare_dependency(link_args: [darwin ? '-larb' : '-lflint-arb'] + linkflags, dependencies: [flint, m])
 threads = dependency('threads')
-openmp = declare_dependency(link_args: linkflags, dependencies: [dependency('openmp')])
+openmp = darwin ? [] : [declare_dependency(link_args: linkflags, dependencies: [dependency('openmp')])]
 
 cuda = dependency('cuda', version: '>=11.3', required: false)
 if cuda.found()
@@ -58,7 +58,7 @@ argparse = custom_target('argparse', output: 'argparse.hpp',
                                    '79df7808d2164b8d2186014c8de039c8b2dc00e7/include/argparse/argparse.hpp'),
                                    '-o', '@OUTPUT@'])
 
-base_deps = [openmp] + (cuda.found() ? [cuda] : [])
+base_deps = openmp + (cuda.found() ? [cuda] : [])
 base = declare_dependency(
     link_with: library('base', ['cutil.cc', 'debug.cc', 'loops.cc', 'print.cc', 'shutdown.cc',
                                 tinyformat, argparse], dependencies: base_deps),

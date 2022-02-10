@@ -5,9 +5,11 @@
 #include "arb_cc.h"
 #include "expansion.h"
 #include "fmpq_cc.h"
+#include "loops.h"
 #include <vector>
 namespace mandelbrot {
 
+using std::atomic;
 using std::vector;
 
 template<class S> optional<S> round_nearest(const arb_t c, const int prec) {
@@ -91,36 +93,31 @@ template<class S> int64_t nearest_twiddles(span<Complex<S>> zs, const int64_t b,
   const auto n0 = int64_t(ceil(sqrt(double(n))));
   const auto n1 = (n + n0 - 1) / n0;
 
-  int64_t fallbacks = 0;
-  vector<Acb> factors(n0 + n1);  // Each twiddle(j0*n1, b), then each twiddle(j1, b)
-  #pragma omp parallel
-  {
-    // Compute j0*n1 and j1 twiddles
+  // Compute j0*n1 and j1 twiddles
+  // factores stores each twiddle(j0*n1, b), then each twiddle(j1, b)
+  vector<Acb> factors(n0 + n1);
+  const auto factors_p = factors.data();
+  HOST_LOOP(n0+n1, j,
+    const auto j0 = j;
+    const auto j1 = j - n0;
     Fmpq t;
-    #pragma omp for
-    for (int64_t j = 0; j < n0+n1; j++) {
-      const auto j0 = j, j1 = j - n0;
-      fmpq_set_si(t, j < n0 ? 2*j0*n1 : 2*j1, b);
-      cis_pi(factors[j], t, fast_prec);
-    }
+    fmpq_set_si(t, j < n0 ? 2*j0*n1 : 2*j1, b);
+    cis_pi(factors_p[j], t, fast_prec);)
 
-    // First compute factored using low precision, filling in holes using nonfactored evaluation
+  // First compute factored using low precision, filling in holes using nonfactored evaluation
+  atomic<int64_t> fallbacks = 0;
+  const auto fallbacks_p = &fallbacks;
+  HOST_LOOP(n, j,
+    const auto j0 = j / n1;
+    const auto j1 = j - j0*n1;
     Acb z;
-    int64_t thread_fallbacks = 0;
-    #pragma omp for
-    for (int64_t j = 0; j < n; j++) {
-      const auto j0 = j / n1, j1 = j - j0*n1;
-      acb_mul(z, factors[j0], factors[n0 + j1], fast_prec);
-      if (auto r = round_nearest<S>(z, fast_prec))
-        zs[j] = *r;
-      else {
-        zs[j] = nearest_twiddle<S>(j, b);
-        thread_fallbacks++;
-      }
-    }
-    #pragma omp atomic
-    fallbacks += thread_fallbacks;
-  }
+    acb_mul(z, factors_p[j0], factors_p[n0 + j1], fast_prec);
+    if (auto r = round_nearest<S>(z, fast_prec))
+      zs[j] = *r;
+    else {
+      zs[j] = nearest_twiddle<S>(j, b);
+      (*fallbacks_p)++;
+    })
   return fallbacks;
 }
 
