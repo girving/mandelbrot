@@ -7,6 +7,7 @@
 #include "device.h"
 #include "expansion.h"
 #include "print.h"
+#include <algorithm>
 #include <exception>
 #include <fstream>
 #include <functional>
@@ -68,7 +69,7 @@ int main(int argc, char** argv) {
 
     // Options and computation modes
     const auto mode = [&]() { return program.get("mode"); };
-    const auto k = [&]() { return int(min(1000.0, program.get<double>("k"))); };
+    const auto k = [&]() { return int(std::min(1000.0, program.get<double>("k"))); };
     const auto tol = [&]() { return program.get<double>("tol"); };
     const auto prec = [&]() { return program.get<int>("prec"); };
     const auto output = [&]() { return program.is_used("--output") ? program.get("output") : ""; };
@@ -101,8 +102,15 @@ int main(int argc, char** argv) {
       tee(output() + "/log");
     }
 
+    // Log command line options
+    print("mode = %s", mode());
+    print("k = %g", program.get<double>("k"));
+    print("tol = %g", tol());
+    if (mode() == "arb") print("prec = %d", prec());
+    if (output().size()) print("output = '%s'", output());
+    print();
+
     // Compute!
-    print("mode = %s\n", mode());
     const auto it = modes.find(mode());
     slow_assert(it != modes.end());
     it->second();
