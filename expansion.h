@@ -5,6 +5,7 @@
 #include "span.h"
 #include <cmath>
 #include <ostream>
+#include <random>
 namespace mandelbrot {
 
 // References:
@@ -17,14 +18,17 @@ namespace mandelbrot {
 
 struct Arb;
 struct Arf;
+using std::mt19937;
 using std::string;
+using std::string_view;
 using std::ostream;
 
 struct Nonoverlap {};
 constexpr Nonoverlap nonoverlap;
 
-template<int n> struct Expansion {
+template<int n_> struct Expansion {
   struct Unusable {};
+  static constexpr int n = n_;
   static_assert(n >= 2);
   double x[n];  // Ulp-nonoverlapping in decreasing order of magnitude
 
@@ -64,10 +68,12 @@ template<int n> struct Expansion {
   #undef CWISE
 
   bool operator==(const int a) const {
-    double e = a;
-    for (int i = 0; i < n; i++)
-      e -= x[i];
-    return e == 0;
+    if (x[0] != a)
+      return false;
+    for (int i = 1; i < n; i++)
+      if (x[i])
+        return false;
+    return true;
   }
 
   explicit operator double() const {
@@ -84,6 +90,7 @@ template<int n> struct Expansion {
   std::span<const double> span() const;
   Arb arb(const int prec) const;
   explicit Expansion(const string& s);
+  explicit Expansion(string_view s);
 };
 
 template<int n> int sign(const Expansion<n> x);
@@ -99,8 +106,9 @@ template<int n> Arf exact_arf(const Expansion<n> x);
 // Dangerous if the exponents are far apart, since it calls exact_arf()
 template<int n> ostream& operator<<(ostream& out, const Expansion<n> e);
 
-// Print enough digits for exact reconstruction
+// Print enough digits for exact reconstruction, or fall back to list syntax if we run out of precision
 template<int n> string safe(const Expansion<n> x);
+template<int n> string maybe_nice_safe(const Expansion<n> x);  // Might return "" if decimal printing fails
 
 // Reciprocal via Newton's method
 template<int n> __host__ __device__ Expansion<n> inv(const Expansion<n> x) {
@@ -136,6 +144,11 @@ template<int n> __host__ __device__ Expansion<n> Expansion<n>::operator/(const E
   y = y - (b*y - *this) * inv_b;
   return y;
 }
+
+// Random numbers for unit tests
+template<int n> Expansion<n> random_expansion(mt19937& mt);
+template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<n> x);
+template<int n> Expansion<n> random_expansion_with_exponent(mt19937& mt, int e);
 
 }  // namespace mandelbrot
 

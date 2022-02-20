@@ -5,9 +5,11 @@
 #include "arb_cc.h"
 #include "expansion.h"
 #include "fmpq_cc.h"
+#include "loops.h"
 #include <vector>
 namespace mandelbrot {
 
+using std::atomic;
 using std::vector;
 
 template<class S> optional<S> round_nearest(const arb_t c, const int prec) {
@@ -32,7 +34,7 @@ template<class S> optional<Complex<S>> round_nearest(const acb_t z, const int pr
 }
 
 template<int n> Expansion<n> RoundNear<Expansion<n>>::round(const arf_t c) {
-  const int max_prec = 1600;
+  const int max_prec = 10000;
   Expansion<n> e;
   Arb dc, t;
   for (int prec = 60*n; prec <= max_prec; prec <<= 1) {
@@ -47,7 +49,9 @@ template<int n> Expansion<n> RoundNear<Expansion<n>>::round(const arf_t c) {
     return e;
     fail:;
   }
-  die("ran out of precision rounding arf_t to Expansion<%d> (max prec = %d)", n, max_prec);
+  Arf a;
+  arf_set(a, c);
+  die("ran out of precision rounding arf_t %s to Expansion<%d> (max prec = %d)", a, n, max_prec);
 }
 
 // 𝜋
@@ -82,46 +86,46 @@ template<class S> Complex<S> nearest_twiddle(const int64_t a, const int64_t b) {
   });
 }
 
-// exp(2𝜋i a/b) for a ∈ [0,zs.size())
-template<class S> void nearest_twiddles(span<Complex<S>> zs, const int64_t b) {
-  const int max_prec = 1600;
-  const int64_t n = zs.size();
+// exp(2𝜋i a/b) for a ∈ [0,zs.size()).
+template<class S> int64_t nearest_twiddles(span<Complex<S>> zs, const int64_t b, const int fast_prec) {
   // Write n <= n0 * n1, so that j = j0*n1 + j1
+  const int64_t n = zs.size();
   const auto n0 = int64_t(ceil(sqrt(double(n))));
   const auto n1 = (n + n0 - 1) / n0;
-  Fmpq t;
-  Acb z, zs0;
-  vector<Acb> zs1(n1);
-  for (int prec = 200; prec <= max_prec; prec <<= 1) {
-    // Compute low twiddles
-    for (int64_t j1 = 0; j1 < n1; j1++) {
-      fmpq_set_si(t, 2*j1, b);
-      cis_pi(zs1[j1], t, prec);
-    }
-    // Compute all twiddles
-    for (int64_t j0 = 0; j0 < n0; j0++) {
-      fmpq_set_si(t, 2*j0*n1, b);
-      cis_pi(zs0, t, prec);
-      for (int64_t j1 = 0; j1 < n1; j1++) {
-        const auto j = j0*n1 + j1;
-        if (j >= n) break;
-        acb_mul(z, zs0, zs1[j1], prec);
-        const auto z_ = round_nearest<S>(z, prec);
-        if (!z_) goto fail;
-        zs[j0*n1 + j1] = *z_;
-      }
-    }
-    return;  // Success!
-    fail:;  // Not enough precision
-  }
-  die("nearest_twiddles ran out of precision (max prec = %g)", max_prec);
+
+  // Compute j0*n1 and j1 twiddles
+  // factores stores each twiddle(j0*n1, b), then each twiddle(j1, b)
+  vector<Acb> factors(n0 + n1);
+  const auto factors_p = factors.data();
+  HOST_LOOP(n0+n1, j,
+    const auto j0 = j;
+    const auto j1 = j - n0;
+    Fmpq t;
+    fmpq_set_si(t, j < n0 ? 2*j0*n1 : 2*j1, b);
+    cis_pi(factors_p[j], t, fast_prec);)
+
+  // First compute factored using low precision, filling in holes using nonfactored evaluation
+  atomic<int64_t> fallbacks = 0;
+  const auto fallbacks_p = &fallbacks;
+  HOST_LOOP(n, j,
+    const auto j0 = j / n1;
+    const auto j1 = j - j0*n1;
+    Acb z;
+    acb_mul(z, factors_p[j0], factors_p[n0 + j1], fast_prec);
+    if (auto r = round_nearest<S>(z, fast_prec))
+      zs[j] = *r;
+    else {
+      zs[j] = nearest_twiddle<S>(j, b);
+      (*fallbacks_p)++;
+    })
+  return fallbacks;
 }
 
 #define NEAREST(S) \
   template S nearest_pi(); \
   template S nearest_sqrt(const int64_t, const int64_t); \
   template Complex<S> nearest_twiddle(const int64_t, const int64_t); \
-  template void nearest_twiddles(span<Complex<S>>, const int64_t); 
+  template int64_t nearest_twiddles(span<Complex<S>>, const int64_t, const int fast_prec);
 NEAREST(double)
 
 #define EXPANSION(n) \

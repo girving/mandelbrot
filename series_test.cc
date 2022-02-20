@@ -1,13 +1,17 @@
 // Series tests
 
 #include "series.h"
+#include "expansion.h"
 #include "poly.h"
 #include "rand.h"
 #include "tests.h"
+#include <random>
 namespace mandelbrot {
 namespace {
 
+using std::mt19937;
 using std::runtime_error;
+using std::uniform_real_distribution;
 
 const int prec = 100, mag_bits = 0;
 
@@ -585,6 +589,32 @@ TEST(ldexp) {
   y = ldexp(x, 3); ASSERT_EXACT(y, 3<<3, 5<<3, 7<<3);
   y = ldexp(x, -1); ASSERT_EXACT(y, 1.5, 2.5, 3.5);
 }
+
+template<class S> void write_series_test() {
+  mt19937 mt;
+  for (const int n : {0, 1, 2, 5, 32, 1024}) {
+    Series<S> x(n);
+    x.set_counts(n + 17, n);
+    for (int i = 0; i < n; i++) {
+      if constexpr (is_same_v<S,double>)
+        x[i] = uniform_real_distribution<double>(-1, 1)(mt);
+      else
+        x[i] = random_expansion<S::n>(mt);
+    }
+    vector<string> comments{"one", "two"};
+    Tmpfile tmp("series-");
+    write_series(tmp.path, comments, x.view());
+    const auto [cs, y] = read_series<S>(tmp.path);
+    for (const auto& c : comments)
+      ASSERT_TRUE(std::find(cs.begin(), cs.end(), c) != cs.end());
+    ASSERT_EQ(x.known(), y.known());
+    ASSERT_EQ(x.nonzero(), y.nonzero());
+    for (int64_t i = 0; i < n; i++)
+      ASSERT_EQ(x[i], y[i]);
+  }
+}
+TEST(write_series_double) { write_series_test<double>(); }
+TEST(write_series_expansion) { write_series_test<Expansion<2>>(); }
 
 }  // namespace
 }  // namespace mandelbrot

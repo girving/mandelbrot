@@ -5,7 +5,9 @@
 #include "shutdown.h"
 #include "wall_time.h"
 #include <functional>
+#include <unistd.h>
 #include <unordered_set>
+#include <filesystem>
 namespace mandelbrot {
 
 using std::exception;
@@ -21,9 +23,41 @@ int register_test(const char* name, void (*test)()) {
   return 0;
 }
 
-void test_throw_fail(const char* sx, const char* se, const char* function, const int line) {
+void test_throw(const function<void()>& f, const char* sx, const char* se, const char* function, const int line) {
+  try {
+    f();
+  } catch (const exception& e) {
+    const string s = typeid(e).name();
+    if (s.find(string(se)) != string::npos)
+      return;
+    print("%s %s threw %s, not %s", red(format("%s:%d:", function, line)), sx, s, se);
+    throw test_error();
+  }
   print("%s %s didn't throw %s", red(format("%s:%d:", function, line)), sx, se);
   throw test_error();
+}
+
+Tmpfile::Tmpfile(string_view prefix) {
+  string p = "/tmp/" + string(prefix) + "XXXXXX";
+  const int fd = mkstemp(p.data());
+  slow_assert(fd >= 0, strerror(errno));
+  const_cast<string&>(path) = p;
+}
+
+Tmpfile::~Tmpfile() {
+  if (path.size())
+    unlink(path.c_str());
+}
+
+Tmpdir::Tmpdir(string_view prefix) {
+  string p = "/tmp/" + string(prefix) + "XXXXXX";
+  slow_assert(mkdtemp(p.data()), strerror(errno));
+  const_cast<string&>(path) = p;
+}
+
+Tmpdir::~Tmpdir() {
+  if (path.size())
+    std::filesystem::remove_all(path);
 }
 
 // See https://stackoverflow.com/questions/2616906/how-do-i-output-coloured-text-to-a-linux-terminal

@@ -25,4 +25,10 @@ template<class T> static inline T relu(const T& x) {
   return max(x, T(0));
 }
 
+static inline int exponent(const double x) {
+  int e;
+  frexp(x, &e);
+  return e;
+}
+
 }  // namespace mandelbrot

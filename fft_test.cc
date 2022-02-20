@@ -4,6 +4,7 @@
 #include "acb_dft.h"
 #include "arb_cc.h"
 #include "debug.h"
+#include "nearest.h"
 #include "print.h"
 #include "tests.h"
 #include <cmath>
@@ -181,6 +182,17 @@ TEST(srfft) {
       }
     }
   }
+}
+
+TEST(twiddles) {
+  const int64_t as = 1637;
+  const int64_t b = 1732;
+  const int fast_prec = 64;
+  vector<Complex<double>> zs(as);
+  const auto fallbacks = nearest_twiddles<double>(zs, b, fast_prec);
+  ASSERT_EQ(fallbacks, 42);  // Not too high, not too low
+  for (int i = 0; i < as; i++)
+    ASSERT_EQ(zs[i], nearest_twiddle<double>(i, b));
 }
 
 }  // namespace

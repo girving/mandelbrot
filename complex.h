@@ -33,6 +33,8 @@ template<class S> struct Complex {
   __host__ __device__ friend Complex twice(const Complex& z) { return Complex(twice(z.r), twice(z.i)); }
   __host__ __device__ friend Complex half(const Complex& z) { return Complex(half(z.r), half(z.i)); }
 
+  bool operator==(const Complex z) const { return r == z.r && i == z.i; }
+
   friend ostream& operator<<(ostream& out, const Complex& z) {
     out << z.r;
     if (copysign(S(1), z.i) > 0) out << '+';

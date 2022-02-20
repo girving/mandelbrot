@@ -15,7 +15,7 @@ if darwin
   # Add Homebrew paths
   brew = run_command('brew', '--prefix', check: true).stdout().strip()
   add_global_arguments('-I' + brew + '/include', language: 'cpp')
-  libpaths += [brew + '/lib']
+  libpaths += [brew + '/lib', brew + '/opt/llvm/lib']
 endif
 
 # Linker flags
@@ -38,6 +38,7 @@ m = cpp.find_library('m')
 flint = declare_dependency(link_args: ['-lflint'] + linkflags, dependencies: [gmp])
 arb = declare_dependency(link_args: [darwin ? '-larb' : '-lflint-arb'] + linkflags, dependencies: [flint, m])
 threads = dependency('threads')
+openmp = darwin ? [] : [declare_dependency(link_args: linkflags, dependencies: [dependency('openmp')])]
 
 cuda = dependency('cuda', version: '>=11.3', required: false)
 if cuda.found()
@@ -57,18 +58,17 @@ argparse = custom_target('argparse', output: 'argparse.hpp',
                                    '79df7808d2164b8d2186014c8de039c8b2dc00e7/include/argparse/argparse.hpp'),
                                    '-o', '@OUTPUT@'])
 
+base_deps = openmp + (cuda.found() ? [cuda] : [])
 base = declare_dependency(
-    link_with: library('base', ['debug.cc', 'print.cc', 'shutdown.cc', tinyformat, argparse]),
-    sources: [tinyformat, argparse])
+    link_with: library('base', ['cutil.cc', 'debug.cc', 'loops.cc', 'print.cc', 'shutdown.cc',
+                                tinyformat, argparse], dependencies: base_deps),
+    sources: [tinyformat, argparse], dependencies: base_deps)
 tests = declare_dependency(
     link_with: library('tests', ['tests.cc'], dependencies: [base, m]),
     dependencies: [base, m])
 known = declare_dependency(
     link_with: library('known', ['known.cc'], dependencies: [base]),
     dependencies: [base])
-cutil = declare_dependency(
-    link_with: library('cutil', ['cutil.cc'], dependencies: [base, cuda]),
-    dependencies: [base, cuda])
 arb_cc = declare_dependency(
     link_with: library('arbcc', ['acb_cc.cc', 'arb_cc.cc', 'arf_cc.cc', 'fmpq_cc.cc', 'poly.cc'],
                        dependencies: [base, arb]),
@@ -85,19 +85,20 @@ generated = [
 ]
 area = declare_dependency(
     link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc'] + generated,
-                       dependencies: [base, arb_cc, cutil, known, m]),
-    sources: generated, dependencies: [arb_cc, cutil, known, m])
+                       dependencies: [base, arb_cc, known, m]),
+    sources: generated, dependencies: [arb_cc, known, m])
 
 test('bit', executable('bit_test', ['bit_test.cc'], dependencies: [tests]))
 test('expansion', executable('expansion_test', ['expansion_test.cc'], dependencies: [area, tests]))
+test('loops', executable('loops_test', ['loops_test.cc'], dependencies: [base, tests]))
 test('arb_area', executable('arb_area_test', ['arb_area_test.cc'], dependencies: [arb_area, tests]))
 test('poly', executable('poly_test', ['poly_test.cc'], dependencies: [arb_area, tests]))
 test('fft', executable('fft_test', ['fft_test.cc'], dependencies: [area, tests]))
 test('series', executable('series_test', ['series_test.cc'], dependencies: [area, tests]))
 test('area', executable('area_test', ['area_test.cc'], dependencies: [area, arb_area, tests]))
 if cuda.found()
-  test('series_cuda', executable('series_cuda_test', ['series_cuda_test.cc'], dependencies: [area, cutil, tests]))
-  test('cuda', executable('cuda_test', ['cuda_test.cc'], dependencies: [cutil, tests]))
+  test('series_cuda', executable('series_cuda_test', ['series_cuda_test.cc'], dependencies: [area, tests]))
+  test('cuda', executable('cuda_test', ['cuda_test.cc'], dependencies: [base, tests]))
   test('area_cuda', executable('area_cuda_test', ['area_cuda_test.cc'], dependencies: [area, arb_area, tests]))
 endif
 

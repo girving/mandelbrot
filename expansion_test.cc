@@ -28,12 +28,6 @@ using std::uniform_int_distribution;
 using std::uniform_real_distribution;
 using std::vector;
 
-int exponent(const double x) {
-  int e;
-  frexp(x, &e);
-  return e;
-}
-
 // Goldberg's definition, according to Collange et al.
 double ulp(const double x) {
   constexpr int p = numeric_limits<double>::digits;
@@ -73,25 +67,6 @@ template<int n> int ulp_slop(const Expansion<n>& e) {
       slop = max(slop, exponent(y) - exponent(ulp(x)));
   }
   return slop;
-}
-
-template<int n> Expansion<n> random_expansion_with_exponent(mt19937& mt, int e) {
-  Expansion<n> a;
-  for (int i = 0; i < n; i++) {
-    a.x[i] = ldexp(uniform_real_distribution<double>(-1, 1)(mt), e);
-    e = exponent(a.x[i]) - 52 - 1;
-  }
-  return a;
-}
-
-template<int n> Expansion<n> random_expansion(mt19937& mt) {
-  const int e = uniform_int_distribution<int>(-20, 20)(mt);
-  return random_expansion_with_exponent<n>(mt, e);
-}
-
-template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<n> x) {
-  const int e = exponent(x.x[0]) - uniform_int_distribution<int>(1, 52*n)(mt);
-  return (bernoulli_distribution(0.5)(mt) ? x : -x) + random_expansion_with_exponent<n>(mt, e);
 }
 
 // Returns an upper bound for |x|
@@ -259,7 +234,7 @@ template<int n> void equal_test() {
     for (int i = 0; i < 2*n; i++)
       pieces[i] = ldexp(double(uniform_int_distribution<int>(-32,32)(mt)), -6*i);
 
-    // Equality should hold between first + second halves and odds + evens
+    // The first + second halves and odds + evens should have difference equal to 0
     E x, y;
     for (int i = 0; i < n; i++) {
       x.x[0] += pieces[i];
@@ -267,7 +242,7 @@ template<int n> void equal_test() {
       y.x[0] += pieces[2*i];
       y.x[1] += pieces[2*i+1];
     }
-    ASSERT_EQ(x, y);
+    ASSERT_FALSE(x - y);
 
     // Equality should not hold if we tweak anything a little bit
     const double inf = numeric_limits<double>::infinity();
@@ -280,8 +255,54 @@ template<int n> void equal_test() {
         ASSERT_NE(tx, y);
         ASSERT_NE(ty, x);
         ASSERT_NE(ty, y);
+        ASSERT_TRUE(tx - x);
+        ASSERT_TRUE(tx - y);
+        ASSERT_TRUE(ty - x);
+        ASSERT_TRUE(ty - y);
       }
     }
+  }
+}
+
+template<int n> static string old_safe(const Expansion<n> x) {
+  const auto a = exact_arf(x);
+  for (int p = 1; p < 1000*n; p++) {
+    const string s = format("%.*g", p, a);
+    const Expansion<n> y(s);
+    if (x == y)
+      return s;
+  }
+  die("ran out of precision in old_safe");
+}
+
+template<int n> void safe_test() {
+  typedef Expansion<n> E;
+  mt19937 mt(7);
+  for (int i = 0; i < (1<<12); i++) {
+    const E x = random_expansion<n>(mt);
+    // Default version of safe()
+    const string nice = safe(x);
+    const E yn = E(nice);
+    ASSERT_EQ(x, yn) << format("nice %s\nx %.17g\ny %.17g", nice, x.span(), yn.span());
+    // Simple span printing fallback
+    const string simple = format("%.17g", x.span());
+    const E ys = E(simple);
+    ASSERT_EQ(x, ys) << format("simple %s\nx %.17g\ny %.17g", simple, x.span(), ys.span());
+    // Verify that maybe_nice_safe does the adaptation
+    const string maybe = maybe_nice_safe(x);
+    if (maybe.size())
+      ASSERT_EQ(maybe, nice);
+    else
+      ASSERT_EQ(simple, nice);
+  }
+  // Force span printing fallback by spacing the exponents way apart
+  for (int i = 0; i < 256; i++) {
+    E x = random_expansion<n>(mt);
+    x.x[n-1] = ldexp(x.x[n-1], -200);
+    const string nice = safe(x);
+    const string simple = format("%.17g", x.span());
+    ASSERT_EQ(nice, simple);
+    ASSERT_EQ(x, E(simple));
   }
 }
 
@@ -298,7 +319,8 @@ template<int n> void equal_test() {
   TEST(mul##n) { mul_test<n>(); } \
   TEST(equal##n) { equal_test<n>(); } \
   TEST(inv##n) { inv_test<n>(); } \
-  TEST(div##n) { div_test<n>(); }
+  TEST(div##n) { div_test<n>(); } \
+  TEST(safe##n) { safe_test<n>(); }
 TESTS(2)
 TESTS(3)
 

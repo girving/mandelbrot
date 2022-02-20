@@ -9,7 +9,6 @@
 #include "print.h"
 #include <algorithm>
 #include <exception>
-#include <fstream>
 #include <functional>
 #include <map>
 #include <sys/stat.h>
@@ -19,47 +18,22 @@ using std::endl;
 using std::function;
 using std::map;
 using std::min;
-using std::ofstream;
 using std::numeric_limits;
 using std::vector;
 using namespace mandelbrot;
 static const double inf = numeric_limits<double>::infinity();
 
-// Write a series to a file in a simple text format
-template<class T,bool v> void write_series(const string& path, vector<string> comments, const Series<T,v>& x) {
-  ofstream out(path);
+template<class T> void areas(const optional<string>& input, const optional<string>& output,
+                             const string& mode, const int max_k, const double tol) {
+  // Initialize, either from scratch or from file
+  Series<T> g(input ? read_bottcher<T>(*input) : bottcher_base<T>());
 
-  // From https://stackoverflow.com/questions/16357999/current-date-and-time-as-string/16358264
-  const auto t = std::time(nullptr);
-  const auto tm = *std::localtime(&t);
-  comments.push_back(format("time = %s", std::put_time(&tm, "%F %T")));
-
-  for (const auto& c : comments)
-    out << "# " << c << endl;
-
-  // Write series terms in plain text
-  for (const auto& t : host_copy(x))
-    out << safe(t) << endl;
-}
-
-template<class T> void areas(const string& output, const string& mode, const int max_k, const double tol) {
-  auto g = bottcher_base<T>();
-  for (int k = 1; k <= max_k; k++) {
+  // Learn more terms
+  const int k0 = known_to_k(g.known());
+  for (int k = k0+1; k <= max_k; k++) {
     const auto [f, mu] = bottcher_step(g, tol);
-    if (output.size()) {
-      const auto write = [&output,&mode,k,mu=mu](const string& n, const string& name, const auto& x) {
-        write_series(
-            format("%s/%c-k%d", output, n, k),
-            {name,
-             format("mode = %s", mode),
-             format("k = %d", k),
-             format("terms = %d", x.known()),
-             format("mu = %s", safe(mu))},
-            x);
-      };
-      write("g", "g = log(f)", g);
-      write("f", "f = f(z) = 1/phi(1/z)", f);
-    }
+    if (output)
+      write_bottcher<T>(*output, mode, mu, f, g);
   }
 }
 
@@ -72,8 +46,9 @@ int main(int argc, char** argv) {
     const auto k = [&]() { return int(std::min(1000.0, program.get<double>("k"))); };
     const auto tol = [&]() { return program.get<double>("tol"); };
     const auto prec = [&]() { return program.get<int>("prec"); };
-    const auto output = [&]() { return program.is_used("--output") ? program.get("output") : ""; };
-    #define AREAS(T) [&]() { areas<T>(output(), mode(), k(), tol()); }
+    const auto input = [&]() { return program.present("input"); };
+    const auto output = [&]() { return program.present("output"); };
+    #define AREAS(T) [&]() { areas<T>(input(), output(), mode(), k(), tol()); }
     const map<string,function<void()>> modes = {
       {"arb", [&]() { arb_areas(k(), prec()); }},
       {"double", AREAS(double)},
@@ -90,16 +65,17 @@ int main(int argc, char** argv) {
     program.add_argument("-k").help("stop after 2^k terms").scan<'g',double>().default_value(inf);
     program.add_argument("-p", "--prec").help("precision, if we're using arb").scan<'i',int>().default_value(2000);
     program.add_argument("-t", "--tol").help("bail if error exceeds this").scan<'g',double>().default_value(inf);
+    program.add_argument("-i", "--input").help("g = log f series to resume from");
     program.add_argument("-o", "--output").help("directory to write results to");
     program.parse_args(argc, argv);
     if (program.is_used("--prec") && mode() != "arb")
       die("--prec only makes sense for mode == 'arb'");
 
     // Make output directory
-    if (output().size()) {
-      const int r = mkdir(output().c_str(), 0777);
-      if (r) die("failed to create directory '%s': %s", output(), strerror(errno));
-      tee(output() + "/log");
+    if (output()) {
+      const int r = mkdir(output()->c_str(), 0777);
+      if (r) die("failed to create directory '%s': %s", *output(), strerror(errno));
+      tee(*output() + "/log");
     }
 
     // Log command line options

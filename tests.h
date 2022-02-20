@@ -3,15 +3,18 @@
 
 #include "debug.h"
 #include "format.h"
+#include "noncopyable.h"
 #include "print.h"
 namespace mandelbrot {
 
 using std::cout;
 using std::exception;
+using std::function;
 using std::ostream;
+using std::string_view;
 
 int register_test(const char* name, void (*test)());
-void test_throw_fail(const char* sx, const char* se, const char* function, const int line);
+void test_throw(const function<void()>& f, const char* sx, const char* se, const char* function, const int line);
 struct test_error : public exception {};
 string red(const string& s);
 string green(const string& s);
@@ -55,7 +58,19 @@ test_compare(const char* sx, X&& x, const char* sy, Y&& y, Op&& op, const char* 
 #define ASSERT_LE(x, y) ASSERT2(x, y, std::less_equal(), "!<=")
 #define ASSERT_LT(x, y) ASSERT2(x, y, std::less(), "!<")
 
-#define ASSERT_THROW(x, e) ({ \
-  try { x; test_throw_fail(#x, #e, __FUNCTION__, __LINE__); } catch (const e&) {} })
+#define ASSERT_THROW(x, e) \
+  test_throw([&]() { x; }, #x, #e, __FUNCTION__, __LINE__)
+
+struct Tmpfile : public Noncopyable {
+  const string path;
+  Tmpfile(string_view prefix);
+  ~Tmpfile();
+};
+
+struct Tmpdir : public Noncopyable {
+  const string path;
+  Tmpdir(string_view prefix);
+  ~Tmpdir();
+};
 
 }  // namespace mandelbrot

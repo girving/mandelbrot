@@ -3,7 +3,16 @@
 #include "series.h"
 #include "expansion.h"
 #include "poly.h"
+#include <fstream>
 namespace mandelbrot {
+
+using std::endl;
+using std::exception;
+using std::ifstream;
+using std::is_same_v;
+using std::ofstream;
+using std::runtime_error;
+using std::string_view;
 
 Series<double> approx(const Poly& x, const int64_t n) {
   slow_assert(n >= x.length());
@@ -76,10 +85,100 @@ template<class T> void mul1p_post(Series<T>& z, SeriesView<add_const_t<T>> x,
   mul1p_post_loop(post, z.data(), x.data(), s, xnz);
 }
 
+static string time_str() {
+  // From https://stackoverflow.com/questions/16357999/current-date-and-time-as-string/16358264
+  const auto t = std::time(nullptr);
+  const auto tm = *std::localtime(&t);
+  return format("time = %s", std::put_time(&tm, "%F %T"));
+}
+
+template<class T> void write_series(const string& path, const vector<string>& comments, SeriesView<const T> x) {
+  ofstream out(path);
+
+  // Add comments for known(), nonzero(), and time
+  auto cs = comments;
+  cs.push_back(format("known = %d", x.known()));
+  cs.push_back(format("nonzero = %d", x.nonzero()));
+  cs.push_back(time_str());
+
+  // Write comments at top of file
+  for (const auto& c : cs)
+    out << "# " << c << endl;
+
+  // Write series terms in plain text
+  string s;
+  const auto reduce = [](string& y, const string& x) { y += x; };
+  const auto map = [&x](const int64_t i) { auto s = safe(x[i]); s += '\n'; return s; };
+  map_reduce(s, reduce, map, x.nonzero());
+  out << s;
+}
+
+template<class T> tuple<vector<string>,Series<T>> read_series(const string& path) {
+  if constexpr (is_device<T>) {
+    const auto [cs, x] = read_series<Undevice<T>>(path);
+    Series<T> dx(x.nonzero());
+    host_to_device(dx, x);
+    return make_tuple(cs, dx);
+  }
+  const auto trim = [](string_view& v) {
+    while (v.size() && isspace(v[0]))
+      v.remove_prefix(1);
+  };
+  const auto number = [](const string_view c, const string_view n) {
+    try {
+      const int64_t i = stol(string(n));
+      if (i >= 0) return i;
+    } catch (const exception&) {}
+    throw runtime_error(format("failed to parse comment '%s' as nonnegative integer", c));
+  };
+  ifstream in(path);
+  int64_t known = -1, nonzero = -1, terms = -1;
+  vector<string> comments;
+  Series<T> x;
+  string line;
+  while (getline(in, line)) {
+    string_view v(line);
+    const auto c = v;
+    trim(v);
+    if (!v.size()) continue;  // Skip blank lines
+    if (v[0] == '#') {  // Comment!
+      v.remove_prefix(1);
+      trim(v);
+      comments.emplace_back(v);
+      if (v.starts_with("known =")) {
+        slow_assert(known < 0);
+        v.remove_prefix(7);
+        known = number(c, v);
+      } else if (v.starts_with("nonzero =")) {
+        slow_assert(nonzero < 0);
+        v.remove_prefix(9);
+        nonzero = number(c, v);
+      }
+      if (known >= 0 && nonzero >= 0) {
+        slow_assert(known >= nonzero);
+        Series<T>(nonzero).swap(x);
+        x.set_counts(known, nonzero);
+        terms = 0;
+      }
+    } else {  // Number, hopefully
+      slow_assert(terms >= 0);
+      slow_assert(terms < nonzero);
+      T a;
+      if constexpr (is_same_v<T,double>) a = stod(string(v));
+      else a = T(v);
+      x[terms++] = a;
+    }
+  }
+  slow_assert(terms == nonzero);
+  return make_tuple(comments, move(x));
+}
+
 #define Ss(S) \
   template void add_scalar(Series<S>&, const typename Series<S>::Scalar); \
   template void high_addsub(Series<S>&, const int, const int64_t, SeriesView<const S>); \
-  template void mul1p_post(Series<S>&, SeriesView<const S>, const int64_t, const int64_t, const int64_t);
+  template void mul1p_post(Series<S>&, SeriesView<const S>, const int64_t, const int64_t, const int64_t); \
+  template void write_series(const string& path, const vector<string>& comments, SeriesView<const S> x); \
+  template tuple<vector<string>,Series<S>> read_series(const string& path);
 Ss(double)
 Ss(Expansion<2>)
 IF_CUDA(
