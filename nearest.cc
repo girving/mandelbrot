@@ -97,27 +97,36 @@ template<class S> int64_t nearest_twiddles(span<Complex<S>> zs, const int64_t b,
   // factores stores each twiddle(j0*n1, b), then each twiddle(j1, b)
   vector<Acb> factors(n0 + n1);
   const auto factors_p = factors.data();
-  HOST_LOOP(n0+n1, j,
-    const auto j0 = j;
-    const auto j1 = j - n0;
+  #pragma omp parallel
+  {
     Fmpq t;
-    fmpq_set_si(t, j < n0 ? 2*j0*n1 : 2*j1, b);
-    cis_pi(factors_p[j], t, fast_prec);)
+    #pragma omp for
+    for (int j = 0; j < n0+n1; j++) {
+      const auto j0 = j;
+      const auto j1 = j - n0;
+      fmpq_set_si(t, j < n0 ? 2*j0*n1 : 2*j1, b);
+      cis_pi(factors_p[j], t, fast_prec);
+    }
+  }
 
   // First compute factored using low precision, filling in holes using nonfactored evaluation
   atomic<int64_t> fallbacks = 0;
-  const auto fallbacks_p = &fallbacks;
-  HOST_LOOP(n, j,
-    const auto j0 = j / n1;
-    const auto j1 = j - j0*n1;
+  #pragma omp parallel
+  {
     Acb z;
-    acb_mul(z, factors_p[j0], factors_p[n0 + j1], fast_prec);
-    if (auto r = round_nearest<S>(z, fast_prec))
-      zs[j] = *r;
-    else {
-      zs[j] = nearest_twiddle<S>(j, b);
-      (*fallbacks_p)++;
-    })
+    #pragma omp for
+    for (int j = 0; j < n; j++) {
+      const auto j0 = j / n1;
+      const auto j1 = j - j0*n1;
+      acb_mul(z, factors_p[j0], factors_p[n0 + j1], fast_prec);
+      if (auto r = round_nearest<S>(z, fast_prec))
+        zs[j] = *r;
+      else {
+        zs[j] = nearest_twiddle<S>(j, b);
+        fallbacks++;
+      }
+    }
+  }
   return fallbacks;
 }
 

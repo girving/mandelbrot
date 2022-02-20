@@ -202,23 +202,27 @@ template<class T> void areas(const int max_k, const double tol) {
     bottcher_step(g, tol);
 }
 
-template<class S> void write_bottcher(const string& output, const string& mode,
-                                      const S mu, SeriesView<const S> f, SeriesView<const S> g) {
-  const int k = known_to_k(f.known());
-  slow_assert(f.known() == g.known());
-  slow_assert(f[0] == 1 && g[0] == 0, "f[0] = %g, g[0] = %g", f[0], g[0]);  // Make sure f and g aren't flipped
-  const auto write = [&output,&mode,k,mu=mu](const string& n, const string& name, const auto& x) {
-    write_series(
-        format("%s/%c-k%d", output, n, k),
-        {name, format("mode = %s", mode), format("k = %d", k), format("mu = %s", safe(mu))},
-        x);
-  };
-  write("g", "g = log(f)", g);
-  write("f", "f = f(z) = 1/phi(1/z)", f);
+template<class T> void write_bottcher(const string& output, const string& mode,
+                                      const Undevice<T> mu, SeriesView<const T> f, SeriesView<const T> g) {
+  if constexpr (is_device<T>)
+    return write_bottcher<Undevice<T>>(output, mode, mu, host_copy(f), host_copy(g));
+  else {
+    const int k = known_to_k(f.known());
+    slow_assert(f.known() == g.known());
+    slow_assert(f[0] == 1 && g[0] == 0, "f[0] = %g, g[0] = %g", f[0], g[0]);  // Make sure f and g aren't flipped
+    const auto write = [&output,&mode,k,mu=mu](const string& n, const string& name, const auto& x) {
+      write_series(
+          format("%s/%c-k%d", output, n, k),
+          {name, format("mode = %s", mode), format("k = %d", k), format("mu = %s", safe(mu))},
+          x);
+    };
+    write("g", "g = log(f)", g);
+    write("f", "f = f(z) = 1/phi(1/z)", f);
+  }
 }
 
-template<class S> Series<S> read_bottcher(const string& input) {
-  auto [comments, g] = read_series<S>(input);
+template<class T> Series<T> read_bottcher(const string& input) {
+  auto [comments, g] = read_series<T>(input);
   print("reading from '%s':", input);
   for (const auto& c : comments)
     print("  %s", c);

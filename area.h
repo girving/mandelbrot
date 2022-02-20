@@ -23,8 +23,8 @@ template<class T> tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const
 template<class T> void areas(const int max_k, const double tol);
 
 // Read and write results
-template<class S> void write_bottcher(const string& output, const string& mode,
-                                      const S mu, SeriesView<const S> f, SeriesView<const S> g);
-template<class S> Series<S> read_bottcher(const string& input);
+template<class T> void write_bottcher(const string& output, const string& mode,
+                                      const Undevice<T> mu, SeriesView<const T> f, SeriesView<const T> g);
+template<class T> Series<T> read_bottcher(const string& input);
 
 }  // namespace mandelbrot

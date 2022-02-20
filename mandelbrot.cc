@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
     print("k = %g", program.get<double>("k"));
     print("tol = %g", tol());
     if (mode() == "arb") print("prec = %d", prec());
-    if (output().size()) print("output = '%s'", output());
+    if (output()) print("output = '%s'", *output());
     print();
 
     // Compute!
