@@ -152,8 +152,22 @@ template<class T> static void shifted_unpermute(span<T> y) {
   bitrev(y);
 }
 
+DEF_LOOP(fft_butterfly_0, two_n, i, (S* ys, const S* x, const int xn),
+  ys[i] = i < xn ? x[i] : 0;)
+
+DEF_LOOP(fft_butterfly_s, n2, jk, (Complex<S>* y, FullTwiddleView<S> twiddle, const int s),
+  const auto m = 1 << s;
+  const auto j = jk & (m-1);
+  const auto k = (jk - j) << 1;
+  auto& y0 = y[k + j];
+  auto& y1 = y[k + j + m];
+  const auto u0 = y0 + y1;
+  const auto u1 = y0 - y1;
+  y0 = u0;
+  y1 = u1 * conj(twiddle(j, s));)
+
 // fft, but skip the bitrev at the end
-template<class S> static void fft_bitrev(span<Complex<S>> y, span<const S> x) {
+template<class S> static void fft_bitrev(span<AddComplex<S>> y, span<const S> x) {
   // Find our power of two
   const int64_t n = y.size(), xn = x.size();
   if (!n) return;
@@ -165,31 +179,29 @@ template<class S> static void fft_bitrev(span<Complex<S>> y, span<const S> x) {
   twiddle.ensure(p-1);
 
   // Copy from x to y, without bit reversing
-  static_assert(is_trivially_copyable_v<S>);
-  S* ys = reinterpret_cast<S*>(y.data());
-  for (int64_t i = 0; i < xn; i++)
-    ys[i] = x[i];
-  for (int64_t i = xn; i < 2*n; i++)
-    ys[i] = 0;
+  fft_butterfly_0(2*n, reinterpret_cast<S*>(y.data()), x.data(), xn);
 
   // Cooley-Tukey FFT
-  for (int s = p-1; s >= 0; s--) {
-    const auto m = int64_t(1) << s;
-    for (int64_t k = 0; k < n; k += 2*m) {
-      for (int64_t j = 0; j < m; j++) {
-        auto& y0 = y[k + j];
-        auto& y1 = y[k + j + m];
-        const auto u0 = y0 + y1;
-        const auto u1 = y0 - y1;
-        y0 = u0;
-        y1 = u1 * conj(twiddle(j, s));
-      }
-    }
-  }
+  for (int s = p-1; s >= 0; s--)
+    fft_butterfly_s(n/2, y.data(), twiddle.view(), s);
 }
 
+DEF_LOOP(ifft_butterfly_0, xn, i, (S* x, const S* ys),
+  x[i] = ys[i];)
+
+DEF_LOOP(ifft_butterfly_s, n2, jk, (Complex<S>* y, FullTwiddleView<S> twiddle, const int s),
+  const auto m = 1 << s;
+  const auto j = jk & (m-1);
+  const auto k = (jk - j) << 1;
+  auto& y0 = y[k + j];
+  auto& y1 = y[k + j + m];
+  const auto u0 = y0;
+  const auto u1 = y1 * twiddle(j, s);
+  y0 = u0 + u1;
+  y1 = u0 - u1;)
+
 // ifft, but skip the bitrev at the beginning
-template<class S> static void ifft_bitrev(span<S> x, span<Complex<S>> y) {
+template<class S> static void ifft_bitrev(span<S> x, span<AddComplex<S>> y) {
   // Find our power of two
   const int64_t n = y.size(), xn = x.size();
   if (!n) return;
@@ -201,25 +213,11 @@ template<class S> static void ifft_bitrev(span<S> x, span<Complex<S>> y) {
   twiddle.ensure(p-1);
 
   // Cooley-Tukey FFT
-  for (int s = 0; s < p; s++) {
-    const auto m = int64_t(1) << s;
-    for (int64_t k = 0; k < n; k += 2*m) {
-      for (int64_t j = 0; j < m; j++) {
-        auto& y0 = y[k + j];
-        auto& y1 = y[k + j + m];
-        const auto u0 = y0;
-        const auto u1 = y1 * twiddle(j, s);
-        y0 = u0 + u1;
-        y1 = u0 - u1;
-      }
-    }
-  }
+  for (int s = 0; s < p; s++)
+    ifft_butterfly_s(n/2, y.data(), twiddle.view(), s);
 
   // Copy to output
-  static_assert(is_trivially_copyable_v<S>);
-  const S* ys = reinterpret_cast<S*>(y.data());
-  for (int64_t i = 0; i < xn; i++)
-    x[i] = ys[i];
+  ifft_butterfly_0(xn, x.data(), reinterpret_cast<S*>(y.data()));
 }
 
 template<class S> void fft(span<Complex<S>> y, span<const S> x) {
@@ -232,7 +230,57 @@ template<class S> void ifft(span<S> x, span<Complex<S>> y) {
   ifft_bitrev(x, y);
 }
 
-template<class S> void rfft(span<Complex<S>> y, span<const S> x) {
+// bitreverse(-bitreverse(i))
+__host__ __device__ static inline int bitrev_neg(const int i) {
+  return i ? i ^ ((1 << (31 - countl_zero(uint32_t(i)))) - 1) : 0;
+}
+
+DEF_SERIAL(rfft_post_n2, (Complex<S>* y),
+  const auto a = y[0];
+  y[0] = Complex<S>(a.r + a.i, a.r - a.i);)
+
+DEF_LOOP(rfft_post, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const int p),
+  const int j1 = j ? bitrev_neg(2*j) : 1;
+  const auto a = y[2*j];
+  const auto b = y[j1];
+  Complex<S> s;
+  Complex<S> t;
+  if (j) {
+    const int i = bitreverse(uint32_t(j)) >> (34 - p);
+    const auto e = left(conj(twiddle(i, p-1)));
+    const auto u = a + conj(b);
+    const auto v = e * (a - conj(b));
+    s = half(u - v);
+    t = half(conj(u + v));
+  } else {
+    s = Complex<S>(a.r + a.i, a.r - a.i);
+    t = conj(b);
+  }
+  y[2*j] = s;
+  y[j1] = t;)
+
+DEF_LOOP(irfft_pre, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const int p),
+  const int j1 = j ? bitrev_neg(2*j) : 1;
+  const auto s = y[2*j];
+  const auto t = y[j1];
+  Complex<S> a;
+  Complex<S> b;
+  if (j) {
+    const int i = bitreverse(uint32_t(j)) >> (34 - p);
+    const auto e = right(twiddle(i, p-1));
+    const auto u = conj(t) + s;
+    const auto v = e * (conj(t) - s);
+    a = u + v;
+    b = conj(u - v);
+  } else {
+    a.r = s.r + s.i;
+    a.i = s.r - s.i;
+    b = twice(conj(t));
+  }
+  y[2*j] = a;
+  y[j1] = b;)
+
+template<class S> static void rfft_bitrev(span<AddComplex<S>> y, span<const S> x) {
   const int64_t n = 2*y.size();
   if (!n) return;
 
@@ -242,26 +290,16 @@ template<class S> void rfft(span<Complex<S>> y, span<const S> x) {
   twiddle.ensure(p-1);
 
   // Half-size complex FFT
-  fft(y, x);
+  fft_bitrev(y, x);
 
   // Postprocess into real FFT
-  const auto c = y[0];
-  y[0].r = c.r + c.i;
-  y[0].i = c.r - c.i;
-  for (int64_t i = 1; i <= n/4; i++) {
-    const auto e = left(conj(twiddle(i, p-1)));
-    const auto a = y[i];
-    const auto b = y[n/2-i];
-    const auto u = a + conj(b);
-    const auto v = e * (a - conj(b));
-    const auto s = half(u - v);
-    const auto t = half(conj(u + v));
-    y[i] = s;
-    y[n/2-i] = t;
-  }
+  if (p == 1)
+    rfft_post_n2(y.data());
+  else
+    rfft_post(n/4, y.data(), twiddle.view(), p);
 }
 
-template<class S> void irfft(span<S> x, span<Complex<S>> y) {
+template<class S> static void irfft_bitrev(span<S> x, span<AddComplex<S>> y) {
   const int64_t n = 2*y.size();
   if (!n) return;
 
@@ -271,25 +309,23 @@ template<class S> void irfft(span<S> x, span<Complex<S>> y) {
   twiddle.ensure(p-1);
 
   // Preprocess into half-size complex FFT
-  const auto c = y[0];
-  y[0].r = c.r + c.i;
-  y[0].i = c.r - c.i;
-  y[0] = y[0];
-  for (int64_t i = 1; i <= n/4; i++) {
-    const auto e = right(twiddle(i, p-1));
-    const S m(n >= 8 || 4*i == n ? 1 : 0.5);
-    const auto s = y[i];
-    const auto t = y[n/2-i];
-    const auto u = m * (conj(t) + s);
-    const auto v = m * (conj(t) - s);
-    const auto a = u + e * v;
-    const auto b = conj(u - e * v);
-    y[i] = a;
-    y[n/2-i] = b;
-  }
+  if (p == 1)
+    rfft_post_n2(y.data());
+  else
+    irfft_pre(n/4, y.data(), twiddle.view(), p);
 
   // Half-size complex inverse FFT
-  ifft(x, y);
+  ifft_bitrev(x, y);
+}
+
+template<class S> void rfft(span<Complex<S>> y, span<const S> x) {
+  rfft_bitrev(y, x);
+  bitrev(y);
+}
+
+template<class S> void irfft(span<S> x, span<Complex<S>> y) {
+  bitrev(y);
+  irfft_bitrev(x, y);
 }
 
 // First butterfly, copying real to complex, without twiddle factors:
@@ -436,6 +472,21 @@ template<class S> void isrfft(span<S> x, span<Complex<S>> y) {
 DEF_LOOP(mul_cwise_loop, fn2, i, (Complex<S>* fx, const Complex<S>* fy, const S a),
   fx[i] = a * fx[i] * fy[i];)
 
+DEF_LOOP(sqr_cwise_loop, fn2, i, (Complex<S>* fx, const S a),
+  fx[i] = a * sqr(fx[i]);)
+
+DEF_LOOP(rmul_cwise_loop, fn2, i, (Complex<S>* fx, const Complex<S>* fy, const S a),
+  const auto x = fx[i];
+  const auto y = fy[i];
+  fx[i] = a * (i ? x * y : hadamard(x, y));)
+
+DEF_LOOP(rsqr_cwise_loop, fn2, i, (Complex<S>* fx, const S a),
+  const auto x = fx[i];
+  fx[i] = a * (i ? sqr(x) : hadamard_sqr(x));)
+
+// Whether to use rfft or srfft for multiplication
+static const bool srfft_mul = true;
+
 template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const_t<T>> y) {
   typedef Undevice<T> S;
   const int64_t nz = z.size(), nx = x.size(), ny = y.size();
@@ -448,15 +499,19 @@ template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const
     const Array<AddComplex<T>> buffer(fn);
     const auto fx = buffer.span().first(fn/2);
     const auto fy = buffer.span().last(fn/2);
-    srfft_scramble(fx, x);
-    srfft_scramble(fy, y);
-    mul_cwise_loop(fn/2, fx.data(), fy.data(), inv(S(fn/2)));
-    isrfft_scramble(z, fx);
+    if (srfft_mul) {
+      srfft_scramble(fx, x);
+      srfft_scramble(fy, y);
+      mul_cwise_loop(fn/2, fx.data(), fy.data(), inv(S(fn/2)));
+      isrfft_scramble(z, fx);
+    } else {
+      rfft_bitrev(fx, x);
+      rfft_bitrev(fy, y);
+      rmul_cwise_loop(fn/2, fx.data(), fy.data(), inv(S(fn)));
+      irfft_bitrev(z, fx);
+    }
   }
 }
-
-DEF_LOOP(sqr_cwise_loop, fn2, i, (Complex<S>* fx, const S a),
-  fx[i] = a * sqr(fx[i]);)
 
 template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x) {
   typedef Undevice<T> S;
@@ -468,9 +523,15 @@ template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x) {
     // FFT squaring for large n
     const int64_t fn = bit_ceil(uint64_t(2*ny));
     const Array<AddComplex<T>> fx(fn/2);
-    srfft_scramble(fx, x);
-    sqr_cwise_loop(fn/2, fx.data(), inv(S(fn/2)));
-    isrfft_scramble(y, fx);
+    if (srfft_mul) {
+      srfft_scramble(fx, x);
+      sqr_cwise_loop(fn/2, fx.data(), inv(S(fn/2)));
+      isrfft_scramble(y, fx);
+    } else {
+      rfft_bitrev(fx, x);
+      rsqr_cwise_loop(fn/2, fx.data(), inv(S(fn)));
+      irfft_bitrev(y, fx);
+    }
   }
 }
 
