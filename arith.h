@@ -20,6 +20,9 @@ ARITH(float)
 ARITH(double)
 #undef ARITH
 
+// Integer overload to make generated code happy
+static inline int twice(int x) { return x << 1; }
+
 // relu(x) = max(0, x)
 template<class T> static inline T relu(const T& x) {
   return max(x, T(0));
@@ -29,6 +32,12 @@ static inline int exponent(const double x) {
   int e;
   frexp(x, &e);
   return e;
+}
+
+template<class I> static inline I exact_div(const I a, const I b) {
+  const I r = a / b;
+  slow_assert(r * b == a);
+  return r;
 }
 
 }  // namespace mandelbrot

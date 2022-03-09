@@ -1,6 +1,7 @@
 // Higher precision floating point numbers via expansion arithmetic
 
 #include "expansion.h"
+#include "expansion_arith.h"
 #include "arb_cc.h"
 #include "arf_cc.h"
 #include "debug.h"
@@ -30,20 +31,6 @@ template<int n> Expansion<n> abs(const Expansion<n> x) {
   return ax;
 }
 
-template<int n> Expansion<n>::operator bool() const {
-  for (int i = 0; i < n; i++)
-    if (x[i])
-      return true;
-  return false;
-}
-
-template<int n> bool Expansion<n>::operator==(const Expansion y) const {
-  for (int i = 0; i < n; i++)
-    if (x[i] != y.x[i])
-      return false;
-  return true;
-}
-
 template<int n> Arb Expansion<n>::arb(const int prec) const {
   Arb a, t;
   for (int i = n-1; i >= 0; i--) {
@@ -66,10 +53,6 @@ template<int n> Arb exact_arb(const Expansion<n> x) {
   Arb b;
   arb_set_arf(b, exact_arf(x));
   return b;
-}
-
-template<int n> span<const double> Expansion<n>::span() const {
-  return std::span<const double>(x, size_t(n));
 }
 
 template<int n> ostream& operator<<(ostream& out, const Expansion<n> e) {
@@ -139,7 +122,6 @@ template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<
   template Arb Expansion<n>::arb(const int) const; \
   template Arb exact_arb(const Expansion<n>); \
   template Arf exact_arf(const Expansion<n>); \
-  template span<const double> Expansion<n>::span() const; \
   template ostream& operator<<(ostream&, const Expansion<n>); \
   template Expansion<n>::Expansion(const string&); \
   template Expansion<n>::Expansion(string_view); \

@@ -5,16 +5,18 @@ rm -rf build
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
   export CXX=clang-13
   opt='-O3 -march=native'
+  extra=''
 else
   prefix=`brew --prefix`
   export CPPPATH=$prefix/include
   export LDPATH=$prefix/lib
+  extra="--pkg-config-path=$prefix/opt/openssl@3/lib/pkgconfig"
   if [[ `machine` == "arm64e" ]]; then
     opt='-O3 -mcpu=apple-m1'
   else
     opt='-O3 -march=native'
   fi
 fi
-meson setup build/debug --buildtype=debug
-CXXFLAGS=$opt meson setup build/debugoptimized --buildtype=debugoptimized
-CXXFLAGS=$opt meson setup build/release --buildtype=release
+meson setup build/debug --buildtype=debug $extra
+CXXFLAGS=$opt meson setup build/debugoptimized --buildtype=debugoptimized $extra
+CXXFLAGS=$opt meson setup build/release --buildtype=release $extra

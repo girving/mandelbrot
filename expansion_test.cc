@@ -1,6 +1,6 @@
 // Expansion tests
 
-#include "expansion.h"
+#include "expansion_arith.h"
 #include "arb_cc.h"
 #include "arith.h"
 #include "mag_cc.h"

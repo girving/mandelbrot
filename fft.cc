@@ -7,7 +7,8 @@
 #include "cutil.h"
 #include "device.h"
 #include "debug.h"
-#include "expansion.h"
+#include "expansion_arith.h"
+#include "gen-butterflies.h"
 #include "gen-mul-bases.h"
 #include "loops.h"
 #include "nearest.h"
@@ -99,7 +100,7 @@ public:
 template<class S> struct FullTwiddleView {
   const AddComplex<S>* twiddles;
   const int size;
-  __host__ __device__ Complex<S> operator()(const int j, const int s) const {
+  __host__ __device__ Complex<S> operator()(int j, const int s) const {
     const int m = 1 << s;
     const int i = m + j;
     assert(unsigned(j) < unsigned(m) && unsigned(i) < unsigned(size));
@@ -292,41 +293,8 @@ template<class S> void irfft(span<S> x, span<Complex<S>> y) {
   ifft(x, y);
 }
 
-// First butterfly, copying real to complex, without twiddle factors:
-//   t j2 j1 j0 -> t k2/2 j1 j0
-DEF_LOOP(srfft_butterfly_0, n2, j, (Complex<S>* y, const S* x, const int64_t xn),
-  const auto x0 = j < xn ? x[j] : 0;
-  const auto x1 = j + n2 < xn ? x[j + n2] : 0;
-  y[j] = Complex<S>(x0, -x1);)
-
-// Second butterfly, in place, shifted twiddling on input:
-//   t k(p-1)/2 j(p-2) ...j... -> k(p-1) t k(p-2)/2 ...j...
-DEF_LOOP(srfft_butterfly_1, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const S sqrt_half, const int p),
-  auto& y0 = y[j];
-  auto& y1 = y[j + n4];
-  const auto z1 = diag<-1>(sqrt_half, y1);
-  const auto u0 = conj(twiddle(j, p)) * (y0 + z1);
-  const auto u1 = conj(twiddle(3*j, p) * (y0 - z1));
-  y0 = u0;
-  y1 = u1;)
-
-// Remaining butterflies, in place, unshifted twiddling on input:
-//   ...k... t k(s+1)/2 js ...j... -> ...k... k(s+1) t ks/2 ...j...
-DEF_LOOP(srfft_butterfly_s, n4, jk, (Complex<S>* y, FullTwiddleView<S> twiddle, const int s),
-  const auto m = int64_t(1) << s;
-  const auto j = jk & (m-1);
-  const auto k = (jk - j) << 1;
-  auto& y0 = y[k + j];
-  auto& y1 = y[k + j + m];
-  const auto u0 = y0 + y1;
-  const auto u1 = conj(twiddle(j, s) * (y0 - y1));
-  y0 = u0;
-  y1 = u1;)
-
 // srfft with permuted output
 template<class T> static void srfft_scramble(span<AddComplex<T>> y, span<const T> x) {
-  typedef Undevice<T> S;
-
   // Find our power of two
   const int64_t n = 2*y.size(), xn = x.size();
   if (!n) return;
@@ -336,66 +304,26 @@ template<class T> static void srfft_scramble(span<AddComplex<T>> y, span<const T
   // Precompute twiddle factors
   auto& twiddle = FullTwiddle<T>::single();
   twiddle.ensure(p);
+  const auto view = twiddle.view();
 
-  // Decimination-in-frequency shifted real-to-complex FFT, using the commutator notation:
-  //   t j2 j1 j0 -> t k2/2 j1 j0
-  //              -> k2 t k1/2 j0
-  //              -> k2 k1 t k0/2
-  //              == k2 k1 k0
-
-  // First butterfly, copying real to complex, without twiddle factors:
-  //   t j2 j1 j0 -> t k2/2 j1 j0
-  srfft_butterfly_0(n/2, y.data(), x.data(), xn);
-
-  // Second butterfly, in place, shifted twiddling on input:
-  //   t k(p-1)/2 j(p-2) ...j... -> k(p-1) t k(p-2)/2 ...j...
-  if (p > 1) {
-    static const auto sqrt_half = nearest_sqrt<S>(1, 2);
-    srfft_butterfly_1(n/4, y.data(), twiddle.view(), sqrt_half, p);
+  // First few butterflies, transforming x to y
+  switch (p) {
+    case 1: srfft_butterfly_0(n/2, y.data(), x.data(), xn); break;
+    case 2: srfft_butterfly_01(n/4, y.data(), x.data(), xn, view, p); break;
+    default: srfft_butterfly_012(n/8, y.data(), x.data(), xn, view, p); break;
   }
 
-  // Remaining butterflies, in place, unshifted twiddling on input:
-  //   ...k... t k(s+1)/2 js ...j... -> ...k... k(s+1) t ks/2 ...j...
-  for (int s = p-3; s >= 0; s--)
-    srfft_butterfly_s(n/4, y.data(), twiddle.view(), s);
+  // Remaining butterflies, transforming y in place
+  if (p > 3) {
+    for (int s = p-5; s >= 0; s -= 2)
+      srfft_butterfly_s2(n/8, y.data(), view, s);
+    if (!(p & 1))
+      srfft_butterfly_s1(n/4, y.data(), view, 0);
+  }
 }
-
-// Final butterfly, copying complex to real, without twiddle factors:
-//   t j2 j1 j0 <- t k2/2 j1 j0
-DEF_LOOP(isrfft_butterfly_0, n2, j, (S* x, const Complex<S>* y, const int xn),
-  const auto yj = y[j];
-  if (j < xn) x[j] = yj.r;
-  if (j + n2 < xn) x[j + n2] = -yj.i;)
-
-// Second to last butterfly, in place, shifted twiddling on output:
-//   t k(p-1)/2 j(p-2) ...j... -> k(p-1) t k(p-2)/2 ...j...
-DEF_LOOP(isrfft_butterfly_1, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const S sqrt_half, const int p),
-  auto& y0 = y[j];
-  auto& y1 = y[j + n4];
-  const auto z0 = twiddle(j, p) * y0;
-  const auto z1 = twiddle(3*j, p) * y1;
-  const auto u0 = z0 + conj(z1);
-  const auto u1 = diag<1>(sqrt_half, z0 - conj(z1));
-  y0 = u0;
-  y1 = u1;)
-
-// First butterflies, in place, unshifted twiddling on output:
-//   ...k... t k(s+1)/2 js ...j... <- ...k... k(s+1) t ks/2 ...j...
-DEF_LOOP(isrfft_butterfly_s, n4, jk, (Complex<S>* y, FullTwiddleView<S> twiddle, const int s),
-  const auto m = int64_t(1) << s;
-  const auto j = jk & (m-1);
-  const auto k = (jk - j) << 1;
-  auto& y0 = y[k + j];
-  auto& y1 = y[k + j + m];
-  const auto u0 = y0;
-  const auto u1 = conj(twiddle(j, s) * y1);
-  y0 = u0 + u1;
-  y1 = u0 - u1;)
 
 // isrfft, but taking permuted input
 template<class T> static void isrfft_scramble(span<T> x, span<AddComplex<T>> y) {
-  typedef Undevice<T> S;
-
   // Find our power of two
   const int64_t n = 2*y.size(), xn = x.size();
   if (!n) return;
@@ -405,22 +333,22 @@ template<class T> static void isrfft_scramble(span<T> x, span<AddComplex<T>> y) 
   // Precompute twiddle factors
   auto& twiddle = FullTwiddle<T>::single();
   twiddle.ensure(p);
+  const auto view = twiddle.view();
 
-  // First butterflies, in place, unshifted twiddling on output:
-  //   ...k... t k(s+1)/2 js ...j... <- ...k... k(s+1) t ks/2 ...j...
-  for (int s = 0; s < p-2; s++)
-    isrfft_butterfly_s(n/4, y.data(), twiddle.view(), s);
-
-  // Second to last butterfly, in place, shifted twiddling on output:
-  //   t k(p-1)/2 j(p-2) ...j... -> k(p-1) t k(p-2)/2 ...j...
-  if (p > 1) {
-    static const auto sqrt_half = nearest_sqrt<S>(1, 2);
-    isrfft_butterfly_1(n/4, y.data(), twiddle.view(), sqrt_half, p);
+  // Most butterflies, transforming y in place
+  if (p > 3) {
+    if (!(p & 1))
+      isrfft_butterfly_s1(n/4, y.data(), view, 0);
+    for (int s = !(p & 1); s < p-4; s += 2)
+      isrfft_butterfly_s2(n/8, y.data(), view, s);
   }
 
-  // Final butterfly, copying complex to real, without twiddle factors:
-  //   t j2 j1 j0 <- t k2/2 j1 j0
-  isrfft_butterfly_0(n/2, x.data(), y.data(), xn);
+  // Last few butterflies, transforming y to x
+  switch (p) {
+    case 1: isrfft_butterfly_0(n/2, y.data(), x.data(), xn); break;
+    case 2: isrfft_butterfly_01(n/4, y.data(), x.data(), xn, view, p); break;
+    default: isrfft_butterfly_012(n/8, y.data(), x.data(), xn, view, p); break;
+  }
 }
 
 template<class S> void srfft(span<Complex<S>> y, span<const S> x) {

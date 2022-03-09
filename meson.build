@@ -39,6 +39,7 @@ flint = declare_dependency(link_args: ['-lflint'] + linkflags, dependencies: [gm
 arb = declare_dependency(link_args: [darwin ? '-larb' : '-lflint-arb'] + linkflags, dependencies: [flint, m])
 threads = dependency('threads')
 openmp = darwin ? [] : [declare_dependency(link_args: linkflags, dependencies: [dependency('openmp')])]
+crypto = dependency('libcrypto')
 
 cuda = dependency('cuda', version: '>=11.3', required: false)
 if cuda.found()
@@ -77,11 +78,13 @@ arb_area = declare_dependency(
     link_with: library('arb_area', ['arb_area.cc'], dependencies: [arb_cc, known]),
     dependencies: [base, arb, arb_cc, known])
 
-codelets = executable('codelets', ['codelets.cc'], dependencies: [base, m])
+codelets = executable('codelets', ['arf_cc.cc', 'sig.cc', 'exp.cc', 'nearest.cc', 'codelets.cc'],
+                      dependencies: [base, arb, m, crypto])
 generated = [
     custom_target('gen_expansion', output: 'gen-expansion.h', command: [codelets, '@OUTPUT@']),
     custom_target('gen_mul_bases', output: 'gen-mul-bases.h', command: [codelets, '@OUTPUT@']),
     custom_target('gen_series_bases', output: 'gen-series-bases.h', command: [codelets, '@OUTPUT@']),
+    custom_target('gen_butterflies', output: 'gen-butterflies.h', command: [codelets, '@OUTPUT@']),
 ]
 area = declare_dependency(
     link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc'] + generated,

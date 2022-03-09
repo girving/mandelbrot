@@ -481,7 +481,7 @@ TEST(log1p) {
       Series<double> y(n);
       y = log1p(approx(ax, n), s);
       const auto e = error(y, ay);
-      ASSERT_LT(e, 2.1e-10) << format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+      ASSERT_LT(e, 2.3e-10) << format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
                                       s, e, approx(ax, n), y, approx(ay, n));
     }
   }

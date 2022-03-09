@@ -1,7 +1,7 @@
 // Series arithmetic
 
 #include "series.h"
-#include "expansion.h"
+#include "expansion_arith.h"
 #include "poly.h"
 #include <fstream>
 namespace mandelbrot {

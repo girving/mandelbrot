@@ -3,7 +3,7 @@
 #include "area.h"
 #include "arb_cc.h"
 #include "device.h"
-#include "expansion.h"
+#include "expansion_arith.h"
 #include "nearest.h"
 #include "debug.h"
 #include "known.h"

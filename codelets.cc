@@ -3,16 +3,20 @@
 #define CODELETS 1
 
 #include "arith.h"
+#include "complex.h"
+#include "exp.h"
 #include "debug.h"
+#include "expansion.h"
 #include "format.h"
+#include "join.h"
+#include "nearest.h"
 #include "noncopyable.h"
 #include "print.h"
 #include "series.h"
-#include <array>
+#include "sig.h"
 #include <deque>
 #include <fstream>
 #include <memory>
-#include <optional>
 #include <random>
 #include <tuple>
 #include <type_traits>
@@ -21,19 +25,12 @@
 #include <vector>
 namespace mandelbrot {
 
-using std::any_of;
-using std::array;
-using std::common_type_t;
-using std::declval;
+using std::decay_t;
 using std::deque;
 using std::endl;
-using std::independent_bits_engine;
 using std::make_pair;
 using std::make_tuple;
-using std::mt19937;
-using std::nullopt;
 using std::ofstream;
-using std::optional;
 using std::ostream;
 using std::remove_cvref_t;
 using std::shared_ptr;
@@ -44,171 +41,15 @@ using std::unique_ptr;
 using std::unordered_map;
 using std::unordered_set;
 using std::vector;
-
-struct Unit {};
+typedef vector<Exp> Exps;
+typedef Complex<Exp> CExp;
+typedef vector<CExp> CExps;
 
 // Container utilities
-template<class P> auto& deref(const P& p) { slow_assert(p); return *p; }
 template<class C> auto pop_front(C& xs) { auto x = xs.front(); xs.pop_front(); return x; }
 template<class C> auto pop_back(C& xs) { auto x = xs.back(); xs.pop_back(); return x; }
-template<class C,class A> bool contains(const C& xs, const A& x) { return xs.find(x) != xs.end(); }
-
-// Concatenate a bunch of containers into a vector
-template<class... Args> auto concat(const Args&... args) {
-  vector<common_type_t<typename Args::value_type...>> xs;
-  (xs.insert(xs.end(), args.begin(), args.end()), ...);
-  return xs;
-}
-
-// String utilities
-template<class C> string join(const C& ss, const string& sep = ", ") {
-  string j;
-  for (const auto& s : ss) {
-    if (j.size()) j += sep;
-    j += format("%s", s);
-  }
-  return j;
-}
-bool startswith(const string_view s, const string_view start) { return s.substr(0, start.size()) == start; }
-bool endswith(const string_view s, const string_view end) {
-  if (s.size() < end.size()) return false;
-  return s.substr(s.size() - end.size()) == end;
-}
-
-// Cache a function
-template<class A,class F> struct Cache {
-  typedef decltype(declval<F>()(declval<A>())) B;
-  const F f;
-  unordered_map<A,B> cache;
-  B operator()(const A& x) {
-    const auto it = cache.find(x);
-    if (it != cache.end()) return it->second;
-    const auto y = f(x);
-    cache.insert(make_pair(x, y));
-    return y;
-  }
-};
-template<class A,class F> auto cache(F&& f) { return Cache<A,remove_cvref_t<F>>{f, {}}; }
-
-// Signatures for polynomials (values modulo a variety of small primes) for Schwartz–Zippel testing
-static const uint64_t primes[] = {
-  9223372036854775837ul,
-  9223372036854775907ul,
-  9223372036854775931ul,
-  9223372036854775939ul,
-};
-struct Sig {
-  static constexpr int n = sizeof(primes) / sizeof(uint64_t);
-  uint64_t x[n];
-
-  Sig() : x{0} {}
-
-  explicit Sig(const int a) {
-    for (int i = 0; i < n; i++)
-      x[i] = a >= 0 ? a : a + primes[i];
-  }
-
-  bool operator==(const Sig s) const {
-    for (int i = 0; i < n; i++)
-      if (x[i] != s.x[i]) return false;
-    return true;
-  }
-
-  friend ostream& operator<<(ostream& out, const Sig s) {
-    const bool first = true;
-    if (first) out << s.x[0];
-    else out << span<const uint64_t>(s.x);
-    return out;
-  }
-
-  Sig operator-() const {
-    Sig r;
-    for (int i = 0; i < n; i++) r.x[i] = x[i] ? primes[i] - x[i] : 0;
-    return r;
-  }
-
-  Sig operator+(const Sig s) const {
-    Sig r;
-    for (int i = 0; i < n; i++) {
-      const auto t = __uint128_t(x[i]) + s.x[i];
-      r.x[i] = t < primes[i] ? t : t - primes[i];
-    }
-    return r;
-  }
-
-  Sig operator-(const Sig s) const { return *this + (-s); }
-
-  Sig operator*(const Sig s) const {
-    Sig r;
-    for (int i = 0; i < n; i++)
-      r.x[i] = (__uint128_t(x[i]) * s.x[i]) % primes[i];
-    return r;
-  }
-};
-
-// Find s,t s.t. sx + tp = 1, so that a^{-1} = s (mod p)
-// From https://en.wikipedia.org/wiki/Extended_Euclidean_algorithm#Pseudocode.
-uint64_t inv_mod(const uint64_t x, const uint64_t p) {
-  // Work in signed 128 bits for super laziness.
-  __int128_t rp = x, r = p;
-  __int128_t sp = 1, s = 0;
-  __int128_t tp = 0, t = 1;
-  while (r) {
-    const auto q = rp / r;
-    tie(rp, r) = make_tuple(r, rp - q*r);
-    tie(sp, s) = make_tuple(s, sp - q*s);
-    tie(tp, t) = make_tuple(t, tp - q*t);
-  }
-  slow_assert(sp*x + tp*p == 1);
-  // 1 = sx + tp = (s+p)x + (t-x)p
-  if (sp < 0) sp += p;
-  slow_assert(sp >= 0);
-  return sp;
-}
-
-Sig inv(const Sig s) {
-  Sig r;
-  for (int i = 0; i < Sig::n; i++)
-    r.x[i] = inv_mod(s.x[i], primes[i]);
-  slow_assert(r * s == Sig(1));
-  return r;
-}
-
-Sig random_sig() {
-  static independent_bits_engine<mt19937,64,uint64_t> mt(7);
-  Sig s;
-  for (int i = 0; i < Sig::n; i++) {
-    const auto bits = mt();
-    static_assert(is_same_v<decltype(bits),const uint64_t>);
-    s.x[i] = bits;
-  }
-  return s;
-}
-
-struct SigHash {
-  // The first value is random enough for a hash
-  auto operator()(const Sig& s) const { return std::hash<uint64_t>()(s.x[0]); }
-};
-
-// Detect small signatures
-static unordered_map<Sig,int,SigHash> make_smalls() {
-  unordered_map<Sig,int,SigHash> smalls;
-  for (int i = 0; i <= 32; i++) {
-    smalls[Sig(i)] = i;
-    smalls[-Sig(i)] = -i;
-  }
-  return smalls;
-}
-optional<int> unsmall(const Sig s) {
-  static const auto smalls = make_smalls();
-  const auto it = smalls.find(s);
-  return it != smalls.end() ? optional<int>(it->second) : nullopt;
-}
-
-// Function object for nonzeroness
-struct Nonzero { template<class T> bool operator()(T&& x) const { return bool(x); } };
-constexpr Nonzero nonzero;
-template<class C> bool any(const C& xs) { return std::any_of(xs.begin(), xs.end(), nonzero); }
+template<class C> bool any(const C& xs) { return std::any_of(xs.begin(), xs.end(), [](auto&& x) { return bool(x); }); }
+template<class T,class C> void extend(vector<T>& xs, const C& ys) { xs.insert(xs.end(), ys.begin(), ys.end()); }
 
 // Indented printing
 unique_ptr<ostream> out;
@@ -222,13 +63,15 @@ struct Indent : public Noncopyable {
 };
 
 void line() {
+  slow_assert(out);
   if (debug) print();
-  deref(out) << endl;
+  *out << endl;
 }
 template<class T> void line(T&& x) {
+  slow_assert(out);
   const auto s = format("%*s%s", indent, "", x);
   if (debug) print(s);
-  deref(out) << s << endl;
+  *out << s << endl;
 }
 template<class... Args> void line(const Args&... args) { line(format(args...)); }
 
@@ -264,201 +107,13 @@ struct Header : public Noncopyable {
   }
 };
 
-struct Var {
-  string name;
-  Sig sig;
-
-  Var(const string& name, const Sig sig) : name(name), sig(sig) {}
-  Var(const Var& x) = default;
-  bool operator==(const Var& x) const { return name == x.name; }
-  friend ostream& operator<<(ostream& out, const Var& x) { return out << x.name; }
-};
-
-struct VarHash {
-  auto operator()(const Var& x) const { return std::hash<string>()(x.name); }
-};
-
-// Variables with random signatures
-Var input_var(const string& name) { return Var(name, random_sig()); }
-vector<Var> input_vars(const string& prefix, const int n) {
-  vector<Var> xs;
-  for (int i = 0; i < n; i++)
-    xs.push_back(input_var(format("%s%d", prefix, i)));
-  return xs;
-}
-
-struct Exp {
-private:
-  struct Data {
-    string exp;
-    bool atom;
-    int prec;  // Precedence, following https://en.wikipedia.org/wiki/Operators_in_C_and_C++#Operator_precedence
-    Sig sig;
-    vector<Exp> args;
-  };
-  shared_ptr<const Data> e;
-public:
-
-  Exp() : Exp(Var("nonsense", random_sig())) {}
-  Exp(const Var& x) : e(new Data{x.name, true, 0, x.sig, {}}) {}
-  Exp(const int a) : e(new Data{format("%d", a), true, 0, Sig(a), {}}) {}
-  Exp(const string& exp, const int prec, const Sig s, const vector<Exp>& args)
-    : e(new Data{exp, false, prec, s, args}) {}
-  Exp(const Exp& e) : e(e.e) {}
-  Exp(Exp&& e) : e(e.e) {}  // Stay valid on move
-  Exp& operator=(const Exp& f) { e = f.e; return *this; }
-
-  bool zero() const { return e->exp == "0"; }
-  bool one() const { return e->exp == "1"; }
-  bool two() const { return e->exp == "2"; }
-  bool atom() const { return e->atom; }
-  int prec() const { return e->prec; }
-  const Sig& sig() const { return e->sig; }
-  const string& exp() const { return e->exp; }
-  bool negation() const { return prec() <= 3 && startswith(exp(), "-"); }
-  bool parens() const { return prec() == 2 && startswith(exp(), "(") && endswith(exp(), ")"); }
-  const Exp& arg() const { slow_assert(e->args.size() == 1, exp()); return e->args[0]; }
-
-  unordered_set<string> deps() const {
-    unordered_set<string> deps;
-    for (const auto& a : e->args)
-      for (const auto& v : a.deps())
-        deps.insert(v);
-    if (atom())
-      deps.insert(exp());
-    return deps;
-  }
-
-  // Wrap in parens
-  Exp add_parens() const {
-    if (atom() || parens()) return *this;
-    return Exp(format("(%s)", exp()), 2, sig(), {*this});
-  }
-
-  // Ensure we have precedence <= prec
-  Exp ensure(const int prec) const { return this->prec() <= prec ? *this : add_parens(); }
-
-  Exp operator-() const {
-    if (zero()) return *this;
-    if (negation()) {
-      if (atom()) {
-        const int i = atoi(exp().c_str());
-        slow_assert(i < 0);
-        return Exp(-i);
-      }
-      return arg();
-    }
-    const auto e = ensure(3);
-    return Exp(format("-%s", e.exp()), 3, -sig(), {e});
-  }
-
-  friend ostream& operator<<(ostream& out, const Exp& e) { return out << e.exp(); }
-};
-
-template<> struct IsIntervalT<Exp> { static constexpr bool value = false; };
-
-vector<Exp> exps(const vector<Var>& x) { return vector<Exp>(x.begin(), x.end()); }
-
-Exp operator+(const Exp& x, const Exp& y);
-Exp operator-(const Exp& x, const Exp& y);
-
-Exp operator+(const Exp& x, const Exp& y) {
-  if (x.zero()) return y;
-  if (y.zero()) return x;
-  if (x.negation()) return y - (-x);
-  if (y.negation()) return x - (-y);
-  return Exp{format("%s + %s", x.ensure(6), y.ensure(5)), 6, x.sig() + y.sig(), {x, y}};
-}
-
-Exp operator-(const Exp& x, const Exp& y) {
-  if (x.zero()) return -y;
-  if (y.zero()) return x;
-  if (x.negation()) return -((-x) + y);
-  if (y.negation()) return x + (-y);
-  return Exp{format("%s - %s", x.ensure(6), y.ensure(5)), 6, x.sig() - y.sig(), {x, y}};
-}
-
-Exp operator*(const Exp& x, const Exp& y) {
-  if (x.zero() || y.zero()) return 0;
-  if (x.negation()) return -((-x) * y);
-  if (y.negation()) return -(x * (-y));
-  if (x.one()) return y;
-  if (y.one()) return x;
-  const auto sig = x.sig() * y.sig();
-  if (x.exp() == y.exp()) return Exp{format("sqr(%s)", x), 2, sig, {x}};
-  if (x.two()) return Exp{format("twice(%s)", y), 2, sig, {y}};
-  if (y.two()) return Exp{format("twice(%s)", x), 2, sig, {x}};
-  return Exp{format("%s * %s", x.ensure(5), y.ensure(4)), 5, sig, {x, y}};
-}
-
-Exp operator/(const Exp& x, const int a) {
-  slow_assert(a);
-  if (a == 1) return x;
-  if (a == -1) return -x;
-  if (a < 0) return -(x / -a);
-  if (x.negation()) return -((-x) / a);
-  const auto sig = x.sig() * inv(Sig(a));
-  if (a == 2) return Exp(format("half(%s)", x), 2, sig, {x});
-  return Exp{format("%s / %d", x.ensure(5), a), 5, sig, {x}};
-}
-
-Exp fma(const Exp& x, const Exp& y, const Exp& s) {
-  return Exp{format("__builtin_fma(%s, %s, %s)", x, y, s), 2, random_sig(), {x, y, s}};
-}
-
-template<class Op> Exp reduce(const Op& op, const vector<Exp>& xs) {
-  const size_t n = xs.size();
-  slow_assert(n);
-  if (n == 1) return xs[0];
-  const auto p = xs.begin();
-  return op(reduce(op, vector<Exp>(p, p + n/2)),
-            reduce(op, vector<Exp>(p + n/2, p + n)));
-}
-Exp sum(const vector<Exp>& xs) { return reduce(std::plus<void>(), xs); }
-
-// const type name = exp;
-struct Stmt {
-  optional<Var> var;
-  string type;
-  Exp exp;
-
-  Stmt(const Var& var, const string& type, const Exp& exp) : var(var), type(type), exp(exp) {}
-  explicit Stmt(const string& s) : type("void"), exp(s, 100, Sig(), {}) {}
-  Stmt() : Stmt("") {}
-
-  friend ostream& operator<<(ostream& out, const Stmt& s) {
-    const bool sigs = true;
-    if (s.var) {
-      out << "const " << s.type << ' ' << *s.var << " = " << s.exp << ';';
-      if (sigs) out << "  // sig = " << s.exp.sig();
-    } else
-      if (!s.exp.exp().empty())
-        out << s.exp << ';';
-    return out;
-  }
-};
-
 // A basic block
 struct Block : public Noncopyable {
 private:
-  static Block* active_;
-public:
-  const bool sz_cse;  // Whether to use Schwartz-Zippel for CSE
-  vector<Stmt> stmts;
-  unordered_map<string,Var> expressions;  // For CSE on string expressions
-  unordered_map<Sig,Var,SigHash> signatures;  // For CSE via Schwartz–Zippel
-  unordered_set<string> names;
-
-  Block(const vector<Var>& inputs, const bool sz_cse)
-    : sz_cse(sz_cse) {
-    slow_assert(!active_);
-    active_ = this;
-    for (const auto& x : inputs)
-      names.insert(x.name);
-  }
-  ~Block() { active_ = 0; }
-
-  static Block& active() { slow_assert(active_); return *active_; }
+  unordered_set<string> names;  // Names used so far
+  unordered_map<Sig,int,SigHash> counts;  // Number of times an expression is used (doesn't count above 2)
+  unordered_map<Sig,Exp,SigHash> lets;  // Expressions we've already assigned as variables
+  Stats stats;
 
   string fresh(const string& prefix) {
     for (int n = -1;; n++) {
@@ -467,195 +122,148 @@ public:
         return s;
     }
   }
+public:
+  ~Block() { line("// %s", stats.show()); }
 
-  Exp add(const string& prefix, const string& type, const Exp& exp) {
-    if (exp.atom()) return exp;
-    if (exp.negation()) return -add(prefix, type, exp.arg());
-    if (exp.parens()) return add(prefix, type, exp.arg());
-    // CSE
-    if (sz_cse) {
-      const auto small = unsmall(exp.sig());
-      if (small) return Exp(*small);
-      const auto it = signatures.find(exp.sig());
-      if (it != signatures.end()) return it->second;
-    } else {
-      const auto it = expressions.find(exp.exp());
-      if (it != expressions.end()) return it->second;
-    }
-    // Fine, compute it
-    const Var var(fresh(prefix), exp.sig());
-    stmts.push_back(Stmt(var, type, exp));
-    // Remember
-    signatures.insert(make_pair(exp.sig(), var));
-    expressions.insert(make_pair(exp.exp(), var));
-    return var;
-  }
-  Exp add(const string& prefix, const Exp& exp) { return add(prefix, "auto", exp); }
+  template<class C> void inputs(const C& xs) { for (const auto& x : xs) input(x); }
 
-  Exp sum(const string& prefix, const vector<Exp>& exps) {
-    return reduce([this,&prefix](const auto& x, const auto& y) { return add(prefix, x + y); }, exps);
+  template<class E=Exp> E input(const string& name) {
+    slow_assert(names.insert(name).second, name);
+    const auto x = Exp(name, random_sig());
+    if constexpr (is_same_v<E,CExp>) return split(x);
+    else { static_assert(is_same_v<E,Exp>); return x; }
   }
 
-  void strip(span<const Exp> roots) {
-    unordered_set<string> live;
-    for (const auto& e : roots)
-      for (const auto& x : e.deps())
-        live.insert(x);
-    for (int i = int(stmts.size()) - 1; i >= 0; i--) {
-      const auto s = stmts.begin() + i;
-      slow_assert(s->var);
-      if (contains(live, s->var->name))
-        for (const auto& d : s->exp.deps())
-          live.insert(d);
-      else
-        stmts.erase(s);
-    }
+  Exps inputs(const string& prefix, const int n) {
+    Exps xs;
+    for (int i = 0; i < n; i++)
+      xs.push_back(input(format("%s%d", prefix, i)));
+    return xs;
   }
 
-  // Reorder statements so that each exp can be returned in order
-  void multi_strip(span<const Exp> roots, span<const vector<Stmt>> returns) {
-    // Sort statements into classed based on the earliest root that depends on them
-    const int rn = roots.size();
-    slow_assert(returns.empty() || rn == int(returns.size()));
-    unordered_map<string,int> earliest;
-    const auto depend = [&earliest](const string& s, int r) {
-      const auto it = earliest.find(s);
-      r = it != earliest.end() ? min(r, it->second) : r;
-      earliest[s] = r;
-    };
-    for (int r = 0; r < rn; r++)
-      for (const auto& x : roots[r].deps())
-        depend(x, r);
-    vector<vector<Stmt>> reorder(rn);
-    for (int i = int(stmts.size()) - 1; i >= 0; i--) {
-      const auto& s = stmts[i];
-      slow_assert(s.var);
-      const auto it = earliest.find(s.var->name);
-      if (it != earliest.end()) {
-        const int r = it->second;
-        for (const auto& d : s.exp.deps())
-          depend(d, r);
-        reorder[r].push_back(s);
-      }
-    }
-
-    // Output reordered statements
-    stmts.clear();
-    for (int r = 0; r < rn; r++) {
-      for (int i = int(reorder[r].size()) - 1; i >= 0; i--)
-        stmts.push_back(reorder[r][i]);
-      if (returns.size())
-        for (const auto& s : returns[r])
-          stmts.push_back(s);
-    }
+  // Compute an expression now, without analyzing it
+  Exp now(const string& prefix, const string& exp, const Sig sig) {
+    const auto name = fresh(prefix);
+    line("const auto %s = %s;", name, exp);
+    return Exp(name, sig);
   }
+  Exp now(const string& prefix, const Exp& exp) { return now(prefix, str(exp), exp.sig()); }
 
-  void lines() const {
-    for (const auto& s : stmts)
-      line(s);
+  // Register that e is used, increasing the counts of newly used expressions
+  void use(const Exp& x) {
+    int& n = counts[x.sig()];
+    if (!n)
+      for (const auto& y : x.args())
+        use(y);
+    n++;
+  }
+  void use(const Complex<Exp>& z) { use(z.r); use(z.i); }
+  void use(const Exps& xs) { for (const auto& x : xs) use(x); }
+
+  // Compute an expression, caching intermediate expressions as variables
+  Exp compute(const Exp& x) {
+    if (const auto it = lets.find(x.sig()); it != lets.end()) return it->second;
+    const auto it = counts.find(x.sig());
+    slow_assert(it != counts.end(), "No count for x = %s", x);
+    const int count = it->second;
+
+    // Compute it
+    const auto y = x.map_args([this](const Exp& y) { return compute(y); });
+    stats.add(y);
+    if (x.fast() || count == 1) return y;
+
+    // Expression is used more than once.  Cache it in a variable.
+    const auto v = now("t", y);
+    lets.insert(make_pair(x.sig(), v));
+    return v;
+  }
+  Exps compute(const Exps& xs) {
+    Exps ys;
+    for (const auto& x : xs)
+      ys.push_back(compute(x));
+    return ys;
   }
 };
 
-Block* Block::active_ = 0;
+// Expansion arithmetic
+// For each i, ulp(x[i]) >= |x[i+1]|
 
-struct ExpansionBlock : public Block {
-  // No Schwartz-Zippel for expansion arithmetic!
-  static constexpr bool sz_cse = false;
-  ExpansionBlock(const vector<Var>& inputs) : Block(inputs, sz_cse) {}
+// Turn a + b with no overlap properties into an expansion.
+// This is Theorem 7 in Shewchuck.
+tuple<Exp,Exp> two_sum(const Exp& a, const Exp& b) {
+  if (a.zero()) return {b, 0};
+  if (b.zero()) return {a, 0};
+  const auto x = a + b;
+  const auto v = x - a;
+  const auto y = (a - (x - v)) + (b - v);
+  return {x, y};
+}
 
-  // For each i, ulp(x[i]) >= |x[i+1]|
-  typedef tuple<Exp,Exp> E2;
-  typedef tuple<optional<Exp>,optional<Exp>> Ez2;
-  typedef vector<Exp> Es;
+// a * b as an expansion, using fused multiply-add
+tuple<Exp,Exp> two_prod(const Exp& a, const Exp& b) {
+  const auto x = a * b;
+  const auto y = fma(a, b, -x);
+  return {x, y};
+}
 
-  Es neg(const Es& x) {
-    Es nx;
-    for (const auto& a : x)
-      nx.push_back(-a);
-    return nx;
+// Sum two expansions, producing an expansion of the same size.
+// This is Figure 2 of Collange et al.
+Exps collange_add(const Exps& x, const Exps& y) {
+  const int n = int(x.size());
+  slow_assert(n == int(y.size()));
+  deque<Exp> rest;
+  for (int i = 0; i < n; i++) {
+    rest.push_back(x[i]);
+    rest.push_back(y[i]);
   }
-
-  // Turn a + b with no overlap properties into an expansion.
-  // This is Theorem 7 in Shewchuck.
-  E2 two_sum(const Exp& a, const Exp& b) {
-    const auto x = add("x", a + b);
-    const auto v = add("v", x - a);
-    const auto y = add("y", (a - (x - v)) + (b - v));
-    return {x, y};
+  vector<Exp> state;
+  while (rest.size()) {
+    auto t = pop_front(rest);
+    for (int i = 0; i < int(state.size()); i++)
+      tie(state[i], t) = two_sum(t, state[i]);
+    state.push_back(t);
   }
+  slow_assert(int(state.size()) == 2*n);
+  return {state.begin(), state.begin() + n};
+}
 
-  Ez2 two_sum(const optional<Exp>& a, const optional<Exp>& b) {
-    if (!a) return {b, nullopt};
-    if (!b) return {a, nullopt};
-    return Ez2(two_sum(*a, *b));
-  }
+// Sum via negation + symbolic add
+Exps collange_sub(const Exps& x, const Exps& y) {
+  return collange_add(x, -y);
+}
 
-  // a * b as an expansion, using fused multiply-add
-  E2 two_prod(const Exp& a, const Exp& b) {
-    const auto x = add("x", a * b);
-    const auto y = add("y", fma(a, b, -x));
-    return {x, y};
-  }
-
-  // Sum two expansions, producing an expansion of the same size.
-  // This is Figure 2 of Collange et al.
-  Es collange_add(const Es& x, const Es& y) {
-    const int n = int(x.size());
-    slow_assert(n == int(y.size()));
-    deque<Exp> rest;
-    for (int i = 0; i < n; i++) {
-      rest.push_back(x[i]);
-      rest.push_back(y[i]);
+// Multiply two expansions, producing an expansion of the same size
+// This is Algorithm 2 of Collange et al.
+Exps collange_mul(const Exps& x, const Exps& y) {
+  const int n = int(x.size());
+  slow_assert(n == int(y.size()));
+  vector<Exp> pi;
+  deque<Exp> s(n);
+  for (int i = 0; i < n; i++) {
+    deque<Exp> e(n), ep(n);
+    for (int j = 0; j < n; j++) {
+      const auto [p, ej] = two_prod(x[j], y[i]);
+      e[j] = ej;
+      tie(s[j], ep[j]) = two_sum(s[j], p);
     }
-    vector<Exp> state;
-    while (rest.size()) {
-      auto t = pop_front(rest);
-      for (int i = 0; i < int(state.size()); i++)
-        tie(state[i], t) = two_sum(t, state[i]);
-      state.push_back(t);
+    pi.push_back(pop_front(s));
+    s.emplace_back();
+    while (any(e)) {
+      for (int j = 0; j < n; j++)
+        tie(s[j], e[j]) = two_sum(s[j], e[j]);
+      e.pop_back();
+      e.emplace_front();
     }
-    slow_assert(int(state.size()) == 2*n);
-    return {state.begin(), state.begin() + n};
-  }
-
-  // Sum via negation + symbolic add
-  Es collange_sub(const Es& x, const Es& y) {
-    return collange_add(x, neg(y));
-  }
-
-  // Multiply two expansions, producing an expansion of the same size
-  // This is Algorithm 2 of Collange et al.
-  Es collange_mul(const Es& x, const Es& y) {
-    const int n = int(x.size());
-    slow_assert(n == int(y.size()));
-    vector<Exp> pi;
-    deque<optional<Exp>> s(n);
-    for (int i = 0; i < n; i++) {
-      deque<optional<Exp>> e(n), ep(n);
-      for (int j = 0; j < n; j++) {
-        const auto [p, ej] = two_prod(x[j], y[i]);
-        e[j] = ej;
-        tie(s[j], ep[j]) = two_sum(s[j], p);
-      }
-      pi.push_back(deref(pop_front(s)));
-      s.emplace_back();
-      while (any(e)) {
-        for (int j = 0; j < n; j++)
-          tie(s[j], e[j]) = two_sum(s[j], e[j]);
-        e.pop_back();
-        e.emplace_front();
-      }
-      while (any(ep)) {
-        for (int j = 0; j < n; j++)
-          tie(s[j], ep[j]) = two_sum(s[j], ep[j]);
-        ep.pop_back();
-        ep.emplace_front();
-      }
+    while (any(ep)) {
+      for (int j = 0; j < n; j++)
+        tie(s[j], ep[j]) = two_sum(s[j], ep[j]);
+      ep.pop_back();
+      ep.emplace_front();
     }
-    slow_assert(n == int(pi.size()));
-    return pi;
   }
-};
+  slow_assert(n == int(pi.size()));
+  return pi;
+}
 
 void expansion_arithmetic(const string& path) {
   Header h(path, "Expansion arithmetic codelets", {});
@@ -679,34 +287,22 @@ void expansion_arithmetic(const string& path) {
       line("#ifdef __clang__");
       line("#pragma clang fp reassociate(off)");
       line("#endif  // __clang__");
-      const auto x = input_vars("x", n), y = input_vars("y", n);
+      CSE cse(false);  // No Schwartz-Zippel for expansion arithmetic!
+      Block B;
+      B.input("x");
+      B.input("y");
+      const auto x = B.inputs("x", n), y = B.inputs("y", n);
       line("const auto [%s] = x.x;", join(x));
       line("const auto [%s] = y.x;", join(y));
-      ExpansionBlock B(concat(vector<Var>{input_var("x"), input_var("y")}, x, y));
-      const auto s = body(B, exps(x), exps(y));
-      B.strip(s);
-      B.lines();
-      line("return Expansion<%d>(%s, nonoverlap);", n, join(s));
+      const auto s = body(x, y);
+      B.use(s);
+      line("return Expansion<%d>(%s, nonoverlap);", n, join(B.compute(s)));
     };
-    binary("+", [](auto& B, const auto& x, const auto& y) { return B.collange_add(x, y); });
-    binary("-", [](auto& B, const auto& x, const auto& y) { return B.collange_sub(x, y); });
-    binary("*", [](auto& B, const auto& x, const auto& y) { return B.collange_mul(x, y); });
+    binary("+", [](const auto& x, const auto& y) { return collange_add(x, y); });
+    binary("-", [](const auto& x, const auto& y) { return collange_sub(x, y); });
+    binary("*", [](const auto& x, const auto& y) { return collange_mul(x, y); });
   }
 }
-
-// Zero extension
-auto extend(const string& x) {
-  return cache<int>([x](const int i) {
-    const auto v = format("%s%d", x, i);
-    line("const auto %s = %d < n%s ? %s[%d] : S(0);", v, i, x, x, i);
-    return Exp(input_var(v));
-  });
-};
-
-// Early exit
-const auto early = [](const string& n) {
-  return cache<int>([n](const int i) { line("if (%s <= %d) return;", n, i); return Unit(); });
-};
 
 // Base cases for series multiplication and squaring
 void mul_bases(const string& path) {
@@ -715,24 +311,36 @@ void mul_bases(const string& path) {
   line("static constexpr int mul_base_n = %d;", n);
   line("static constexpr int sqr_base_n = %d;\n", n);
 
+  // Zero extension
+  const auto extend = [](Block& B, const string& x, const int i) {
+    const auto v = format("%s%d", x, i);
+    line("const auto %s = %d < n%s ? %s[%d] : S(0);", v, i, x, x, i);
+    return B.input(v);
+  };
+
+  // Early exit
+  const auto exit = [](const string& n, const int i) { line("if (%s <= %d) return;", n, i); };
+
   // Multiplication
   {
     Blank b;
     Scope f(")", "DEF_SERIAL(mul_base, (S* z, const int nz, const S* x, const int nx, const S* y, const int ny),");
-    auto exit = early("nz");
-    exit(0);
-    auto xi = extend("x");
-    auto yi = extend("y");
+    CSE cse(true);  // Assume exact arithmetic for CSE
+    Block B;
+    exit("nz", 0);
     // Cache inputs so that aliasing works
-    for (int i = 0; i < n; i++) xi(i);
-    for (int i = 0; i < n; i++) yi(i);
+    Exps xi, yi;
+    for (int i = 0; i < n; i++) xi.push_back(extend(B, "x", i));
+    for (int i = 0; i < n; i++) yi.push_back(extend(B, "y", i));
     line();
     for (int i = 0; i < n; i++) {
-      exit(i);
+      if (i) exit("nz", i);
       vector<Exp> ts;
       for (int j = 0; j <= i; j++)
-        ts.push_back(xi(j) * yi(i - j));
-      line("z[%d] = %s;", i, sum(ts));
+        ts.push_back(xi[j] * yi[i - j]);
+      const auto t = sum(ts);
+      B.use(t);
+      line("z[%d] = %s;", i, B.compute(t));
     }
   };
 
@@ -740,17 +348,22 @@ void mul_bases(const string& path) {
   {
     Blank b;
     Scope f(")", "DEF_SERIAL(sqr_base, (S* y, const int ny, const S* x, const int nx),");
-    auto exit = early("ny");
-    exit(0);
-    auto xi = extend("x");
-    for (int i = 0; i < n; i++) xi(i); // Cache inputs so that aliasing works
+    CSE cse(true);  // Assume exact arithmetic for CSE
+    Block B;
+    exit("ny", 0);
+    Exps xi;
+    for (int i = 0; i < n; i++) xi.push_back(extend(B, "x", i)); // Cache inputs so that aliasing works
     line();
     for (int i = 0; i < n; i++) {
-      exit(i);
+      if (i) exit("ny", i);
       vector<Exp> ts;
-      for (int j = 0; j <= i; j++)
-        ts.push_back(xi(j) * xi(i - j));
-      line("y[%d] = %s;", i, sum(ts));
+      for (int j = 0; j < i-j; j++)
+        ts.push_back(xi[j] * xi[i - j]);
+      auto t = 2 * sum(ts);
+      if (i % 2 == 0)
+        t = t + xi[i/2] * xi[i/2];
+      B.use(t);
+      line("y[%d] = %s;", i, B.compute(t));
     }
   };
 }
@@ -758,11 +371,9 @@ void mul_bases(const string& path) {
 // Override series arithmetic
 void add_scalar(Series<Exp>& x, const Exp a) {
   slow_assert(x.nonzero());
-  auto& B = Block::active();
-  x[0] = B.add("s", x[0] + a);
+  x[0] = x[0] + a;
 }
 void high_addsub(Series<Exp>& y, const int sign, const int64_t s, SeriesView<const Exp> x) {
-  auto& B = Block::active();
   const auto ynz = y.nonzero(), xnz = x.nonzero();
   const auto nk = min(y.known(), x.known() + s);
   const auto nz = min(nk, max(ynz, xnz ? xnz + s : 0));
@@ -773,53 +384,56 @@ void high_addsub(Series<Exp>& y, const int sign, const int64_t s, SeriesView<con
     const auto yi = i < ynz ? y[i] : Exp(0);
     auto xi = uint32_t(i-s) < uint32_t(xnz) ? x_[i-s] : Exp(0);
     if (sign < 0) xi = -xi;
-    y[i] = B.add("s", yi + xi);
+    y[i] = yi + xi;
   }
 }
 void fft_mul(span<Exp> z, span<const Exp> x, span<const Exp> y) {
   // Actually, we use naive multiplication
-  auto& B = Block::active();
   const int nz = z.size(), nx = x.size(), ny = y.size();
   for (int i = 0; i < nz; i++) {
     vector<Exp> ts;
     for (int j = 0; j <= i; j++)
       if (j < nx && i - j < ny)
-        ts.push_back(B.add("t", x[j] * y[i - j]));
-    z[i] = B.sum("z", ts);
+        ts.push_back(x[j] * y[i - j]);
+    z[i] = sum(ts);
   }
 }
-
-Exp inv(const Exp& x) { return Block::active().add("r", Exp{format("inv(%s)", x), 2, inv(x.sig()), {x}}); }
 
 // Base cases for series functions
 void series_bases(const string& path) {
   Header h(path, "Series function base cases", {"loops.h"});
   const int n = 5;
-  const bool sz_cse = true;
 
   // Unary
   const auto unary = [n](const string& name, const int leading, auto&& set) {
     {
       Blank b;
       Scope f(")", "DEF_SERIAL(%s_base_serial, (S* y, const int ny, const S* x, const int nx),", name);
-      vector<Var> inputs{input_var("y"), input_var("ny"), input_var("x"), input_var("nx")};
-      for (int i = 0; i < leading; i++) inputs.push_back(input_var(format("x%d", i)));  // Make names nicer
-      Block B(inputs, sz_cse);
+      CSE cse(true);  // Assume exact arithmetic for CSE
+      Block B;
+      B.inputs(vector<string>{"y", "ny", "x", "nx"});
+      for (int i = 0; i < leading; i++) B.input(format("x%d", i));  // Make names nicer
       Series<Exp> x(n), y(n);
       x.set_counts(n, n);
-      for (int i = 0; i < n; i++)
-        x[i] = i < leading ? Exp(0) : B.add("x", Exp(format("%d < nx ? x[%d] : S(0)", i, i), 16, random_sig(), {}));
-      set(y, x.view());
-      vector<vector<Stmt>> returns(n);
       for (int i = 0; i < n; i++) {
-        returns[i].push_back(Stmt(format("y[%d] = %s", i, y[i])));
-        if (i+1 < n) {
-          returns[i].push_back(Stmt());
-          returns[i].push_back(Stmt(format("if (ny == %d) return", i+1)));
+        if (i < leading)
+          x[i] = 0;
+        else {
+          x[i] = B.input(format("x%d", i));
+          line("const auto %s = %d < nx ? x[%d] : S(0);", x[i], i, i);
         }
       }
-      B.multi_strip(y, returns);
-      B.lines();
+      set(y, x.view());
+      for (int i = 0; i < n; i++)
+        B.use(y[i]);
+      for (int i = 0; i < n; i++) {
+        const auto yi = B.compute(y[i]);
+        line("y[%d] = %s;", i, B.compute(y[i]));
+        if (i+1 < n) {
+          line();
+          line("if (ny == %d) return;", i+1);
+        }
+      }
     } {
       Blank b;
       Scope f("}", "template<class T> void %s_base(Series<T>& y, type_identity_t<SeriesView<const T>> x) {", name);
@@ -838,6 +452,286 @@ void series_bases(const string& path) {
   unary("exp", 1, [=](auto& y, const auto x) { y = exp(x); });
 }
 
+// Read/write locations
+template<class T> struct Loc { typedef T E; function<T()> get; function<void(T)> set; };
+template<class T> using Locs = vector<Loc<T>>;
+
+template<class E> Loc<E> loc(Block& B, const string& name, const Exp& j);
+
+template<> Loc<Exp> loc(Block& B, const string& name, const Exp& j) {
+  return Loc<Exp>{
+    [&B,name,j]() { line("const auto %s = %s < xn ? x[%s] : 0;", name, j, j); return B.input(name); },
+    [&B,j](const Exp& x) { line("if (%s < xn) x[%s] = %s;", j, j, B.compute(x)); },
+  };
+};
+
+template<> Loc<CExp> loc(Block& B, const string& name, const Exp& j) {
+  return Loc<CExp>{
+    [&B,name,j] { line("const auto %s = y[%s];", name, j); return split(B.input(name)); },
+    [&B,j](const CExp& z) { line("y[%s] = Complex<S>(%s, %s);", j, B.compute(z.r), B.compute(z.i)); },
+  };
+}
+
+template<class E> Locs<E> locs(Block& B, const int n, const Exp& j, const Exp& dj) {
+  Locs<E> zs;
+  for (int i = 0; i < n; i++)
+    zs.push_back(loc<E>(B, format("%c%d", is_same_v<E,Exp> ? 'x' : 'y', i), j + i*dj));
+  return zs;
+}
+
+// Symbolic gradient of the circuit from xs to ys, given differentials on the outputs
+Exps gradient(span<const Exp> xs, span<const Exp> ys, span<const Exp> dys) {
+  slow_assert(ys.size() == dys.size());
+  struct State {
+    int need;  // Number of output contributions we need
+    Exps terms;  // Contributions to the gradient
+  };
+  unordered_map<Sig,State,SigHash> state;
+
+  // Sweep through the graph from ys to xs, computing need counts
+  {
+    Exps work(ys.begin(), ys.end());
+    while (work.size()) {
+      const auto z = pop_back(work);
+      for (const auto& x : z.args()) {
+        auto& n = state[x.sig()].need;
+        if (!n) work.push_back(x);
+        n++;
+      }
+    }
+  }
+
+  // Compute gradients in topological sort order
+  for (int i = 0; i < int(ys.size()); i++)
+    state[ys[i].sig()].terms.push_back(dys[i]);
+  Exps work(ys.begin(), ys.end());
+  while (work.size()) {
+    const auto z = pop_back(work);
+    auto& sz = state[z.sig()];
+    const auto dz = sum(sz.terms);
+    sz.terms.resize(1);
+    sz.terms[0] = dz;
+    const auto args = z.args();
+    const auto grad = z.grad();
+    slow_assert(args.size() == grad.size(), "%s: %d %d", z, args.size(), grad.size());
+    for (int i = 0; i < int(args.size()); i++) {
+      auto& s = state[args[i].sig()];
+      s.terms.push_back(grad[i] * dz);
+      s.need--;
+      if (!s.need) work.push_back(args[i]);
+    }
+  }
+
+  // Read off input gradients
+  Exps grads;
+  for (const auto& x : xs) {
+    auto& s = state[x.sig()];
+    slow_assert(!s.need && s.terms.size() == 1);
+    grads.push_back(s.terms[0]);
+  }
+  return grads;
+}
+
+// Convert between lists of Exp and CExp
+span<const Exp> flatten(span<const Exp> xs) { return xs; }
+span<const Exp> flatten(span<const CExp> zs) {
+  return span<const Exp>(reinterpret_cast<const Exp*>(zs.data()), 2*zs.size());
+}
+template<class Ts> Ts thicken(const Exps& xs);
+template<> Exps thicken(const Exps& xs) { return xs; }
+template<> CExps thicken(const Exps& xs) {
+  const int n = exact_div(int(xs.size()), 2);
+  const CExp* p = reinterpret_cast<const CExp*>(xs.data());
+  return CExps(p, p + n);
+}
+
+// Gradients with complex inputs or outputs
+template<class Xs,class Ys> Xs gradient(const Xs xs, const Ys ys, const Ys dys) {
+  return thicken<Xs>(gradient(flatten(xs), flatten(ys), flatten(dys)));
+}
+
+Exp constant(const Expansion<2> x, const Sig sig) {
+  const auto s = format("%.17g", x.span());
+  return other(format("constant<S>(%s)", s.substr(1, s.size()-2)), 2, sig);
+}
+
+Complex<Exp> twiddle(const Exp& j, const Exp& s) {
+  return split(call("twiddle", j, s, random_sig()));
+}
+
+// Forward compute from inputs to outputs
+template<class I,class O> void forward(Block& B, const vector<I>& inputs, const vector<O>& outputs, const auto& compute) {
+  vector<typename I::E> xs;
+  for (const auto& i : inputs) xs.push_back(i.get());
+  const auto ys = compute(xs);
+  slow_assert(ys.size() == outputs.size());
+  for (const auto& y : ys) B.use(y);
+  for (int i = 0; i < int(outputs.size()); i++) outputs[i].set(ys[i]);
+}
+
+// Either forward, or backward via symbolic transpose
+template<class I, class O> void
+way(Block& B, const bool fwd, const vector<I>& inputs, const vector<O>& outputs, const auto& compute) {
+  if (fwd) return forward(B, inputs, outputs, compute);
+  // Take the symbolic transpose
+  vector<typename I::E> pxs;
+  for (int i = 0; i < int(inputs.size()); i++) pxs.push_back(B.input<typename I::E>(format("px%d", i)));
+  const auto pys = compute(pxs);
+  forward(B, outputs, inputs, [pxs, pys](const auto& ys) { return gradient(pxs, pys, ys); });
+}
+
+enum Mode { NoX, GetX, SetX };
+
+void loop(const string& name, const Mode mode, const string& n, const vector<string>& args, const auto& compute) {
+  // Collect all arguments
+  vector<string> full = {"Complex<S>* y"};
+  if (mode != NoX) {
+    full.push_back(mode == GetX ? "const S* x" : "S* x");
+    full.push_back("const int xn");
+  }
+  full.insert(full.end(), args.begin(), args.end());
+
+  // Write code
+  Blank b;
+  Scope f(")", "DEF_LOOP(%s, %s, j, (%s),", name, n, join(full));
+  CSE cse(true);  // Assume exact arithmetic for CSE
+  Block B;
+  B.input("x");
+  B.input("xn");
+  B.input("y");
+  compute(B, B.input(n), B.input("j"));
+}
+
+// Forward and backward FFTs
+void both(const function<void(bool,string,string)>& one) {
+  for (const bool fwd : {true, false}) {
+    const string i = fwd ? "" : "i";
+    const string arrow = fwd ? "->" : "<-";
+    one(fwd, i, arrow);
+  }
+}
+
+// Decimination-in-frequency shifted real-to-complex FFT, using the commutator notation:
+//   t j2 j1 j0 -> t k2/2 j1 j0
+//              -> k2 t k1/2 j0
+//              -> k2 k1 t k0/2
+//              == k2 k1 k0
+
+// First srfft butterfly, copying real to complex, without twiddle factors:
+//   t j2 j1 j0 -> t k2/2 j1 j0
+CExp butterfly_0(const Exp x0, const Exp x1) {
+  return CExp(x0, -x1);
+}
+
+// Second ssrfft butterfly, in place, shifted twiddling on input:
+//   t k(p-1)/2 j(p-2) ...j... -> k(p-1) t k(p-2)/2 ...j...
+tuple<CExp,CExp> butterfly_1(const Exp j, const Exp p, const CExp y0, const CExp y1) {
+  typedef Expansion<2> S;
+  const auto sqrt_half = constant(nearest_sqrt<S>(1, 2), inv(sqrt(Sig(2))));
+  const auto z1 = diag<-1>(sqrt_half, y1);
+  const auto u0 = conj(twiddle(j, p)) * (y0 + z1);
+  const auto u1 = conj(twiddle(3*j, p) * (y0 - z1));
+  return make_tuple(u0, u1);
+}
+
+// Radix-2 shifted butterfly
+tuple<CExp,CExp> butterfly_s1(const Exp j, const Exp s, const CExp y0, const CExp y1) {
+  const auto u0 = y0 + y1;
+  const auto u1 = conj(twiddle(j, s) * (y0 - y1));
+  return make_tuple(u0, u1);
+}
+
+// Radix-4 shifted butterfly
+array<CExp,4> butterfly_s2(const Exp j, const Exp m, const Exp s, const array<CExp,4> y) {
+  const auto w2 = twiddle(j, s);
+  const auto w4 = twiddle(j, s+1);
+  const auto u0 = y[0] + y[2];
+  const auto u1 = y[1] + y[3];
+  const auto t0 = y[0] - y[2];
+  const auto t1 = y[1] - y[3];
+  const auto c0 = u0 + u1;
+  const auto c1 = conj(w2 * (u0 - u1));
+  const auto c2 = conj(w4 * (t0 + left(t1)));
+  const auto c3 = conj(w4) * (t0 - left(t1));
+  return array{c0, c1, c2, c3};
+}
+
+// Higher radix fft codelets
+void butterflies(const string& path) {
+  Header h(path, "Fourier transform base cases", {"loops.h"});
+
+  line("namespace {");
+  line("template<class S> struct FullTwiddleView;");
+  line("}  // namespace");
+  line();
+
+  // The first r butterfly levels in a single loop
+  const vector<string> twiddle_args = {"FullTwiddleView<S> twiddle", "const int p"};
+  for (int r = 1; r <= 3; r++) {
+    string suffix;
+    for (int i = 0; i < r; i++) suffix += format("%d", i);
+    const auto nr = format("n%d", 1 << r);
+    both([r,nr,suffix,twiddle_args](const bool fwd, const string& i, const string& arrow) {
+      loop(i + "srfft_butterfly_" + suffix, fwd ? GetX : SetX, nr, r > 1 ? twiddle_args : vector<string>(),
+        [fwd,r](Block& B, const Exp nr, const Exp j) {
+          const auto p = B.input("p");
+          const auto m = r > 2 ? B.now("m", format("1 << (%s)", p-r), random_sig()) : 0;
+          const int R = 1 << r;
+          const auto x = locs<Exp>(B, R, j, nr);
+          const auto y = locs<CExp>(B, R/2, j, nr);
+          way(B, fwd, x, y, [&B,m,r,nr,R,p,j](const Exps x) {
+            CExps y;
+            for (int i = 0; i < R/2; i++)
+              y.push_back(butterfly_0(x[i], x[i+R/2]));
+            if (r > 1)
+              for (int i = 0; i < R/4; i++)
+                tie(y[i], y[i+R/4]) = butterfly_1(j+i*nr, p, y[i], y[i+R/4]);
+            for (int a = 3; a <= r; a++) {
+              const auto sa = B.now(format("s%d", a), p-a);
+              const auto ma = B.now(format("m%d", a), format("m << %d", r-a), m.sig() << (r-a));
+              const auto j1 = B.now("j1", format("%s & (%s-1);", j, ma), random_sig());
+              const int R0 = 1 << (a-2);
+              const int R1 = R >> a;
+              for (int i0 = 0; i0 < R0; i0++) {
+                for (int i1 = 0; i1 < R1; i1++) {
+                  auto& y0 = y[2*i0 + i1];
+                  auto& y1 = y[2*i0 + i1 + R1];
+                  tie(y0, y1) = butterfly_s1(j1+i1*nr, sa, y0, y1);
+                }
+              }
+            }
+            return y;
+          });
+        }
+      );
+    });
+  }
+
+  // Remaining butterflies, using varying radix
+  for (int r = 1; r <= 2; r++) {
+    const auto nr = format("n%d", 1 << (r+1));
+    both([r,nr](const bool fwd, const string& i, const string& arrow) {
+      line("// Radix-%d %ssrfft butterfly, in place", r, i);
+      loop(format("%ssrfft_butterfly_s%d", i, r), NoX, nr, {"FullTwiddleView<S> twiddle", "const int s"},
+        [fwd,r](Block& B, const Exp nr, const Exp j) {
+          const auto s = B.input("s");
+          const auto m = B.now("m", "1 << s", random_sig());
+          const auto j1 = B.now("j1", format("%s & (m-1);", j), random_sig());
+          const auto j0 = B.now("j0", format("(%s - j1) << %d;", j, r), random_sig());
+          const auto y = locs<CExp>(B, 1 << r, j0 + j1, m);
+          way(B, fwd, y, y, [r,s,m,j1](CExps y) {
+            if (r == 1)
+              tie(y[0], y[1]) = butterfly_s1(j1, s, y[0], y[1]);
+            else if (r == 2)
+              tie(y[0], y[1], y[2], y[3]) = butterfly_s2(j1, m, s, array{y[0], y[1], y[2], y[3]});
+            return y;
+          });
+        }
+      );
+    });
+  }
+}
+
 }  // namespace mandelbrot
 using namespace mandelbrot;
 
@@ -845,12 +739,13 @@ int main(int argc, char** argv) {
   try {
     const vector<string> paths(argv + 1, argv + argc);
     for (const auto& path : paths) {
-      if (endswith(path, "gen-expansion.h")) expansion_arithmetic(path);
-      else if (endswith(path, "gen-mul-bases.h")) mul_bases(path);
-      else if (endswith(path, "gen-series-bases.h")) series_bases(path);
+      if (path.ends_with("gen-expansion.h")) expansion_arithmetic(path);
+      else if (path.ends_with("gen-mul-bases.h")) mul_bases(path);
+      else if (path.ends_with("gen-series-bases.h")) series_bases(path);
+      else if (path.ends_with("gen-butterflies.h")) butterflies(path);
       else die("Unmatched path '%s'", path);
     }
   } catch (const std::exception& e) {
-    die(e.what());
+    die("%s (%s)", e.what(), typeid(e).name());
   }
 }
