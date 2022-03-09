@@ -1,6 +1,7 @@
 // A few bit twiddling functions beyond <bit>
 #pragma once
 
+#include "cutil.h"
 #include <bit>
 #include <cstdint>
 #include <type_traits>
@@ -19,7 +20,7 @@ template<class I> I byteswap(I n) {
   else if constexpr (is_same_v<I,uint64_t>) return __builtin_bswap64(n);
 }
 
-template<class I> I bitreverse(I n) {
+template<class I> __host__ __device__ I bitreverse(I n) {
   static_assert(is_unsigned_v<I>);
   if constexpr (is_same_v<I,uint32_t>) return __builtin_bitreverse32(n);
   else if constexpr (is_same_v<I,uint64_t>) return __builtin_bitreverse64(n);

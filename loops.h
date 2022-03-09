@@ -34,23 +34,13 @@ template<class I> __device__ static inline int grid_stride_loop_size(const I n) 
   const int _n = (n);  /* For now, assume we fit in int32_t */ \
   name<<<32*num_sms(), 256>>>(_n, __VA_ARGS__); }))
 
-// Parallel loops on CPU
-#if __APPLE__
-#define HOST_LOOP(n, i, body) \
-  for (int i = 0; i < n; i++) { body }
-#else
-#define HOST_LOOP(n, i, body) \
-  _Pragma("omp parallel for") \
-  for (int i = 0; i < n; i++) { body }
-#endif
-
 // Define 1D loop functions on CPU and GPU
 #define DEF_LOOP(name, n, i, args, body) \
   IF_CUDA(template<class S> __global__ static void name##_device(const int n, UNPAREN args) { \
     GRID_STRIDE_LOOP(n, i) { body } \
   }) \
   template<class S> static void name##_host(const int n, UNPAREN args) { \
-    HOST_LOOP(n, i, body) \
+    for (int i = 0; i < n; i++) { body } \
   } \
   template<class... Args> static inline void name(const int64_t n, Args&&... xs) { \
     if (!n) return; \

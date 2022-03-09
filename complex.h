@@ -32,6 +32,9 @@ template<class S> struct Complex {
   __host__ __device__ friend Complex right(const Complex& z) { return Complex(z.i, -z.r); }  // -iz
   __host__ __device__ friend Complex twice(const Complex& z) { return Complex(twice(z.r), twice(z.i)); }
   __host__ __device__ friend Complex half(const Complex& z) { return Complex(half(z.r), half(z.i)); }
+  __host__ __device__ friend Complex ldexp(const Complex& z, int e) { return Complex(ldexp(z.r, e), ldexp(z.i, e)); }
+  __host__ __device__ friend Complex hadamard(const Complex& z, const Complex& w) { return Complex(z.r*w.r, z.i*w.i); }
+  __host__ __device__ friend Complex hadamard_sqr(const Complex& z) { return Complex(sqr(z.r), sqr(z.i)); }
 
   bool operator==(const Complex z) const { return r == z.r && i == z.i; }
 
