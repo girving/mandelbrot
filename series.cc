@@ -154,6 +154,11 @@ template<class T> tuple<vector<string>,Series<T>> read_series(const string& path
           slow_assert(nonzero < 0);
           v.remove_prefix(9);
           nonzero = number(c, v);
+        } else if (v.starts_with("terms =")) {
+          // Older files had 'terms' instead of 'nonzero' and 'known'
+          slow_assert(known < 0 && nonzero < 0);
+          v.remove_prefix(7);
+          known = nonzero = number(c, v);
         }
         if (known >= 0 && nonzero >= 0) {
           slow_assert(known >= nonzero);
