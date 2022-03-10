@@ -168,8 +168,10 @@ template<int n> Expansion<n> random_expansion_near(mt19937& mt, const Expansion<
 template<int n> Expansion<n> random_expansion_with_exponent(mt19937& mt, int e);
 
 // Constants of templated size
-template<class S> static inline S constant(double x0, double x1);
-template<> inline double constant(double x0, double x1) { return x0; }
-template<> inline Expansion<2> constant(double x0, double x1) { return Expansion<2>(x0, x1, nonoverlap); }
+template<class S> __host__ __device__ static inline S constant(double x0, double x1);
+template<> __host__ __device__ inline double constant(double x0, double x1) { return x0; }
+template<> __host__ __device__ inline Expansion<2> constant(double x0, double x1) {
+  return Expansion<2>(x0, x1, nonoverlap);
+}
 
 }  // namespace mandelbrot

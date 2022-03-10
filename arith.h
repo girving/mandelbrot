@@ -21,7 +21,7 @@ ARITH(double)
 #undef ARITH
 
 // Integer overload to make generated code happy
-static inline int twice(int x) { return x << 1; }
+__host__ __device__ static inline int twice(int x) { return x << 1; }
 
 // relu(x) = max(0, x)
 template<class T> static inline T relu(const T& x) {

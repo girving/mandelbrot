@@ -27,7 +27,7 @@ First, install dependencies:
     echo deb-src http://apt.llvm.org/buster/ llvm-toolchain-buster-13 main | sudo tee -a /etc/apt/sources.list
     sudo apt-get install clang-13 libc++-13-dev libc++abi-13-dev libomp-13-dev \
         python3 python3-pip python3-setuptools python3-wheel ninja-build \
-        libmpfr-dev libflint-dev libflint-arb-dev
+        libmpfr-dev libflint-dev libflint-arb-dev libssl-dev
     pip3 install --user meson
 
 Then build and test with
