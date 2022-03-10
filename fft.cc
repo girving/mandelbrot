@@ -350,11 +350,12 @@ template<class T> static void srfft_scramble(span<AddComplex<T>> y, span<const T
   }
 
   // Remaining butterflies, transforming y in place
-  if (p > 3) {
-    for (int s = p-5; s >= 0; s -= 2)
-      srfft_butterfly_s2(n/8, y.data(), view, s);
-    if (!(p & 1))
-      srfft_butterfly_s1(n/4, y.data(), view, 0);
+  for (int s = p-4; s >= 0;) {
+    switch (s) {
+      case 0: srfft_butterfly_s1(n/4, y.data(), view, 0); s -= 1; break;
+      case 1: srfft_butterfly_s2(n/8, y.data(), view, 0); s -= 2; break;
+      default: srfft_butterfly_s3(n/16, y.data(), view, s-2); s -= 3; break;
+    }
   }
 }
 
@@ -372,11 +373,10 @@ template<class T> static void isrfft_scramble(span<T> x, span<AddComplex<T>> y) 
   const auto view = twiddle.view();
 
   // Most butterflies, transforming y in place
-  if (p > 3) {
-    if (!(p & 1))
-      isrfft_butterfly_s1(n/4, y.data(), view, 0);
-    for (int s = !(p & 1); s < p-4; s += 2)
-      isrfft_butterfly_s2(n/8, y.data(), view, s);
+  for (int s = 0; s < p-3;) {
+    if (!s && p%3 == 1) { isrfft_butterfly_s1(n/4, y.data(), view, 0); s += 1; }
+    else if (!s && p%3 == 2) { isrfft_butterfly_s2(n/8, y.data(), view, 0); s += 2; }
+    else { isrfft_butterfly_s3(n/16, y.data(), view, s); s += 3; }
   }
 
   // Last few butterflies, transforming y to x

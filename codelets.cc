@@ -642,18 +642,60 @@ tuple<CExp,CExp> butterfly_s1(const Exp j, const Exp s, const CExp y0, const CEx
 }
 
 // Radix-4 shifted butterfly
-array<CExp,4> butterfly_s2(const Exp j, const Exp m, const Exp s, const array<CExp,4> y) {
+CExps butterfly_s2(const Exp j, const Exp s, const CExps y) {
+  slow_assert(y.size() == 4);
   const auto w2 = twiddle(j, s);
   const auto w4 = twiddle(j, s+1);
+
   const auto u0 = y[0] + y[2];
   const auto u1 = y[1] + y[3];
   const auto t0 = y[0] - y[2];
   const auto t1 = y[1] - y[3];
+
   const auto c0 = u0 + u1;
   const auto c1 = conj(w2 * (u0 - u1));
   const auto c2 = conj(w4 * (t0 + left(t1)));
   const auto c3 = conj(w4) * (t0 - left(t1));
-  return array{c0, c1, c2, c3};
+  return CExps{c0, c1, c2, c3};
+}
+
+// Radix-8 shifted butterfly
+CExps butterfly_s3(const Exp j, const Exp m, const Exp s, const CExps y) {
+  typedef Expansion<2> S;
+  slow_assert(y.size() == 8);
+  const auto w2 = twiddle(j, s);
+  const auto w4 = twiddle(j, s+1);
+  const auto w8 = twiddle(j, s+2);
+  const auto w6 = twiddle(3*j, s+2);
+  const auto sqrt_half = constant(nearest_sqrt<S>(1, 2), inv(sqrt(Sig(2))));
+
+  const auto u0 = y[0] + y[4];
+  const auto u1 = y[1] + y[5];
+  const auto u2 = y[2] + y[6];
+  const auto u3 = y[3] + y[7];
+  const auto t0 = y[0] - y[4];
+  const auto t1 = y[1] - y[5];
+  const auto t2 = y[2] - y[6];
+  const auto t3 = y[3] - y[7];
+
+  const auto b0 = u0 + u2;
+  const auto b1 = u1 + u3;
+  const auto b2 = t0 + left(t2);
+  const auto b3 = diag<1>(sqrt_half, t1 + left(t3));
+  const auto c0 = u0 - u2;
+  const auto c1 = u1 - u3;
+  const auto c2 = t0 - left(t2);
+  const auto c3 = diag<-1>(sqrt_half, t1 - left(t3));
+
+  const auto d0 = b0 + b1;
+  const auto d1 = conj(w2 * (b0 - b1));
+  const auto d2 = conj(w4 * (c0 + left(c1)));
+  const auto d3 = conj(w4) * (c0 - left(c1));
+  const auto d4 = conj(w8 * (b2 + b3));
+  const auto d5 = conj(w6) * (b2 - b3);
+  const auto d6 = conj(w8) * (c2 + c3);
+  const auto d7 = conj(w6 * (c2 - c3));
+  return CExps{d0, d1, d2, d3, d4, d5, d6, d7};
 }
 
 // Higher radix fft codelets
@@ -689,7 +731,7 @@ void butterflies(const string& path) {
             for (int a = 3; a <= r; a++) {
               const auto sa = B.now(format("s%d", a), p-a);
               const auto ma = B.now(format("m%d", a), format("m << %d", r-a), m.sig() << (r-a));
-              const auto j1 = B.now("j1", format("%s & (%s-1);", j, ma), random_sig());
+              const auto j1 = B.now("j1", format("%s & (%s-1)", j, ma), random_sig());
               const int R0 = 1 << (a-2);
               const int R1 = R >> a;
               for (int i0 = 0; i0 < R0; i0++) {
@@ -708,7 +750,7 @@ void butterflies(const string& path) {
   }
 
   // Remaining butterflies, using varying radix
-  for (int r = 1; r <= 2; r++) {
+  for (int r = 1; r <= 3; r++) {
     const auto nr = format("n%d", 1 << (r+1));
     both([r,nr](const bool fwd, const string& i, const string& arrow) {
       line("// Radix-%d %ssrfft butterfly, in place", r, i);
@@ -716,14 +758,16 @@ void butterflies(const string& path) {
         [fwd,r](Block& B, const Exp nr, const Exp j) {
           const auto s = B.input("s");
           const auto m = B.now("m", "1 << s", random_sig());
-          const auto j1 = B.now("j1", format("%s & (m-1);", j), random_sig());
-          const auto j0 = B.now("j0", format("(%s - j1) << %d;", j, r), random_sig());
+          const auto j1 = B.now("j1", format("%s & (m-1)", j), random_sig());
+          const auto j0 = B.now("j0", format("(%s - j1) << %d", j, r), random_sig());
           const auto y = locs<CExp>(B, 1 << r, j0 + j1, m);
           way(B, fwd, y, y, [r,s,m,j1](CExps y) {
             if (r == 1)
               tie(y[0], y[1]) = butterfly_s1(j1, s, y[0], y[1]);
             else if (r == 2)
-              tie(y[0], y[1], y[2], y[3]) = butterfly_s2(j1, m, s, array{y[0], y[1], y[2], y[3]});
+              y = butterfly_s2(j1, s, y);
+            else if (r == 3)
+              y = butterfly_s3(j1, m, s, y);
             return y;
           });
         }
