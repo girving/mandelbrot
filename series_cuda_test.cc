@@ -90,13 +90,15 @@ TEST(add_scalar) { UNARY(1, 7, y = x; y += 3.5); }
 TEST(sub_int) { UNARY(1, 7, y = x; y -= 3); }
 TEST(sub_scalar) { UNARY(2, 7, y = x; y -= 3.5); }
 
-TEST(addsub) {
+TEST(addsub_ldexp) {
   for (const int s : {1, -1}) {
     for (const int k : {0, 2}) {
-      BINARY(0, 32, z = x; high_addsub(z, s, k, y));
-      UNARY(0, 32, y.set_counts(x.known(), 0); high_addsub(y, s, k, x));
-      BINARY(0, 32, z = x; auto w = y.copy(y.limit()); w.set_counts(y.known(), min(4l, y.known()));
-                    high_addsub(z, s, k, w));
+      for (const int b : {0, -1, 1}) {
+        BINARY(0, 32, z = x; high_addsub_ldexp(z, s, b, k, y));
+        UNARY(0, 32, y.set_counts(x.known(), 0); high_addsub_ldexp(y, s, b, k, x));
+        BINARY(0, 32, z = x; auto w = y.copy(y.limit()); w.set_counts(y.known(), min(4l, y.known()));
+                      high_addsub_ldexp(z, s, b, k, w));
+      }
     }
   }
 }
