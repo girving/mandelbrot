@@ -39,7 +39,7 @@ template<class T> void escape(Series<T>& h, Series<T>& dh, const int k,
   h.set_scalar(n, 0);
   dh.set_scalar(dn, 0);
 
-  Series<T> t(n), s(n), u(dn);
+  Series<T> t(n), s(n);
   for (int i = 1; i <= k; i++) {
     const auto p = int64_t(1) << i;
 
@@ -50,10 +50,10 @@ template<class T> void escape(Series<T>& h, Series<T>& dh, const int k,
     h.high_add_ldexp(p-1, -i, s);        // h += z^(p-1) s / p
 
     // dh
-    u = t.low(dn-(p-1));
-    u.high_sub(p-1, s);                  // u = t - z^(p-1) s
+    t.reduce_known(dn-(p-1));
+    t.high_sub(p-1, s);                  // t = t - z^(p-1) s
+    s = exp(t);                          // t = exp(t - z^(p-1) s)
     t = sub_si_2exp(1-p, dg, i, dh.low(dn-(p-1)));
-    s = exp(u);                          // t = exp(t - z^(p-1) s)
     t = mul(s, t.low(dn-(p-1)));         // ds = exp(t - z^(p-1) s) t
     dh.high_add_ldexp(p-1, -i, t);       // h += z^(p-1) ds / p
   }

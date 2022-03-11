@@ -175,6 +175,9 @@ public:
     known_ = known;
     nonzero_ = min(nonzero_, known);
   }
+  void reduce_known(const int64_t known) {
+    set_known(min(known_, relu(known)));
+  }
 
   // Non-aliasing copy
   Series<remove_const_t<T>> copy(const int64_t limit) const {
