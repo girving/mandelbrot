@@ -88,12 +88,11 @@ template<class T> void high_addsub_ldexp(Series<T>& y, const int sign, const int
   y.set_counts(nk, nz);
 }
 
-DEF_LOOP(mul1p_post_loop, post, i, (S* z, const S* x, const int s, const int xnz),
-  z[i] = (i < s ? S(0) : z[i]) + (i < xnz ? x[i] : S(0));)
+DEF_LOOP(mul1p_middle_loop, n, i, (S* z, const S* x, const int nx),
+  z[i] = i < nx ? x[i] : 0;)
 
-template<class T> void mul1p_post(Series<T>& z, SeriesView<add_const_t<T>> x,
-                                  const int64_t post, const int64_t s, const int64_t xnz) {
-  mul1p_post_loop(post, z.data(), x.data(), s, xnz);
+template<class T> void mul1p_middle(Series<T>& z, const T* x, const int64_t nx) {
+  mul1p_middle_loop(z.nonzero(), z.data(), x, nx);
 }
 
 static string time_str() {
@@ -194,7 +193,7 @@ template<class T> tuple<vector<string>,Series<T>> read_series(const string& path
 #define Ss(S) \
   template void add_scalar(Series<S>&, const typename Series<S>::Scalar); \
   template void high_addsub_ldexp(Series<S>&, const int, const int, const int64_t, SeriesView<const S>); \
-  template void mul1p_post(Series<S>&, SeriesView<const S>, const int64_t, const int64_t, const int64_t); \
+  template void mul1p_middle(Series<S>&, const S*, const int64_t); \
   template void write_series(const string& path, const vector<string>& comments, SeriesView<const S> x); \
   template tuple<vector<string>,Series<S>> read_series(const string& path);
 Ss(double)

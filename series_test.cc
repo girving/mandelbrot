@@ -404,12 +404,11 @@ TEST(mul1p) {
       const auto e = error(z, az);
       ASSERT_LT(e, 1e-14) << format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
                                     e, approx(ax, n), approx(ay, n), z, az);
-      // Aliasing works with the second argument works
+      // Aliasing works
       Series<double> w(n);
-      if (n) {
-        w = x;
-        ASSERT_THROW(w = mul1p(w, y.low(n-s), s), runtime_error);
-      }
+      w = x;
+      w = mul1p(w, y.low(n-s), s);
+      ASSERT_LT(error(z, w), 1e-14);
       w = y;
       w = mul1p(x, w.low(n-s), s);
       ASSERT_LT(error(z, w), 1e-14);
@@ -578,7 +577,7 @@ TEST(log1p_exp) {
       Series<double> y(n);
       y = log1p_exp(approx(ax, n), s);
       const auto e = error(y, ay, true);
-      ASSERT_LT(e, 3.2e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+      ASSERT_LT(e, 4.5e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
                                      n, s, e, approx(ax, n), y, approx(ay, n));
     }
   }

@@ -269,6 +269,7 @@ SERIES_EXP(neg, y, (class A,bool v), (x), (x=x.view()), (const Series<A,v>& x)) 
 }
 
 // Multiplication: z = xy
+// Aliasing is allowed.
 SERIES_EXP(mul, z, (class A,class B,bool va,bool vb), (x,y), (x=x.view(),y=y.view()),
            (const Series<A,va>& x, const Series<B,vb>& y)) {
   const auto nk = min(x.known(), y.known());
@@ -278,17 +279,17 @@ SERIES_EXP(mul, z, (class A,class B,bool va,bool vb), (x,y), (x=x.view(),y=y.vie
 }
 
 // Shifted multiplication: z = x(1 + z^s y)
-template<class T> void mul1p_post(Series<T>& z, SeriesView<add_const_t<T>> x,
-                                  const int64_t post, const int64_t s, const int64_t xnz);
+// Aliasing is allowed.
+template<class T> void mul1p_middle(Series<T>& z, const T* x, const int64_t xnz);
 SERIES_EXP(mul1p, z, (class A,class B,bool va,bool vb), (x,y,s), (x=x.view(),y=y.view(),s),
            (const Series<A,va>& x, const Series<B,vb>& y, const int64_t s)) {
-  slow_assert(!z.alias(x) && s > 0);
+  slow_assert(s > 0);
   const auto nk = min(x.known(), y.known() + s);
   const auto nz = min(nk, x.nonzero() + y.nonzero() + s - 1);
-  const auto post = min(nz, max(s, x.nonzero()));
   z.set_counts(nk, nz);
-  fft_mul(z.high_span(s), x.low_span(nz-s), y.low_span(nz-s));
-  mul1p_post(z, x, post, s, x.nonzero());
+  fft_addmul(z.high_span(s), x.low_span(nz-s), y.low_span(nz-s), [&z,x=x.data(),nx=x.nonzero()]() {
+    mul1p_middle(z, x, nx);
+  });
 }
 
 // Squaring: y = x^2
@@ -402,15 +403,15 @@ SERIES_EXP(inv1p, y, (class A,bool v), (x,s), (x=x.view(),s), (const Series<A,v>
   //        = y0 - (1/(1 + z^s y0) - 1 - z^s x) / (-z^s/(1 + z^s y)^2)
   //        = y0 + z^-s (1 + z^s y0)(1 - (1 + z^s y0) - z^s x(1 + z^s y0)) ((1 + z^s y)/(1 + z^s y0))^2
   //        = y0 - (1 + z^s y0)(y0 + x(1 + z^s y0)) ((1 + z^s y)/(1 + z^s y0))^2
-  Series<DS> dy(n), t(n);
-  newton_iterate(y.known(), n, [&y, &x, &dy, &t, s](const int64_t m0, const int64_t m, const bool refine) {
+  Series<DS> dy(n);
+  newton_iterate(y.known(), n, [&y, &x, &dy, s](const int64_t m0, const int64_t m, const bool refine) {
     y.set_known(m);
 
     // dy = y0(xy0-1)(y/y0)^2
     static_assert(!is_interval<S>);  // Ignore y/y0 for now
-    t = mul1p(x, y, s);
-    t += y;
-    dy = mul1p(t, y, s);
+    dy = mul1p(x, y, s);
+    dy += y;
+    dy = mul1p(dy, y, s);
 
     // Update
     y.high_sub(m0, dy.high(m0));
@@ -465,10 +466,10 @@ SERIES_EXP(div1p, y, (class A,class B,bool va,bool vb), (a,b,s), (a=a.view(),b=b
   //   N(y) = y0 - (c*y0 - a)/c
   //        = y0 - (c*y0 - a)(1/c)
   static_assert(!is_interval<S>);  // Assume y0 = y
-  Series<DS> t(n), dy(n);
-  t = mul1p(y, b, s);
-  t -= a;
-  dy = mul1p(t, inv_b, s);
+  Series<DS> dy(n);
+  dy = mul1p(y, b, s);
+  dy -= a;
+  dy = mul1p(dy, inv_b, s);
   y -= dy;
 }
 
@@ -579,16 +580,16 @@ SERIES_EXP(expm1, y, (class A,bool v), (x,a,s), (x=x.view(),a,s),
   //   f'(y) = 1/(1 + z^s y)
   //   N(y) = y0 - f(y0) / f'(y)
   //        = y0 - (1 + z^s y)(log1p(y0, s) - ax)
-  Series<DS> dy(n), t(n);
-  newton_iterate(y.known(), n, [&x, &y, &dy, &t, a, s](const int64_t m0, const int64_t m, const bool refine) {
+  Series<DS> dy(n);
+  newton_iterate(y.known(), n, [&x, &y, &dy, a, s](const int64_t m0, const int64_t m, const bool refine) {
     y.set_known(m);
 
     // dy = (1 + z^s y)(log1p(y0, s) - ax)
     static_assert(!is_interval<S>);  // Assume y = y0 for now
-    t = log1p(y, s);
-    if (a > 0) t -= x;
-    else t += x;
-    dy = mul1p(t, y, s);
+    dy = log1p(y, s);
+    if (a > 0) dy -= x;
+    else dy += x;
+    dy = mul1p(dy, y, s);
 
     // Update
     y.high_sub(m0, dy.high(m0));

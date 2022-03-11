@@ -460,26 +460,35 @@ void series_bases(const string& path) {
 template<class T> struct Loc { typedef T E; function<T()> get; function<void(T)> set; };
 template<class T> using Locs = vector<Loc<T>>;
 
-template<class E> Loc<E> loc(Block& B, const string& name, const Exp& j);
+template<class E> Loc<E> loc(Block& B, const string& name, const Exp& j, const bool add = false);
 
-template<> Loc<Exp> loc(Block& B, const string& name, const Exp& j) {
+template<> Loc<Exp> loc(Block& B, const string& name, const Exp& j, const bool add) {
   return Loc<Exp>{
     [&B,name,j]() { line("const auto %s = %s < xn ? x[%s] : 0;", name, j, j); return B.input(name); },
-    [&B,j](const Exp& x) { line("if (%s < xn) x[%s] = %s;", j, j, B.compute(x)); },
+    [&B,j,add](Exp x) {
+      string op = add ? "+=" : "=";
+      if (add) {
+        if (auto nx = x.unneg()) {
+          op = "-=";
+          x = *nx;
+        }
+      }
+      line("if (%s < xn) x[%s] %s %s;", j, j, op, B.compute(x)); },
   };
 };
 
-template<> Loc<CExp> loc(Block& B, const string& name, const Exp& j) {
+template<> Loc<CExp> loc(Block& B, const string& name, const Exp& j, const bool add) {
+  slow_assert(!add, "We only use add for output into real arrays");
   return Loc<CExp>{
     [&B,name,j] { line("const auto %s = y[%s];", name, j); return split(B.input(name)); },
     [&B,j](const CExp& z) { line("y[%s] = Complex<S>(%s, %s);", j, B.compute(z.r), B.compute(z.i)); },
   };
 }
 
-template<class E> Locs<E> locs(Block& B, const int n, const Exp& j, const Exp& dj) {
+template<class E> Locs<E> locs(Block& B, const int n, const Exp& j, const Exp& dj, const bool add = false) {
   Locs<E> zs;
   for (int i = 0; i < n; i++)
-    zs.push_back(loc<E>(B, format("%c%d", is_same_v<E,Exp> ? 'x' : 'y', i), j + i*dj));
+    zs.push_back(loc<E>(B, format("%c%d", is_same_v<E,Exp> ? 'x' : 'y', i), j + i*dj, add));
   return zs;
 }
 
@@ -607,11 +616,14 @@ void loop(const string& name, const Mode mode, const string& n, const vector<str
 }
 
 // Forward and backward FFTs
-void both(const function<void(bool,string,string)>& one) {
+void both(const bool allow_add, const function<void(bool,bool,string,string)>& one) {
   for (const bool fwd : {true, false}) {
-    const string i = fwd ? "" : "i";
-    const string arrow = fwd ? "->" : "<-";
-    one(fwd, i, arrow);
+    for (const auto add : {false, true}) {
+      if (add && (!allow_add || fwd)) continue;
+      const string i = fwd ? "" : "i";
+      const string arrow = fwd ? "->" : "<-";
+      one(fwd, add, i, arrow);
+    }
   }
 }
 
@@ -717,13 +729,14 @@ void butterflies(const string& path) {
     string suffix;
     for (int i = 0; i < r; i++) suffix += format("%d", i);
     const auto nr = format("n%d", 1 << r);
-    both([r,nr,suffix,twiddle_args](const bool fwd, const string& i, const string& arrow) {
-      loop(i + "srfft_butterfly_" + suffix, fwd ? GetX : SetX, nr, r > 1 ? twiddle_args : vector<string>(),
-        [fwd,r](Block& B, const Exp nr, const Exp j) {
+    both(true, [r,nr,suffix,twiddle_args](const bool fwd, const bool add, const string& i, const string& arrow) {
+      const auto name = format("%s%ssrfft_butterfly_%s", add ? "add_" : "", i, suffix);
+      loop(name, fwd ? GetX : SetX, nr, r > 1 ? twiddle_args : vector<string>(),
+        [fwd,r,add](Block& B, const Exp nr, const Exp j) {
           const auto p = B.input("p");
           const auto m = r > 2 ? B.now("m", format("1 << (%s)", p-r), random_sig()) : 0;
           const int R = 1 << r;
-          const auto x = locs<Exp>(B, R, j, nr);
+          const auto x = locs<Exp>(B, R, j, nr, add);
           const auto y = locs<CExp>(B, R/2, j, nr);
           way(B, fwd, x, y, [&B,m,r,nr,R,p,j](const Exps x) {
             CExps y;
@@ -756,7 +769,8 @@ void butterflies(const string& path) {
   // Remaining butterflies, using varying radix
   for (int r = 1; r <= 3; r++) {
     const auto nr = format("n%d", 1 << (r+1));
-    both([r,nr](const bool fwd, const string& i, const string& arrow) {
+    both(false, [r,nr](const bool fwd, const bool add, const string& i, const string& arrow) {
+      slow_assert(!add);
       line("// Radix-%d %ssrfft butterfly, in place", r, i);
       loop(format("%ssrfft_butterfly_s%d", i, r), NoX, nr, {"FullTwiddleView<S> twiddle", "const int s"},
         [fwd,r](Block& B, const Exp nr, const Exp j) {

@@ -360,7 +360,7 @@ template<class T> static void srfft_scramble(span<AddComplex<T>> y, span<const T
 }
 
 // isrfft, but taking permuted input
-template<class T> static void isrfft_scramble(span<T> x, span<AddComplex<T>> y) {
+template<class T> static void isrfft_scramble(span<T> x, span<AddComplex<T>> y, const bool add = false) {
   // Find our power of two
   const int64_t n = 2*y.size(), xn = x.size();
   if (!n) return;
@@ -380,10 +380,18 @@ template<class T> static void isrfft_scramble(span<T> x, span<AddComplex<T>> y) 
   }
 
   // Last few butterflies, transforming y to x
-  switch (p) {
-    case 1: isrfft_butterfly_0(n/2, y.data(), x.data(), xn); break;
-    case 2: isrfft_butterfly_01(n/4, y.data(), x.data(), xn, view, p); break;
-    default: isrfft_butterfly_012(n/8, y.data(), x.data(), xn, view, p); break;
+  if (!add) {
+    switch (p) {
+      case 1: isrfft_butterfly_0(n/2, y.data(), x.data(), xn); break;
+      case 2: isrfft_butterfly_01(n/4, y.data(), x.data(), xn, view, p); break;
+      default: isrfft_butterfly_012(n/8, y.data(), x.data(), xn, view, p); break;
+    }
+  } else {
+    switch (p) {
+      case 1: add_isrfft_butterfly_0(n/2, y.data(), x.data(), xn); break;
+      case 2: add_isrfft_butterfly_01(n/4, y.data(), x.data(), xn, view, p); break;
+      default: add_isrfft_butterfly_012(n/8, y.data(), x.data(), xn, view, p); break;
+    }
   }
 }
 
@@ -441,6 +449,23 @@ template<class T> void fft_mul(span<T> z, span<add_const_t<T>> x, span<add_const
   }
 }
 
+template<class T> void fft_addmul(span<T> z, span<add_const_t<T>> x, span<add_const_t<T>> y,
+                                  const function<void()>& middle) {
+  typedef Undevice<T> S;
+  const int64_t nz = z.size(), nx = x.size(), ny = y.size();
+  slow_assert(nz <= relu(nx + ny - 1));
+  // Only use FFT multiplication to avoid thinking about mul_bases and middle
+  const int64_t fn = bit_ceil(uint64_t(2*nz));
+  const Array<AddComplex<T>> buffer(fn);
+  const auto fx = buffer.span().first(fn/2);
+  const auto fy = buffer.span().last(fn/2);
+  srfft_scramble(fx, x);
+  srfft_scramble(fy, y);
+  mul_cwise_loop(fn/2, fx.data(), fy.data(), inv(S(fn/2)));
+  if (middle) middle();  // Possibly do something while we're not using x or y
+  isrfft_scramble(z, fx, true);
+}
+
 template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x) {
   typedef Undevice<T> S;
   const int64_t ny = y.size(), nx = x.size();
@@ -465,6 +490,7 @@ template<class T> void fft_sqr(span<T> y, span<add_const_t<T>> x) {
 
 #define MUL(T) \
   template void fft_mul(span<T> z, span<const T> x, span<const T> y); \
+  template void fft_addmul(span<T> z, span<const T> x, span<const T> y, const function<void()>&); \
   template void fft_sqr(span<T> y, span<const T> x);
 #define REST(S) \
   template void fft(span<Complex<S>> y, span<const S> x); \
