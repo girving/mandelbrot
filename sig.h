@@ -1,6 +1,7 @@
 // Modular arithmetic signatures for Schwartz-Zippel testing
 #pragma once
 
+#include "complex.h"
 #include "debug.h"
 #include "span.h"
 #include <array>
@@ -38,7 +39,7 @@ struct Sig {
 
   Sig() : x{0} {}
 
-  explicit Sig(const int a) {
+  Sig(const int a) {
     for (int i = 0; i < n; i++)
       x[i] = a >= 0 ? a : a + fields[i].p;
   }
@@ -61,6 +62,9 @@ ostream& operator<<(ostream& out, const Sig s);
 Sig inv(const Sig s);
 Sig sqrt(const Sig s);
 Sig random_sig();
+
+Sig pow(const Sig s, const int n);
+Complex<Sig> pow(const Complex<Sig> s, const int n);
 
 // Detect signatures of small integers
 optional<int> unsmall(const Sig s);

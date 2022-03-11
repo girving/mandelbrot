@@ -568,8 +568,27 @@ Exp constant(const Expansion<2> x, const Sig sig) {
   return other(format("constant<S>(%s)", s.substr(1, s.size()-2)), 2, sig);
 }
 
-Complex<Exp> twiddle(const Exp& j, const Exp& s) {
-  return split(call("twiddle", j, s, random_sig()));
+Exp constant_sqrt_half() {
+  typedef Expansion<2> S;
+  return constant(nearest_sqrt<S>(1, 2), inv(sqrt(Sig(2))));
+}
+
+CExp constant_twiddle(const int j, const int s) {
+  typedef Expansion<2> S;
+  slow_assert(s == 1 || s == 2 || s == 3);
+  const auto sh = inv(sqrt(Sig(2)));
+  const auto base = s == 1 ? Complex<Sig>(-1, 0)
+                  : s == 2 ? Complex<Sig>(0, 1)
+                           : Complex<Sig>(sh, sh);
+  const auto sig = pow(base, j);
+  const auto t = nearest_twiddle<S>(j, 2<<s);
+  return CExp(constant(t.r, sig.r), constant(t.i, sig.i));
+}
+
+typedef function<Complex<Exp>(const Exp&)> Twiddle;
+
+Complex<Exp> base_twiddle(const Exp& j) {
+  return split(call("twiddle", j, arbitrary("twiddle", j.sig())));
 }
 
 // Forward compute from inputs to outputs
@@ -595,7 +614,8 @@ way(Block& B, const bool fwd, const vector<I>& inputs, const vector<O>& outputs,
 
 enum Mode { NoX, GetX, SetX };
 
-void loop(const string& name, const Mode mode, const string& n, const vector<string>& args, const auto& compute) {
+void loop(const string& name, const bool serial, const Mode mode, const string& n, const vector<string>& args,
+          const auto& compute) {
   // Collect all arguments
   vector<string> full = {"Complex<S>* y"};
   if (mode != NoX) {
@@ -606,13 +626,23 @@ void loop(const string& name, const Mode mode, const string& n, const vector<str
 
   // Write code
   Blank b;
-  Scope f(")", "DEF_LOOP(%s, %s, j, (%s),", name, n, join(full));
   CSE cse(true);  // Assume exact arithmetic for CSE
-  Block B;
-  B.input("x");
-  B.input("xn");
-  B.input("y");
-  compute(B, B.input(n), B.input("j"));
+  const auto inputs = [](Block& B) {
+    B.input("x");
+    B.input("xn");
+    B.input("y");
+  };
+  if (serial) {
+    Scope f(")", "DEF_SERIAL(%s, (%s),", name, join(full));
+    Block B;
+    inputs(B);
+    compute(B, 1, 0);
+  } else {
+    Scope f(")", "DEF_LOOP(%s, %s, j, (%s),", name, n, join(full));
+    Block B;
+    inputs(B);
+    compute(B, B.input(n), B.input("j"));
+  }
 }
 
 // Forward and backward FFTs
@@ -641,27 +671,25 @@ CExp butterfly_0(const Exp x0, const Exp x1) {
 
 // Second ssrfft butterfly, in place, shifted twiddling on input:
 //   t k(p-1)/2 j(p-2) ...j... -> k(p-1) t k(p-2)/2 ...j...
-tuple<CExp,CExp> butterfly_1(const Exp j, const Exp p, const CExp y0, const CExp y1) {
-  typedef Expansion<2> S;
-  const auto sqrt_half = constant(nearest_sqrt<S>(1, 2), inv(sqrt(Sig(2))));
-  const auto z1 = diag<-1>(sqrt_half, y1);
-  const auto u0 = conj(twiddle(j, p)) * (y0 + z1);
-  const auto u1 = conj(twiddle(3*j, p) * (y0 - z1));
+tuple<CExp,CExp> butterfly_1(const Exp j, const Twiddle& twiddle, const CExp y0, const CExp y1) {
+  const auto z1 = diag<-1>(constant_sqrt_half(), y1);
+  const auto u0 = conj(twiddle(j)) * (y0 + z1);
+  const auto u1 = conj(twiddle(3*j) * (y0 - z1));
   return make_tuple(u0, u1);
 }
 
 // Radix-2 shifted butterfly
-tuple<CExp,CExp> butterfly_s1(const Exp j, const Exp s, const CExp y0, const CExp y1) {
+tuple<CExp,CExp> butterfly_s1(const Exp j, const Twiddle& twiddle, const CExp y0, const CExp y1) {
   const auto u0 = y0 + y1;
-  const auto u1 = conj(twiddle(j, s) * (y0 - y1));
+  const auto u1 = conj(twiddle(j) * (y0 - y1));
   return make_tuple(u0, u1);
 }
 
 // Radix-4 shifted butterfly
-CExps butterfly_s2(const Exp j, const Exp s, const CExps y) {
+CExps butterfly_s2(const Exp j, const Twiddle& twiddle, const CExps y) {
   slow_assert(y.size() == 4);
-  const auto w2 = twiddle(j, s);
-  const auto w4 = twiddle(j, s+1);
+  const auto w1 = twiddle(j);
+  const auto w2 = twiddle(2*j);
 
   const auto u0 = y[0] + y[2];
   const auto u1 = y[1] + y[3];
@@ -670,20 +698,19 @@ CExps butterfly_s2(const Exp j, const Exp s, const CExps y) {
 
   const auto c0 = u0 + u1;
   const auto c1 = conj(w2 * (u0 - u1));
-  const auto c2 = conj(w4 * (t0 + left(t1)));
-  const auto c3 = conj(w4) * (t0 - left(t1));
+  const auto c2 = conj(w1 * (t0 + left(t1)));
+  const auto c3 = conj(w1) * (t0 - left(t1));
   return CExps{c0, c1, c2, c3};
 }
 
 // Radix-8 shifted butterfly
-CExps butterfly_s3(const Exp j, const Exp m, const Exp s, const CExps y) {
-  typedef Expansion<2> S;
+CExps butterfly_s3(const Exp j, const Twiddle& twiddle, const CExps y) {
   slow_assert(y.size() == 8);
-  const auto w2 = twiddle(j, s);
-  const auto w4 = twiddle(j, s+1);
-  const auto w8 = twiddle(j, s+2);
-  const auto w6 = twiddle(3*j, s+2);
-  const auto sqrt_half = constant(nearest_sqrt<S>(1, 2), inv(sqrt(Sig(2))));
+  const auto w1 = twiddle(j);
+  const auto w2 = twiddle(2*j);
+  const auto w3 = twiddle(3*j);
+  const auto w4 = twiddle(4*j);
+  const auto sqrt_half = constant_sqrt_half();
 
   const auto u0 = y[0] + y[4];
   const auto u1 = y[1] + y[5];
@@ -704,13 +731,13 @@ CExps butterfly_s3(const Exp j, const Exp m, const Exp s, const CExps y) {
   const auto c3 = diag<-1>(sqrt_half, t1 - left(t3));
 
   const auto d0 = b0 + b1;
-  const auto d1 = conj(w2 * (b0 - b1));
-  const auto d2 = conj(w4 * (c0 + left(c1)));
-  const auto d3 = conj(w4) * (c0 - left(c1));
-  const auto d4 = conj(w8 * (b2 + b3));
-  const auto d5 = conj(w6) * (b2 - b3);
-  const auto d6 = conj(w8) * (c2 + c3);
-  const auto d7 = conj(w6 * (c2 - c3));
+  const auto d1 = conj(w4 * (b0 - b1));
+  const auto d2 = conj(w2 * (c0 + left(c1)));
+  const auto d3 = conj(w2) * (c0 - left(c1));
+  const auto d4 = conj(w1 * (b2 + b3));
+  const auto d5 = conj(w3) * (b2 - b3);
+  const auto d6 = conj(w1) * (c2 + c3);
+  const auto d7 = conj(w3 * (c2 - c3));
   return CExps{d0, d1, d2, d3, d4, d5, d6, d7};
 }
 
@@ -719,43 +746,51 @@ void butterflies(const string& path) {
   Header h(path, "Fourier transform base cases", {"loops.h"});
 
   line("namespace {");
-  line("template<class S> struct FullTwiddleView;");
+  line("template<class S> struct TwiddleSlice;");
+  line("template<class S> struct BigTwiddleSlice;");
   line("}  // namespace");
   line();
 
   // The first r butterfly levels in a single loop
-  const vector<string> twiddle_args = {"FullTwiddleView<S> twiddle", "const int p"};
+  const vector<string> twiddle_args = {"BigTwiddleSlice<S> twiddle", "const int p"};
   for (int r = 1; r <= 3; r++) {
     string suffix;
     for (int i = 0; i < r; i++) suffix += format("%d", i);
     const auto nr = format("n%d", 1 << r);
     both(true, [r,nr,suffix,twiddle_args](const bool fwd, const bool add, const string& i, const string& arrow) {
       const auto name = format("%s%ssrfft_butterfly_%s", add ? "add_" : "", i, suffix);
-      loop(name, fwd ? GetX : SetX, nr, r > 1 ? twiddle_args : vector<string>(),
+      loop(name, r < 3, fwd ? GetX : SetX, nr, r == 3 ? twiddle_args : vector<string>(),
         [fwd,r,add](Block& B, const Exp nr, const Exp j) {
           const auto p = B.input("p");
           const auto m = r > 2 ? B.now("m", format("1 << (%s)", p-r), random_sig()) : 0;
           const int R = 1 << r;
           const auto x = locs<Exp>(B, R, j, nr, add);
           const auto y = locs<CExp>(B, R/2, j, nr);
-          way(B, fwd, x, y, [&B,m,r,nr,R,p,j](const Exps x) {
+          const auto tw = [r](const Exp& j) {
+            if (r == 3) return base_twiddle(j);
+            const auto jj = j.unint();
+            slow_assert(jj);
+            return constant_twiddle(*jj, r);
+          };
+          way(B, fwd, x, y, [&B,m,r,nr,R,p,j,tw](const Exps x) {
             CExps y;
             for (int i = 0; i < R/2; i++)
               y.push_back(butterfly_0(x[i], x[i+R/2]));
-            if (r > 1)
+            if (r > 1) {
               for (int i = 0; i < R/4; i++)
-                tie(y[i], y[i+R/4]) = butterfly_1(j+i*nr, p, y[i], y[i+R/4]);
+                tie(y[i], y[i+R/4]) = butterfly_1(j+i*nr, tw, y[i], y[i+R/4]);
+            }
             for (int a = 3; a <= r; a++) {
-              const auto sa = B.now(format("s%d", a), p-a);
               const auto ma = B.now(format("m%d", a), format("m << %d", r-a), m.sig() << (r-a));
               const auto j1 = B.now("j1", format("%s & (%s-1)", j, ma), random_sig());
               const int R0 = 1 << (a-2);
               const int R1 = R >> a;
+              const auto twa = [tw,a](const Exp& j) { return tw((1 << a) * j); };
               for (int i0 = 0; i0 < R0; i0++) {
                 for (int i1 = 0; i1 < R1; i1++) {
                   auto& y0 = y[2*i0 + i1];
                   auto& y1 = y[2*i0 + i1 + R1];
-                  tie(y0, y1) = butterfly_s1(j1+i1*nr, sa, y0, y1);
+                  tie(y0, y1) = butterfly_s1(j1+i1*nr, twa, y0, y1);
                 }
               }
             }
@@ -772,7 +807,7 @@ void butterflies(const string& path) {
     both(false, [r,nr](const bool fwd, const bool add, const string& i, const string& arrow) {
       slow_assert(!add);
       line("// Radix-%d %ssrfft butterfly, in place", r, i);
-      loop(format("%ssrfft_butterfly_s%d", i, r), NoX, nr, {"FullTwiddleView<S> twiddle", "const int s"},
+      loop(format("%ssrfft_butterfly_s%d", i, r), false, NoX, nr, {"TwiddleSlice<S> twiddle", "const int s"},
         [fwd,r](Block& B, const Exp nr, const Exp j) {
           const auto s = B.input("s");
           const auto m = B.now("m", "1 << s", random_sig());
@@ -780,12 +815,13 @@ void butterflies(const string& path) {
           const auto j0 = B.now("j0", format("(%s - j1) << %d", j, r), random_sig());
           const auto y = locs<CExp>(B, 1 << r, j0 + j1, m);
           way(B, fwd, y, y, [r,s,m,j1](CExps y) {
+            const auto tw = [](const Exp& j) { return base_twiddle(j); };
             if (r == 1)
-              tie(y[0], y[1]) = butterfly_s1(j1, s, y[0], y[1]);
+              tie(y[0], y[1]) = butterfly_s1(j1, tw, y[0], y[1]);
             else if (r == 2)
-              y = butterfly_s2(j1, s, y);
+              y = butterfly_s2(j1, tw, y);
             else if (r == 3)
-              y = butterfly_s3(j1, m, s, y);
+              y = butterfly_s3(j1, tw, y);
             return y;
           });
         }

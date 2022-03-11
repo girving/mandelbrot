@@ -182,6 +182,13 @@ Sig random_sig() {
   return s;
 }
 
+template<class T_> struct FreeField {
+  typedef T_ T;
+  T mul(const T x, const T y) const { return x * y; }
+};
+Sig pow(const Sig s, const int n) { return pow(FreeField<Sig>(), s, n); }
+Complex<Sig> pow(const Complex<Sig> s, const int n) { return pow(FreeField<Complex<Sig>>(), s, n); }
+
 optional<int> unsmall(const Sig s) {
   static const auto smalls = []() {
     unordered_map<Sig,int,SigHash> smalls;

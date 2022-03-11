@@ -31,86 +31,101 @@ using std::unique_ptr;
 using std::vector;
 
 namespace {
-template<class S> struct FullTwiddleView;
+
+// twiddle(:1<<(s-2), 2<<s)
+template<class S> Array<Complex<S>> twiddle_slice(const int s) {
+  const int m = 1 << s;
+  Array<Complex<S>> slice(m/4 + 1);
+  nearest_twiddles<S>(slice, 2*m, 200);
+  return slice;
+}
+
+// We cache the first few twiddles at each s, to reduce the maximum s needed
+const int ds = 2, s_limit = 30, j_limit = 1 << ds;
 
 template<class T> class FullTwiddle : public Singleton<FullTwiddle<T>> {
-  static_assert(!is_device<T>);
   typedef Undevice<T> S;
   template<class U> friend class FullTwiddle;
+  vector<Array<AddComplex<T>>> twiddles;
+  const Array<AddComplex<T>> few;
 
-  // twiddles = concat(
-  //   [sentinel],  // For better cache alignment
-  //   twiddle(:1, 2),
-  //   twiddle(:2, 4),
-  //   twiddle(:4, 8),
-  //   ...,
-  //   twiddle(:1<<(p-1), 2<<(p-1)))
-  vector<Complex<S>> twiddles;
-public:
-  FullTwiddle(Single s) : Singleton<FullTwiddle<T>>(s) {}
-
-  // Ensure that we know up to twiddle(:1<<s, 2<<s)
+  // Ensure that we know all slices up to s
   void ensure(const int s) {
-    const int64_t size = int64_t(1) << (s+1);
-    const int64_t prev = twiddles.size();
-    if (size <= prev) return;
-    twiddles.reserve(max(size, int64_t(1024)));
-    twiddles.resize(size);
-    for (int p = 0; p <= s; p++) {
-      const auto m = int64_t(1) << p;
-      if (prev < 2*m)
-        nearest_twiddles(span<Complex<S>>(twiddles.data() + m, m), 2*m, 200);
+    while (int(twiddles.size()) <= s) {
+      const int p = twiddles.size();
+      if constexpr (!is_device<T>)
+        twiddles.push_back(twiddle_slice<S>(p));
+      else {
+        // Compute on the CPU, then move across
+        auto& cpu = FullTwiddle<S>::single();
+        cpu.ensure(p);
+        Array<Device<Complex<S>>> gpu(cpu.twiddles[p].size());
+        host_to_device<Complex<S>>(gpu, cpu.twiddles[p]);
+        twiddles.push_back(move(gpu));
+      }
     }
+  }
+public:
+  FullTwiddle(Single s)
+    : Singleton<FullTwiddle<T>>(s)
+    , few(s_limit * j_limit) {
+    if constexpr (!is_device<T>)
+      for (int s = 0; s < s_limit; s++)
+        for (int j = 0; j < j_limit; j++)
+          few[s*j_limit + j] = nearest_twiddle<S>(j, 2<<s);
+    else
+      host_to_device(few, FullTwiddle<S>::single().few);
   }
 
   void clear() { twiddles.clear(); }
-  auto view() const { return FullTwiddleView<S>{twiddles.data(), twiddles.size()}; }
 
-  // twiddle(j, 2<<s)
-  Complex<S> operator()(const int64_t j, const int s) const {
-    // i = j + sum_{a < s} 2^a = j + 2^s - 1
-    const auto m = int64_t(1) << s;
-    const auto i = m + j;
-    assert(size_t(j) < size_t(m) && size_t(i) < twiddles.size());
-    return twiddles[i];
+  auto slice(const int s) {
+    ensure(s);
+    return TwiddleSlice<S>{twiddles[s].data(), 1 << s};
+  }
+
+  auto big_slice(const int s) {
+    slow_assert(s >= ds);
+    return BigTwiddleSlice<S>{slice(s - ds), few.data() + j_limit*s};
   }
 };
 
-// The GPU version computes on the CPU, then moves across
-template<class S> class FullTwiddle<Device<S>> : public Singleton<FullTwiddle<Device<S>>> {
-  Array<Device<Complex<S>>> gpu;
-public:
-  FullTwiddle(Single s) : Singleton<FullTwiddle<Device<S>>>(s) {}
+// Fast access to twiddle(j, 2m) for all j
+template<class T> struct TwiddleSlice {
+  const AddComplex<T>* twiddles;
+  const int m;
 
-  void ensure(const int s) {
-    auto& cpu = FullTwiddle<S>::single();
-    cpu.ensure(s);
-    if (gpu.size() < int64_t(cpu.twiddles.size())) {
-      gpu.clear();
-      Array<Device<Complex<S>>>(cpu.twiddles.size()).swap(gpu);
-      host_to_device<Complex<S>>(gpu, cpu.twiddles);
-    }
+  __host__ __device__ Complex<T> operator()(int j) const {
+    // We symmetry reduce across i = 0, r = 0, and r = i
+    j = j & (2*m-1);
+    const bool iflip = j > m;
+    if (iflip) j = 2*m - j;
+    const bool rflip = j > m/2;
+    if (rflip) j = m - j;
+    const bool dflip = j > m/4;
+    if (dflip) j = m/2 - j;
+    auto t = twiddles[j];
+    if (dflip) swap(t.r, t.i);
+    if (rflip) t.r = -t.r;
+    if (iflip) t.i = -t.i;
+    return t;
   }
-
-  void clear() { gpu.clear(); }
-  auto view() const { return FullTwiddleView<Device<S>>{gpu.data(), gpu.size()}; }
 };
 
-// Lightweight view of already computed twiddles
-template<class S> struct FullTwiddleView {
-  const AddComplex<S>* twiddles;
-  const int size;
-  __host__ __device__ Complex<S> operator()(int j, const int s) const {
-    const int m = 1 << s;
-    const int i = m + j;
-    assert(unsigned(j) < unsigned(m) && unsigned(i) < unsigned(size));
-    return twiddles[i];
+template<class T> struct BigTwiddleSlice {
+  const TwiddleSlice<T> tw;  // Slice at s - ds
+  const AddComplex<T>* few;  // twiddle(:j_limit, s)
+
+  __host__ __device__ Complex<T> operator()(int j) const {
+    // twiddle(j, s) = twiddle(j // 2^ds * 2^ds, s) * twiddle(j % 2^ds, s)
+    //               = twiddle(j // 2^ds, s-ds) * twiddle(j % 2^ds, s)
+    return tw(j >> ds) * few[j & (j_limit-1)];
   }
 };
 }  // namespace
 
-template<class S> static FullTwiddleView<S> undevice(FullTwiddleView<Device<S>> v) {
-  return FullTwiddleView<S>{undevice(v.twiddles), v.size};
+template<class S> static TwiddleSlice<S> undevice(TwiddleSlice<Device<S>> s) {
+  return TwiddleSlice<S>{undevice(s.twiddles), s.m};
 }
 
 // Bit-reverse y in place.
@@ -156,7 +171,7 @@ template<class T> static void shifted_unpermute(span<T> y) {
 DEF_LOOP(fft_butterfly_0, two_n, i, (S* ys, const S* x, const int xn),
   ys[i] = i < xn ? x[i] : 0;)
 
-DEF_LOOP(fft_butterfly_s, n2, jk, (Complex<S>* y, FullTwiddleView<S> twiddle, const int s),
+DEF_LOOP(fft_butterfly_s, n2, jk, (Complex<S>* y, TwiddleSlice<S> twiddle, const int s),
   const auto m = 1 << s;
   const auto j = jk & (m-1);
   const auto k = (jk - j) << 1;
@@ -165,7 +180,7 @@ DEF_LOOP(fft_butterfly_s, n2, jk, (Complex<S>* y, FullTwiddleView<S> twiddle, co
   const auto u0 = y0 + y1;
   const auto u1 = y0 - y1;
   y0 = u0;
-  y1 = u1 * conj(twiddle(j, s));)
+  y1 = u1 * conj(twiddle(j));)
 
 // fft, but skip the bitrev at the end
 template<class S> static void fft_bitrev(span<AddComplex<S>> y, span<const S> x) {
@@ -177,27 +192,26 @@ template<class S> static void fft_bitrev(span<AddComplex<S>> y, span<const S> x)
 
   // Precompute twiddle factors
   auto& twiddle = FullTwiddle<S>::single();
-  twiddle.ensure(p-1);
 
   // Copy from x to y, without bit reversing
   fft_butterfly_0(2*n, reinterpret_cast<S*>(y.data()), x.data(), xn);
 
   // Cooley-Tukey FFT
   for (int s = p-1; s >= 0; s--)
-    fft_butterfly_s(n/2, y.data(), twiddle.view(), s);
+    fft_butterfly_s(n/2, y.data(), twiddle.slice(s), s);
 }
 
 DEF_LOOP(ifft_butterfly_0, xn, i, (S* x, const S* ys),
   x[i] = ys[i];)
 
-DEF_LOOP(ifft_butterfly_s, n2, jk, (Complex<S>* y, FullTwiddleView<S> twiddle, const int s),
+DEF_LOOP(ifft_butterfly_s, n2, jk, (Complex<S>* y, TwiddleSlice<S> twiddle, const int s),
   const auto m = 1 << s;
   const auto j = jk & (m-1);
   const auto k = (jk - j) << 1;
   auto& y0 = y[k + j];
   auto& y1 = y[k + j + m];
   const auto u0 = y0;
-  const auto u1 = y1 * twiddle(j, s);
+  const auto u1 = y1 * twiddle(j);
   y0 = u0 + u1;
   y1 = u0 - u1;)
 
@@ -211,11 +225,10 @@ template<class S> static void ifft_bitrev(span<S> x, span<AddComplex<S>> y) {
 
   // Precompute twiddle factors
   auto& twiddle = FullTwiddle<S>::single();
-  twiddle.ensure(p-1);
 
   // Cooley-Tukey FFT
   for (int s = 0; s < p; s++)
-    ifft_butterfly_s(n/2, y.data(), twiddle.view(), s);
+    ifft_butterfly_s(n/2, y.data(), twiddle.slice(s), s);
 
   // Copy to output
   ifft_butterfly_0(xn, x.data(), reinterpret_cast<S*>(y.data()));
@@ -240,7 +253,7 @@ DEF_SERIAL(rfft_post_n2, (Complex<S>* y),
   const auto a = y[0];
   y[0] = Complex<S>(a.r + a.i, a.r - a.i);)
 
-DEF_LOOP(rfft_post, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const int p),
+DEF_LOOP(rfft_post, n4, j, (Complex<S>* y, TwiddleSlice<S> twiddle, const int p),
   const int j1 = j ? bitrev_neg(2*j) : 1;
   const auto a = y[2*j];
   const auto b = y[j1];
@@ -248,7 +261,7 @@ DEF_LOOP(rfft_post, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const int
   Complex<S> t;
   if (j) {
     const int i = bitreverse(uint32_t(j)) >> (34 - p);
-    const auto e = left(conj(twiddle(i, p-1)));
+    const auto e = left(conj(twiddle(i)));
     const auto u = a + conj(b);
     const auto v = e * (a - conj(b));
     s = half(u - v);
@@ -260,7 +273,7 @@ DEF_LOOP(rfft_post, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const int
   y[2*j] = s;
   y[j1] = t;)
 
-DEF_LOOP(irfft_pre, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const int p),
+DEF_LOOP(irfft_pre, n4, j, (Complex<S>* y, TwiddleSlice<S> twiddle, const int p),
   const int j1 = j ? bitrev_neg(2*j) : 1;
   const auto s = y[2*j];
   const auto t = y[j1];
@@ -268,7 +281,7 @@ DEF_LOOP(irfft_pre, n4, j, (Complex<S>* y, FullTwiddleView<S> twiddle, const int
   Complex<S> b;
   if (j) {
     const int i = bitreverse(uint32_t(j)) >> (34 - p);
-    const auto e = right(twiddle(i, p-1));
+    const auto e = right(twiddle(i));
     const auto u = conj(t) + s;
     const auto v = e * (conj(t) - s);
     a = u + v;
@@ -288,7 +301,6 @@ template<class S> static void rfft_bitrev(span<AddComplex<S>> y, span<const S> x
   // Precompute twiddle factors
   const int p = countr_zero(uint64_t(n));
   auto& twiddle = FullTwiddle<S>::single();
-  twiddle.ensure(p-1);
 
   // Half-size complex FFT
   fft_bitrev(y, x);
@@ -297,7 +309,7 @@ template<class S> static void rfft_bitrev(span<AddComplex<S>> y, span<const S> x
   if (p == 1)
     rfft_post_n2(y.data());
   else
-    rfft_post(n/4, y.data(), twiddle.view(), p);
+    rfft_post(n/4, y.data(), twiddle.slice(p-1), p);
 }
 
 template<class S> static void irfft_bitrev(span<S> x, span<AddComplex<S>> y) {
@@ -307,13 +319,12 @@ template<class S> static void irfft_bitrev(span<S> x, span<AddComplex<S>> y) {
   // Precompute twiddle factors
   const int p = countr_zero(uint64_t(n));
   auto& twiddle = FullTwiddle<S>::single();
-  twiddle.ensure(p-1);
 
   // Preprocess into half-size complex FFT
   if (p == 1)
     rfft_post_n2(y.data());
   else
-    irfft_pre(n/4, y.data(), twiddle.view(), p);
+    irfft_pre(n/4, y.data(), twiddle.slice(p-1), p);
 
   // Half-size complex inverse FFT
   ifft_bitrev(x, y);
@@ -339,22 +350,20 @@ template<class T> static void srfft_scramble(span<AddComplex<T>> y, span<const T
 
   // Precompute twiddle factors
   auto& twiddle = FullTwiddle<T>::single();
-  twiddle.ensure(p);
-  const auto view = twiddle.view();
 
   // First few butterflies, transforming x to y
   switch (p) {
-    case 1: srfft_butterfly_0(n/2, y.data(), x.data(), xn); break;
-    case 2: srfft_butterfly_01(n/4, y.data(), x.data(), xn, view, p); break;
-    default: srfft_butterfly_012(n/8, y.data(), x.data(), xn, view, p); break;
+    case 1: srfft_butterfly_0(y.data(), x.data(), xn); break;
+    case 2: srfft_butterfly_01(y.data(), x.data(), xn); break;
+    default: srfft_butterfly_012(n/8, y.data(), x.data(), xn, twiddle.big_slice(p), p); break;
   }
 
   // Remaining butterflies, transforming y in place
   for (int s = p-4; s >= 0;) {
     switch (s) {
-      case 0: srfft_butterfly_s1(n/4, y.data(), view, 0); s -= 1; break;
-      case 1: srfft_butterfly_s2(n/8, y.data(), view, 0); s -= 2; break;
-      default: srfft_butterfly_s3(n/16, y.data(), view, s-2); s -= 3; break;
+      case 0: srfft_butterfly_s1(n/4, y.data(), twiddle.slice(0), 0); s -= 1; break;
+      case 1: srfft_butterfly_s2(n/8, y.data(), twiddle.slice(1), 0); s -= 2; break;
+      default: srfft_butterfly_s3(n/16, y.data(), twiddle.slice(s), s-2); s -= 3; break;
     }
   }
 }
@@ -369,28 +378,26 @@ template<class T> static void isrfft_scramble(span<T> x, span<AddComplex<T>> y, 
 
   // Precompute twiddle factors
   auto& twiddle = FullTwiddle<T>::single();
-  twiddle.ensure(p);
-  const auto view = twiddle.view();
 
   // Most butterflies, transforming y in place
   for (int s = 0; s < p-3;) {
-    if (!s && p%3 == 1) { isrfft_butterfly_s1(n/4, y.data(), view, 0); s += 1; }
-    else if (!s && p%3 == 2) { isrfft_butterfly_s2(n/8, y.data(), view, 0); s += 2; }
-    else { isrfft_butterfly_s3(n/16, y.data(), view, s); s += 3; }
+    if (!s && p%3 == 1) { isrfft_butterfly_s1(n/4, y.data(), twiddle.slice(0), 0); s += 1; }
+    else if (!s && p%3 == 2) { isrfft_butterfly_s2(n/8, y.data(), twiddle.slice(1), 0); s += 2; }
+    else { isrfft_butterfly_s3(n/16, y.data(), twiddle.slice(s+2), s); s += 3; }
   }
 
   // Last few butterflies, transforming y to x
   if (!add) {
     switch (p) {
-      case 1: isrfft_butterfly_0(n/2, y.data(), x.data(), xn); break;
-      case 2: isrfft_butterfly_01(n/4, y.data(), x.data(), xn, view, p); break;
-      default: isrfft_butterfly_012(n/8, y.data(), x.data(), xn, view, p); break;
+      case 1: isrfft_butterfly_0(y.data(), x.data(), xn); break;
+      case 2: isrfft_butterfly_01(y.data(), x.data(), xn); break;
+      default: isrfft_butterfly_012(n/8, y.data(), x.data(), xn, twiddle.big_slice(p), p); break;
     }
   } else {
     switch (p) {
-      case 1: add_isrfft_butterfly_0(n/2, y.data(), x.data(), xn); break;
-      case 2: add_isrfft_butterfly_01(n/4, y.data(), x.data(), xn, view, p); break;
-      default: add_isrfft_butterfly_012(n/8, y.data(), x.data(), xn, view, p); break;
+      case 1: add_isrfft_butterfly_0(y.data(), x.data(), xn); break;
+      case 2: add_isrfft_butterfly_01(y.data(), x.data(), xn); break;
+      default: add_isrfft_butterfly_012(n/8, y.data(), x.data(), xn, twiddle.big_slice(p), p); break;
     }
   }
 }

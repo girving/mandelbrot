@@ -16,6 +16,7 @@ template<class S> struct Complex {
   S r, i;
 
   __host__ __device__ Complex() : r(0), i(0) {}
+  __host__ __device__ Complex(const int r) : r(r), i(0) {}
   __host__ __device__ explicit Complex(const S& r) : r(r), i(0) {}
   __host__ __device__ Complex(const S& r, const S& i) : r(r), i(i) {}
 
