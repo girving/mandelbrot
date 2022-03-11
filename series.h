@@ -52,8 +52,9 @@ template<class F> struct SeriesExp;
 // x += a
 template<class T> void add_scalar(Series<T>& x, const typename Series<T>::Scalar a);
 
-// self ±= sign z^s f for sign = ±1
-template<class T> void high_addsub(Series<T>& y, const int sign, const int64_t s, SeriesView<add_const_t<T>> x);
+// self ±= sign 2^b z^s f for sign = ±1
+template<class T> void high_addsub_ldexp(Series<T>& y, const int sign, const int b, const int64_t s,
+                                         SeriesView<add_const_t<T>> x);
 
 template<class T, bool view_> struct Series : public conditional_t<view_,span<T>,Array<T>> {
   static_assert(!IsSeries<T>::value);  // Catch template bugs early
@@ -227,10 +228,12 @@ public:
   void operator+=(const int a) { add_scalar(*this, S(a)); }
   void operator-=(const int a) { add_scalar(*this, S(-a)); }
 
-  void operator+=(SeriesView<CT> f) { high_addsub(*this, 1, 0, f); }
-  void operator-=(SeriesView<CT> f) { high_addsub(*this, -1, 0, f); }
-  void high_add(const int64_t s, SeriesView<CT> f) { high_addsub(*this, 1, s, f); }
-  void high_sub(const int64_t s, SeriesView<CT> f) { high_addsub(*this, -1, s, f); }
+  void operator+=(SeriesView<CT> f) { high_addsub_ldexp(*this, 1, 0, 0, f); }
+  void operator-=(SeriesView<CT> f) { high_addsub_ldexp(*this, -1, 0, 0, f); }
+  void high_add(const int64_t s, SeriesView<CT> f) { high_addsub_ldexp(*this, 1, 0, s, f); }
+  void high_sub(const int64_t s, SeriesView<CT> f) { high_addsub_ldexp(*this, -1, 0, s, f); }
+  void high_add_ldexp(const int64_t s, const int b, SeriesView<CT> f) { high_addsub_ldexp(*this, 1, b, s, f); }
+  void high_sub_ldexp(const int64_t s, const int b, SeriesView<CT> f) { high_addsub_ldexp(*this, -1, b, s, f); }
 };
 
 // Unevaluated series computations

@@ -18,7 +18,7 @@ using std::make_tuple;
 using std::runtime_error;
 using std::swap;
 
-// z = a*x - 2^(log2_b)*y
+// z = a*x - 2^b*y
 DEF_LOOP(sub_si_2exp_loop, nz, i, (S* z, const int a, const S* x, const int xnz, const int b, const S* y, const int ynz),
   const auto xi = i < xnz ? x[i] : S(0);
   const auto yi = i < ynz ? y[i] : S(0);
@@ -39,24 +39,23 @@ template<class T> void escape(Series<T>& h, Series<T>& dh, const int k,
   h.set_scalar(n, 0);
   dh.set_scalar(dn, 0);
 
-  Series<T> t(n), dt(dn), s(n), u(dn);
+  Series<T> t(n), s(n), u(dn);
   for (int i = 1; i <= k; i++) {
     const auto p = int64_t(1) << i;
 
     // t = (1-p)g - p h
-    t = sub_si_2exp(1-p, g, i, h);
-    dt = sub_si_2exp(1-p, dg, i, dh.low(dn-(p-1)));
-
     // h += (1/p) log(1 + z^(p-1)exp(t))
+    t = sub_si_2exp(1-p, g, i, h);
     s = log1p_exp(t.low(n-(p-1)), p-1);  // s = z^(1-p) log(1 + z^(p-1) exp(t))
+    h.high_add_ldexp(p-1, -i, s);        // h += z^(p-1) s / p
+
+    // dh
     u = t.low(dn-(p-1));
     u.high_sub(p-1, s);                  // u = t - z^(p-1) s
-    t = exp(u);                          // t = exp(t - z^(p-1) s)
-    dt = mul(t, dt.low(dn-(p-1)));       // ds = exp(t - z^(p-1) s) dt
-    s = ldexp(s, -i);                    // s /= p
-    dt = ldexp(dt, -i);                  // ds /= p
-    h.high_add(p-1, s);                  // h += z^(p-1) s
-    dh.high_add(p-1, dt);                // h += z^(p-1) ds
+    t = sub_si_2exp(1-p, dg, i, dh.low(dn-(p-1)));
+    s = exp(u);                          // t = exp(t - z^(p-1) s)
+    t = mul(s, t.low(dn-(p-1)));         // ds = exp(t - z^(p-1) s) t
+    dh.high_add_ldexp(p-1, -i, t);       // h += z^(p-1) ds / p
   }
 }
 

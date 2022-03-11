@@ -68,12 +68,23 @@ DEF_LOOP(high_addsub_loop, n, i, (S* y, const S* x, const int ynz, const int xnz
   if (sign < 0) xi = -xi;
   y[i] = yi + xi;)
 
-template<class T> void high_addsub(Series<T>& y, const int sign, const int64_t s, SeriesView<add_const_t<T>> x) {
+DEF_LOOP(high_addsub_ldexp_loop, n, i,
+         (S* y, const S* x, const int ynz, const int xnz, const int sign, const int s, const int b),
+  const auto yi = i < ynz ? y[i] : S(0);
+  auto xi = ldexp(uint32_t(i-s) < uint32_t(xnz) ? x[i-s] : S(0), b);
+  if (sign < 0) xi = -xi;
+  y[i] = yi + xi;)
+
+template<class T> void high_addsub_ldexp(Series<T>& y, const int sign, const int b, const int64_t s,
+                                         SeriesView<add_const_t<T>> x) {
   const auto ynz = y.nonzero(), xnz = x.nonzero();
   const auto nk = min(y.known(), x.known() + s);
   const auto nz = min(nk, max(ynz, xnz ? xnz + s : 0));
   slow_assert(abs(sign) == 1 && !y.alias(x) && nz <= y.limit());
-  high_addsub_loop(nz, y.data(), x.data(), ynz, xnz, sign, s);
+  if (!b)
+    high_addsub_loop(nz, y.data(), x.data(), ynz, xnz, sign, s);
+  else
+    high_addsub_ldexp_loop(nz, y.data(), x.data(), ynz, xnz, sign, s, b);
   y.set_counts(nk, nz);
 }
 
@@ -182,7 +193,7 @@ template<class T> tuple<vector<string>,Series<T>> read_series(const string& path
 
 #define Ss(S) \
   template void add_scalar(Series<S>&, const typename Series<S>::Scalar); \
-  template void high_addsub(Series<S>&, const int, const int64_t, SeriesView<const S>); \
+  template void high_addsub_ldexp(Series<S>&, const int, const int, const int64_t, SeriesView<const S>); \
   template void mul1p_post(Series<S>&, SeriesView<const S>, const int64_t, const int64_t, const int64_t); \
   template void write_series(const string& path, const vector<string>& comments, SeriesView<const S> x); \
   template tuple<vector<string>,Series<S>> read_series(const string& path);

@@ -373,7 +373,11 @@ void add_scalar(Series<Exp>& x, const Exp a) {
   slow_assert(x.nonzero());
   x[0] = x[0] + a;
 }
-void high_addsub(Series<Exp>& y, const int sign, const int64_t s, SeriesView<const Exp> x) {
+Exp ldexp(const Exp x, const int b) {
+  slow_assert(!b);
+  return x;
+}
+void high_addsub_ldexp(Series<Exp>& y, const int sign, const int b, const int64_t s, SeriesView<const Exp> x) {
   const auto ynz = y.nonzero(), xnz = x.nonzero();
   const auto nk = min(y.known(), x.known() + s);
   const auto nz = min(nk, max(ynz, xnz ? xnz + s : 0));
@@ -382,7 +386,7 @@ void high_addsub(Series<Exp>& y, const int sign, const int64_t s, SeriesView<con
   y.set_counts(nk, nz);
   for (int i = 0; i < nz; i++) {
     const auto yi = i < ynz ? y[i] : Exp(0);
-    auto xi = uint32_t(i-s) < uint32_t(xnz) ? x_[i-s] : Exp(0);
+    auto xi = ldexp(uint32_t(i-s) < uint32_t(xnz) ? x_[i-s] : Exp(0), b);
     if (sign < 0) xi = -xi;
     y[i] = yi + xi;
   }
