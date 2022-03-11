@@ -74,19 +74,19 @@ public:
         for (int j = 0; j < j_limit; j++)
           few[s*j_limit + j] = nearest_twiddle<S>(j, 2<<s);
     else
-      host_to_device(few, FullTwiddle<S>::single().few);
+      host_to_device<Complex<S>>(few, FullTwiddle<S>::single().few);
   }
 
   void clear() { twiddles.clear(); }
 
   auto slice(const int s) {
     ensure(s);
-    return TwiddleSlice<S>{twiddles[s].data(), 1 << s};
+    return TwiddleSlice<T>{twiddles[s].data(), 1 << s};
   }
 
   auto big_slice(const int s) {
     slow_assert(s >= ds);
-    return BigTwiddleSlice<S>{slice(s - ds), few.data() + j_limit*s};
+    return BigTwiddleSlice<T>{slice(s - ds), few.data() + j_limit*s};
   }
 };
 
@@ -126,6 +126,9 @@ template<class T> struct BigTwiddleSlice {
 
 template<class S> static TwiddleSlice<S> undevice(TwiddleSlice<Device<S>> s) {
   return TwiddleSlice<S>{undevice(s.twiddles), s.m};
+}
+template<class S> static BigTwiddleSlice<S> undevice(BigTwiddleSlice<Device<S>> s) {
+  return BigTwiddleSlice<S>{undevice(s.tw), undevice(s.few)};
 }
 
 // Bit-reverse y in place.
