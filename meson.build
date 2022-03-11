@@ -46,6 +46,10 @@ if cuda.found()
   add_global_arguments('-I/usr/local/cuda/include', language: 'cpp')
   add_global_arguments('-x', 'cuda', '--cuda-gpu-arch=sm_80', language: 'cpp')
   add_global_arguments('-Wno-unknown-cuda-version', language: 'cpp')
+
+  # Clang defaults to -ffp-contract=fast with CUDA, which breaks expansion arithmetic
+  #   https://llvm.org/docs/CompileCudaWithLLVM.html#flags-that-control-numerical-code
+  add_global_arguments('-ffp-contract=off', language: 'cpp')
 endif
 
 # Download tinyformat.h

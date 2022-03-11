@@ -13,14 +13,11 @@ TEST(cuda_double) {
   areas<Device<double>>(max_k, tol);
 }
 
-/*
-// TODO: Re-enable
 TEST(cuda_expansion2) {
   const int max_k = 7;
   const double tol = 6e-32;
   areas<Device<Expansion<2>>>(max_k, tol);
 }
-*/
 
 }  // namespace
 }  // namespace mandelbrot
