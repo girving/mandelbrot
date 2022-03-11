@@ -87,10 +87,13 @@ template<int n> Expansion<n>::Expansion(const string& s) {
     }
     slow_assert(p == s.c_str() + s.size(), s);
   } else {
-    *this = nearest<Expansion<n>>([&s](const int prec) {
+    const auto cs = s.c_str();
+    *this = nearest<Expansion<n>>([cs](const int prec) {
       Arb a;
-      arb_set_str(a, s.c_str(), prec);
+      arb_set_str(a, cs, prec);
       return a;
+    }, [cs]() {
+      return format("Expansioon(\"%s\")", cs);
     });
   }
 }

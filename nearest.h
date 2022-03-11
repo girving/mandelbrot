@@ -9,10 +9,17 @@
 #include <optional>
 namespace mandelbrot {
 
+using std::is_same_v;
 using std::move;
 using std::optional;
 using std::remove_const_t;
 template<int n> struct Expansion;
+
+template<class S> static inline const char* nice_type() {
+  if constexpr (is_same_v<S,double>) return "double";
+  else if constexpr (is_same_v<S,Expansion<2>>) return "Expansion<2>";
+  else { static_assert(is_same_v<S,Expansion<3>>); return "Expansion<3>"; }
+}
 
 template<class S> struct RoundNear;
 template<> struct RoundNear<double> {
@@ -28,13 +35,16 @@ template<class S> optional<S> round_nearest(const arb_t c, const int prec);
 template<class S> optional<Complex<S>> round_nearest(const acb_t z, const int prec);
 
 // Given f : prec → S, increase prec until we get perfect rounding
-template<class S,class F> auto nearest(F&& f) {
-  const int max_prec = 1600;
-  for (int prec = 200; prec <= max_prec; prec <<= 1) {
-    const auto c = round_nearest<S>(f(prec), prec);
+template<class S,class F,class C> auto nearest(F&& f, C&& context) {
+  const int max_prec = 3200;
+  for (int prec = 200;; prec *= 2) {
+    const auto fp = f(prec);
+    const auto c = round_nearest<S>(fp, prec);
     if (c) return *c;
+    if (2*prec > max_prec)
+      die("%s: ran out of precision (%s, max prec = %g)\n  f(%d) = %s",
+          context(), nice_type<S>(), max_prec, prec, fp.safe());
   }
-  die("nearest ran out of precision (max prec = %g)", max_prec);
 }
 
 // 𝜋

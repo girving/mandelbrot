@@ -106,7 +106,7 @@ extern const Bittner bittner_areas[10];
 //     k 20, 160 s:  mu = 1.7032798671348994, error ≲ 1e-3 (vs. Bittner 1M)
 //     k 21, 213 s:  mu = 1.6933586065947914, error ≲ 1e-3 (vs. Bittner 2M)
 //     k 22, 301 s:  mu = 1.6858651156374813, error ≲ 1e-3 (vs. Bittner 4M)
-//   10mar2022, cuda-double, higher radix ffts:
+//   10mar2022, cuda-double, higher radix FFTs:
 //     k 16, 33.6 s: mu = 1.7533757723569587, error = 3.24e-14
 //     k 17, 44.4 s: mu = 1.7361879789057599, error ≈ 5e-14 (vs. exp2)
 //     k 18, 58.2 s: mu = 1.7261637845418298
@@ -121,6 +121,6 @@ extern const Bittner bittner_areas[10];
 //       bittner 3000000 = 1.6889, ours = 1.6889472776858034, error = 2.72e-06
 //       bittner 3500000 = 1.6874, ours = 1.687396798755451, error = 3.2e-06
 //       bittner 4000000 = 1.6863, ours = 1.6863310308133068, error = 1.03e-06
-//     k 23: error: nearest ran out of precision (max prec = 1600)
+//     k 23, 145 s: mu = nan
 
 }  // namespace mandelbrot

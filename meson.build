@@ -78,8 +78,8 @@ arb_area = declare_dependency(
     link_with: library('arb_area', ['arb_area.cc'], dependencies: [arb_cc, known]),
     dependencies: [base, arb, arb_cc, known])
 
-codelets = executable('codelets', ['arf_cc.cc', 'sig.cc', 'exp.cc', 'nearest.cc', 'codelets.cc'],
-                      dependencies: [base, arb, m, crypto])
+codelets = executable('codelets', ['sig.cc', 'exp.cc', 'nearest.cc', 'codelets.cc'],
+                      dependencies: [base, arb, arb_cc, m, crypto])
 generated = [
     custom_target('gen_expansion', output: 'gen-expansion.h', command: [codelets, '@OUTPUT@']),
     custom_target('gen_mul_bases', output: 'gen-mul-bases.h', command: [codelets, '@OUTPUT@']),

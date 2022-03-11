@@ -18,6 +18,7 @@ namespace mandelbrot {
 
 struct Arb;
 struct Arf;
+using std::isfinite;
 using std::is_same_v;
 using std::mt19937;
 using std::string;
@@ -112,6 +113,13 @@ template<int n_> struct Expansion {
 
 template<int n> int sign(const Expansion<n> x);
 template<int n> Expansion<n> abs(const Expansion<n> x);
+
+template<int n> bool isfinite(const Expansion<n> x) {
+  for (int i = 0; i < n; i++)
+    if (!isfinite(x.x[i]))
+      return false;
+  return true;
+}
 
 // For now, don't try to optimize sqr further
 template<int n> __host__ __device__ Expansion<n> sqr(const Expansion<n> x) { return x * x; }

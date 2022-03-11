@@ -88,7 +88,7 @@ template<class S> S area(SeriesView<const S> f) {
     arb_const_pi(pi, prec);
     arb_mul(mu, mu, pi, prec);
     return mu;
-  });
+  }, []() { return "area"; });
 }
 
 // f = 1, so g = log f = 0

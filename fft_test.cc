@@ -195,5 +195,17 @@ TEST(twiddles) {
     ASSERT_EQ(zs[i], nearest_twiddle<double>(i, b));
 }
 
+TEST(big_twiddles) {
+  typedef double S;
+  const int fast_prec = 200;
+  const int hi = 21;  // Use p = 28 for a stress test
+  for (int p = 20; p < hi; p++) {
+    const int b = 1 << p;
+    vector<Complex<S>> zs(b);
+    const auto fallbacks = nearest_twiddles<S>(zs, b, fast_prec);
+    ASSERT_LE(fallbacks, 100) << format("p %d, b %d, fallbacks %d", p, b, fallbacks);
+  }
+}
+
 }  // namespace
 }  // namespace mandelbrot

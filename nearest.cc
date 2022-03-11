@@ -18,7 +18,7 @@ template<class S> optional<S> round_nearest(const arb_t c, const int prec) {
   const auto a_ = round_near<S>(a);
   const auto b_ = round_near<S>(b);
   optional<S> c_;
-  if (a_ == b_)
+  if (a_ == b_ || !isfinite(a_))
     c_ = a_;
   return c_;
 }
@@ -58,7 +58,7 @@ template<int n> Expansion<n> RoundNear<Expansion<n>>::round(const arf_t c) {
 template<class S> S nearest_pi() {
   static const S pi = nearest<S>([](const int prec) {
     Arb c; arb_const_pi(c, prec); return c;
-  });
+  }, []() { return "nearest_pi"; });
   return pi;
 }
 
@@ -70,6 +70,8 @@ template<class S> S nearest_sqrt(const int64_t a, const int64_t b) {
     Arb s;
     arb_sqrt(s, r, prec);
     return s;
+  }, [a,b]() {
+    return format("nearest_sqrt(%d, %d)", a, b);
   });
 }
 
@@ -83,6 +85,8 @@ template<class S> Complex<S> nearest_twiddle(const int64_t a, const int64_t b) {
   fmpq_set_si(t, 2*a, b);
   return nearest<S>([t=move(t)](const int prec) {
     Acb z; cis_pi(z, t, prec); return z;
+  }, [a,b]() {
+    return format("nearest_twiddle(%d, %d)", a, b);
   });
 }
 

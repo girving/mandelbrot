@@ -27,6 +27,7 @@ struct Acb {
 
   // Printing
   friend std::ostream& operator<<(std::ostream& out, const Acb& a);
+  string safe() const;
 };
 
 }  // namespace mandelbrot
