@@ -6,6 +6,7 @@
 #include "debug.h"
 #include "device.h"
 #include "expansion.h"
+#include "join.h"
 #include "print.h"
 #include <algorithm>
 #include <exception>
@@ -37,7 +38,7 @@ template<class T> void areas(const optional<string>& input, const optional<strin
   }
 }
 
-int main(int argc, char** argv) {
+int main(const int argc, const char** argv) {
   try {
     argparse::ArgumentParser program("mandelbrot", "0.1");
 
@@ -79,6 +80,7 @@ int main(int argc, char** argv) {
     }
 
     // Log command line options
+    print("cmd = %s\n", join(span<const char*>(argv, argv+argc), " "));
     print("mode = %s", mode());
     print("k = %g", program.get<double>("k"));
     print("tol = %g", tol());
