@@ -201,7 +201,7 @@ Exp call(const char* f, const Exp& x0, const Exp& x1, const Exp& x2, const Sig s
 Exp other(const string& s, const int prec, const Sig sig) { return CSE::cse(OtherExp{s, prec, sig}, sig); }
 
 Exp fma(const Exp& x, const Exp& y, const Exp& s) {
-  return call("__builtin_fma", x, y, s, random_sig());
+  return call("fma", x, y, s, random_sig());
 }
 
 Exp sum(span<const Exp> xs) {

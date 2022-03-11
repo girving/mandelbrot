@@ -15,7 +15,8 @@ using std::max;
   __host__ __device__ static inline S half(S x) { return S(0.5) * x; } \
   __host__ __device__ static inline S twice(S x) { return x + x; } \
   __host__ __device__ static inline S inv(S x) { return 1 / x; } \
-  __host__ __device__ static inline S bound(S x) { return abs(x); }
+  __host__ __device__ static inline S bound(S x) { return abs(x); } \
+  __host__ __device__ static inline S fma(const S x, const S y, const S s) { return __builtin_fma(x, y, s); }
 ARITH(float)
 ARITH(double)
 #undef ARITH
