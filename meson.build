@@ -40,6 +40,7 @@ arb = declare_dependency(link_args: [darwin ? '-larb' : '-lflint-arb'] + linkfla
 threads = dependency('threads')
 openmp = darwin ? [] : [declare_dependency(link_args: linkflags, dependencies: [dependency('openmp')])]
 crypto = dependency('libcrypto')
+png = dependency('libpng')
 
 cuda = dependency('cuda', version: '>=11.3', required: false)
 if cuda.found()
@@ -110,3 +111,4 @@ if cuda.found()
 endif
 
 executable('mandelbrot', ['mandelbrot.cc'], dependencies: [area, arb_area])
+executable('logo', ['logo.cc'], dependencies: [area, png])

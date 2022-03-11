@@ -1,19 +1,37 @@
+<p align="center">
+  <img src="https://github.com/girving/mandelbrot/blob/main/logo.png?raw=true" title="Bottcher visualization">
+</p>
+
 # Mandelbrot set area via the Böttcher series
 
 Let C be the complex plane, M the [Mandelbrot set](https://en.wikipedia.org/wiki/Mandelbrot_set), and D the closed unit disk.  There is an analytic [Böttcher map](https://en.wikipedia.org/wiki/External_ray)
 
-    ɸ : C - D → C - M
-    ɸ(z) = z + sum_n b_n z^(-n)
+<p align="center">
+  <img src="https://render.githubusercontent.com/render/math?math=\phi : \mathbb{C} - D \to \mathbb{C} - M"><br/>
+  <img src="https://render.githubusercontent.com/render/math?math=\phi(z) = z %2B \sum_n b_n z^{-n}">
+</p>
 
 and the area of the Mandelbrot set is
 
-    𝜇(M) = sum_n n b_n^2
+<p align="center">
+  <img src="https://render.githubusercontent.com/render/math?math=\mu(M) = \sum_n n b_n^2">
+</p>
 
 [Bittner et al. 2014](https://arxiv.org/abs/1410.1212) computed 5M terms of this series, resulting in the bound
 
-    𝜇(M) ≤ 1.68288
+<p align="center">
+  <img src="https://render.githubusercontent.com/render/math?math=\mu(M) \le 1.68288">
+</p>
 
-Here we try to compute more terms.
+We can compute out to 2<sup>26</sup> = 67,108,864 terms in a couple hours on an A100, producing
+
+<p align="center">
+  <img src="https://render.githubusercontent.com/render/math?math=\mu(M) \le 1.6576899789">
+</p>
+
+We use [expansion arithmetic](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf), representing numbers as
+unevaluated sums of double precision numbers, as computing in double runs out of precision around
+2<sup>23</sup> terms.
 
 ## Building
 
