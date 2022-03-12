@@ -16,8 +16,8 @@ Let C be the complex plane, M the [Mandelbrot set](https://en.wikipedia.org/wiki
 and the area of the Mandelbrot set is
 
 <p align="center">
-  <img src="https://render.githubusercontent.com/render/math?math={\mu(M) = \sum_n n b_n^2}#gh-light-mode-only">
-  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\mu(M) = \sum_n n b_n^2}#gh-dark-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\mu(M) = \pi \left(1 - \sum_n n b_n^2\right)}#gh-light-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\mu(M) = \pi \left(1 - \sum_n n b_n^2\right)}#gh-dark-mode-only">
 </p>
 
 [Bittner et al. 2014](https://arxiv.org/abs/1410.1212) computed 5M terms of this series, resulting in the bound
