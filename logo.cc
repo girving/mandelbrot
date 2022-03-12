@@ -11,7 +11,9 @@ using namespace mandelbrot;
 using std::array;
 using std::mt19937;
 using std::uniform_real_distribution;
+
 typedef array<double,4> Color;
+const Color clear = {0,0,0,0};
 
 struct Box {
   Complex<double> lo, hi;
@@ -24,11 +26,28 @@ struct Box {
 static inline Color over(const Color a, const Color b) {
   Color r;
   const auto sa = a[3];
-  const auto sb = (1 - a[3])*b[3];
-  r[3] = sa + sb;
+  const auto sb = (1 - sa)*b[3];
+  const auto s = sa + sb;
+  const auto inv_s = s ? 1 / s : 0;
+  r[3] = s;
   for (int i = 0; i < 3; i++)
-    r[i] = (sa*a[i] + sb*b[i]) / r[3];
+    r[i] = inv_s * (sa*a[i] + sb*b[i]);
   return r;
+}
+
+static inline Color average(span<const Color> cs) {
+  Color sum = {0};
+  for (const auto& c : cs) {
+    sum[3] += c[3];
+    for (int a = 0; a < 3; a++)
+      sum[a] += c[a] * c[3];
+  }
+  Color mean;
+  const auto scale = sum[3] ? 1 / sum[3] : 0;
+  for (int a = 0; a < 3; a++)
+    mean[a] = scale * sum[a];
+  mean[3] = sum[3] / cs.size();
+  return mean;
 }
 
 struct Canvas : public Noncopyable {
@@ -97,8 +116,16 @@ struct Canvas : public Noncopyable {
     }
   }
 
+  // Draw a circle
+  void circle(const Complex<double> center, const double radius, const Color color) const {
+    const Complex<double> h(radius, radius);
+    render(Box{center - h, center + h}, [center,radius,color](const Complex<double> z) {
+      return sqr_abs(z - center) <= sqr(radius) ? color : clear;
+    });
+  }
+
   // Draw a Gaussian blob
-  void render_gaussian(const Complex<double> center, const double radius, const Color color) const {
+  void gaussian(const Complex<double> center, const double radius, const Color color) const {
     const double scale = -0.5 / sqr(radius);
     const double bound = 5*radius;
     const Complex<double> h(bound, bound);
@@ -129,18 +156,12 @@ struct Canvas : public Noncopyable {
     png_set_IHDR(png, info, width, height, 8, PNG_COLOR_TYPE_RGB_ALPHA, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
     png_write_info(png, info);
-    const double scale = 255 / samples;
     const Array<uint8_t> row(width*4);
     for (int j = 0; j < height; j++) {
       for (int i = 0; i < width; i++) {
-        Color sum{0};
-        for (int s = 0; s < samples; s++) {
-          const auto c = colors[(i*height + j)*samples + s];
-          for (int a = 0; a < 4; a++)
-            sum[a] += c[a];
-        }
+        const auto c = average(span<const Color>(&colors[index(i,j,0)], samples));
         for (int a = 0; a < 4; a++)
-          row[i*4 + a] = max(0, min(255, int(rint(scale * sum[a]))));
+          row[i*4 + a] = max(0, min(255, int(rint(255 * c[a]))));
       }
       png_write_row(png, row.data());
     }
@@ -149,20 +170,26 @@ struct Canvas : public Noncopyable {
   }
 };
 
+Complex<double> cis_tau(const double t) {
+  const auto s = 2 * M_PI * t;
+  return Complex<double>(cos(s), sin(s));
+}
+
 void logo() {
   typedef Expansion<2> E;
   typedef Complex<double> C;
 
   // Read f series
-  const int max_k = 20;
+  const int max_k = 25;
   const auto [_, f_] = read_series<E>(format("exp2-11mar/f-k%d", max_k));
   const auto f = f_.view();
 
   // Render
   const int size = 256;
-  const int samples = 64;
-  const Canvas canvas(Box{{.25,-.8},{2.02,.8}}, size, samples);
-  const auto render_k = [f,&canvas](const int k, const double radius, const Color color) {
+  const int samples = 256;
+  const Canvas canvas(Box{{-2.01,-1.14},{.5,1.14}}, size, samples);
+  //const Canvas canvas(Box{{.25,-.8},{2.02,.8}}, size, samples);
+  const auto render = [f,&canvas](const int k, const double radius, const Color color) {
     // f[:2^k].astype(double)
     print("k %d", k);
     const int p = 1 << k;
@@ -172,17 +199,23 @@ void logo() {
       fk[i] = double(f[i]);
 
     // Do an srfft to get point samples along the circle
-    Array<C> zs(p);
-    srfft<double>(zs, fk);
+    Array<C> fz(p/2);
+    srfft<double>(fz, fk);
 
     // Render
-    for (int i = 0; i < p; i++) {
-      const auto phi = zs[i];
+    for (int i = 0; i < p/2; i++) {
+      const auto z = cis_tau((i + 0.5) / p);
+      const auto phi = z * fz[i];
       for (const auto c : {phi, conj(phi)})
-        canvas.render_gaussian(c, radius, color);
+        canvas.circle(c, radius, color);
     }
   };
-  render_k(20, 0.0015, Color{0,0,1,1});
+  render(max_k, 0.001, Color{0,0,1,1});
+  render(20, 0.002, Color{0,0,1,1});
+  render(15, 0.003, Color{0,.7,.2,1});
+  render(10, 0.006, Color{0,.2,1,1});
+  render(7, 0.01, Color{0,1,.7,1});
+  render(5, 0.02, Color{0,.9,.3,1});
 
   // Write to file
   canvas.write("logo.png");
