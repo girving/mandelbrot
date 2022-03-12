@@ -148,5 +148,7 @@ extern const Bittner bittner_areas[10];
 //     k 25, 1.47e3 s: mu = 1.663453295463339439026761882950975
 //     k 26, 2.8e3 s: mu = 1.65768997893642502342942699620219
 //     k 27: out of memory
+//   12mar2022, cuda-exp2, fewer temporaries and symmetry-reduced twiddles:
+//     k 27, 5.16e+03 s: mu = 1.65158703583485945828819972180538
 
 }  // namespace mandelbrot
