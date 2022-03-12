@@ -7,26 +7,31 @@
 Let C be the complex plane, M the [Mandelbrot set](https://en.wikipedia.org/wiki/Mandelbrot_set), and D the closed unit disk.  There is an analytic [Böttcher map](https://en.wikipedia.org/wiki/External_ray)
 
 <p align="center">
-  <img src="https://render.githubusercontent.com/render/math?math=\phi : \mathbb{C} - D \to \mathbb{C} - M"><br/>
-  <img src="https://render.githubusercontent.com/render/math?math=\phi(z) = z %2B \sum_n b_n z^{-n}">
+  <img src="https://render.githubusercontent.com/render/math?math={\phi : \mathbb{C} - D \to \mathbb{C} - M}#gh-light-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\phi : \mathbb{C} - D \to \mathbb{C} - M}#gh-dark-mode-only"><br/>
+  <img src="https://render.githubusercontent.com/render/math?math={\phi(z) = z %2B \sum_n b_n z^{-n}}#gh-light-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\phi(z) = z %2B \sum_n b_n z^{-n}}#gh-dark-mode-only">
 </p>
 
 and the area of the Mandelbrot set is
 
 <p align="center">
-  <img src="https://render.githubusercontent.com/render/math?math=\mu(M) = \sum_n n b_n^2">
+  <img src="https://render.githubusercontent.com/render/math?math={\mu(M) = \sum_n n b_n^2}#gh-light-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\mu(M) = \sum_n n b_n^2}#gh-dark-mode-only">
 </p>
 
 [Bittner et al. 2014](https://arxiv.org/abs/1410.1212) computed 5M terms of this series, resulting in the bound
 
 <p align="center">
-  <img src="https://render.githubusercontent.com/render/math?math=\mu(M) \le 1.68288">
+  <img src="https://render.githubusercontent.com/render/math?math={\mu(M) \le 1.68288}#gh-light-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\mu(M) \le 1.68288}#gh-dark-mode-only">
 </p>
 
 We can compute out to 2<sup>26</sup> = 67,108,864 terms in a couple hours on an A100, producing
 
 <p align="center">
-  <img src="https://render.githubusercontent.com/render/math?math=\mu(M) \le 1.6576899789">
+  <img src="https://render.githubusercontent.com/render/math?math={\mu(M) \le 1.6576899789}#gh-light-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\mu(M) \le 1.6576899789}#gh-dark-mode-only">
 </p>
 
 We use [expansion arithmetic](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf), representing numbers as
