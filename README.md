@@ -27,11 +27,11 @@ and the area of the Mandelbrot set is
   <img src="https://render.githubusercontent.com/render/math?math={\color{white}\mu(M) \le 1.68288}#gh-dark-mode-only">
 </p>
 
-We can compute out to 2<sup>26</sup> = 67,108,864 terms in a couple hours on an A100, producing
+We can compute out to 2<sup>27</sup> = 134,217,728 terms in a couple hours on an A100, producing
 
 <p align="center">
-  <img src="https://render.githubusercontent.com/render/math?math={\mu(M) \le 1.6576899789}#gh-light-mode-only">
-  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\mu(M) \le 1.6576899789}#gh-dark-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\mu(M) \le 1.651587035834859}#gh-light-mode-only">
+  <img src="https://render.githubusercontent.com/render/math?math={\color{white}\mu(M) \le 1.651587035834859}#gh-dark-mode-only">
 </p>
 
 We use [expansion arithmetic](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf), representing numbers as
