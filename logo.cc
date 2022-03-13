@@ -188,7 +188,6 @@ void logo() {
   const int size = 256;
   const int samples = 256;
   const Canvas canvas(Box{{-2.01,-1.14},{.5,1.14}}, size, samples);
-  //const Canvas canvas(Box{{.25,-.8},{2.02,.8}}, size, samples);
   const auto render = [f,&canvas](const int k, const double radius, const Color color) {
     // f[:2^k].astype(double)
     print("k %d", k);
