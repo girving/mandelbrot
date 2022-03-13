@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+
+import re
+
+
+def main():
+  with open('README.tex.md') as f:
+    text = f.read()
+
+  def render(m):
+    latex = m.group(1)
+    latex = latex.replace('+', '%2B')
+    base = 'https://render.githubusercontent.com/render/math?math='
+    def img(latex, mode):
+      if mode == 'dark':
+        latex = '\color{white}' + latex 
+      return f'<img src="{base}{{{latex}}}#gh-{mode}-mode-only">'
+    light = img(latex, 'light')
+    dark = img(latex, 'dark')
+    return f'<p align="center">{light}{dark}</p>'
+    
+  text = re.sub(r'\$\$(.*)\$\$', render, text)
+  with open('README.md', 'w') as f:
+    f.write(text)
+
+
+if __name__ == '__main__':
+  main()
