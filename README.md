@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/girving/mandelbrot/blob/main/logo.png?raw=true" title="Bottcher visualization">
+  <img src="logo.png?raw=true" title="Bottcher visualization">
 </p>
 
 # Mandelbrot set area via the Böttcher series
