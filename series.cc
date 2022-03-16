@@ -102,7 +102,8 @@ static string time_str() {
   return format("time = %s", std::put_time(&tm, "%F %T"));
 }
 
-template<class T> void write_series(const string& path, const vector<string>& comments, SeriesView<const T> x) {
+template<class T> void write_series(const string& path, const vector<string>& comments, SeriesView<const T> x,
+                                    const int64_t batch_size) {
   ofstream out(path);
 
   // Add comments for known(), nonzero(), and time
@@ -115,13 +116,15 @@ template<class T> void write_series(const string& path, const vector<string>& co
   for (const auto& c : cs)
     out << "# " << c << endl;
 
-  // Write series terms in plain text
-  string s;
+  // Write series terms in plain text, in batches
   const auto& hx = host_copy(x);
-  const auto reduce = [](string& y, const string& x) { y += x; };
-  const auto map = [&hx](const int64_t i) { auto s = safe(hx[i]); s += '\n'; return s; };
-  map_reduce(s, reduce, map, x.nonzero());
-  out << s;
+  for (int64_t start = 0; start < x.nonzero(); start += batch_size) {
+    string s;
+    const auto reduce = [](string& y, const string& x) { y += x; };
+    const auto map = [&hx,start](const int64_t i) { auto s = safe(hx[start + i]); s += '\n'; return s; };
+    map_reduce(s, reduce, map, min(batch_size, relu(x.nonzero() - start)));
+    out << s;
+  }
 }
 
 template<class T> tuple<vector<string>,Series<T>> read_series(const string& path) {
@@ -194,7 +197,7 @@ template<class T> tuple<vector<string>,Series<T>> read_series(const string& path
   template void add_scalar(Series<S>&, const typename Series<S>::Scalar); \
   template void high_addsub_ldexp(Series<S>&, const int, const int, const int64_t, SeriesView<const S>); \
   template void mul1p_middle(Series<S>&, const S*, const int64_t); \
-  template void write_series(const string& path, const vector<string>& comments, SeriesView<const S> x); \
+  template void write_series(const string& path, const vector<string>& comments, SeriesView<const S> x, const int64_t); \
   template tuple<vector<string>,Series<S>> read_series(const string& path);
 Ss(double)
 Ss(Expansion<2>)

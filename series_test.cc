@@ -591,6 +591,7 @@ TEST(ldexp) {
 
 template<class S> void write_series_test() {
   mt19937 mt;
+  const int batch_size = 17;
   for (const int n : {0, 1, 2, 5, 32, 1024}) {
     Series<S> x(n);
     x.set_counts(n + 17, n);
@@ -602,7 +603,7 @@ template<class S> void write_series_test() {
     }
     vector<string> comments{"one", "two"};
     Tmpfile tmp("series-");
-    write_series(tmp.path, comments, x.view());
+    write_series(tmp.path, comments, x.view(), batch_size);
     const auto [cs, y] = read_series<S>(tmp.path);
     for (const auto& c : comments)
       ASSERT_TRUE(std::find(cs.begin(), cs.end(), c) != cs.end());

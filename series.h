@@ -680,7 +680,8 @@ host_copy(const Series<T,v>& x) {
 }
 
 // Write a series to a file in a simple text format, or read it back
-template<class T> void write_series(const string& path, const vector<string>& comments, SeriesView<const T> x);
+template<class T> void write_series(const string& path, const vector<string>& comments, SeriesView<const T> x,
+                                    const int64_t batch_size = 1 << 15);
 template<class T> tuple<vector<string>,Series<T>> read_series(const string& path);
 
 }  // namespace mandelbrot
