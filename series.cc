@@ -2,6 +2,7 @@
 
 #include "series.h"
 #include "expansion_arith.h"
+#include "numpy.h"
 #include "poly.h"
 #include <fstream>
 namespace mandelbrot {
@@ -180,8 +181,7 @@ template<class T> tuple<vector<string>,Series<T>> read_series(const string& path
           terms = 0;
         }
       } else {  // Number, hopefully
-        slow_assert(terms >= 0);
-        slow_assert(terms < nonzero);
+        slow_assert(terms >= 0 && terms < nonzero);
         T a;
         if constexpr (is_same_v<T,double>) a = stod(string(v));
         else a = T(v);
@@ -193,12 +193,34 @@ template<class T> tuple<vector<string>,Series<T>> read_series(const string& path
   }
 }
 
+template<class T> void write_series_npy(const string& path, SeriesView<const T> x) {
+  slow_assert(path.ends_with(".npy"));
+
+  // Prepare shape
+  vector<int> shape = {x.nonzero()};
+  typedef Undevice<T> S;
+  if constexpr (is_same_v<S,Expansion<2>>) shape.push_back(2);
+  else { static_assert(is_same_v<S,double>); }
+  const auto header = numpy_header(shape);
+
+  // Copy to host
+  const auto hx = host_copy(x);
+
+  // Write file
+  FILE* f = fopen(path.c_str(), "wb");
+  slow_assert(f);
+  fwrite(header.c_str(), header.size(), 1, f);
+  fwrite(hx.data(), sizeof(S)*x.nonzero(), 1, f);
+  fclose(f);
+}
+
 #define Ss(S) \
   template void add_scalar(Series<S>&, const typename Series<S>::Scalar); \
   template void high_addsub_ldexp(Series<S>&, const int, const int, const int64_t, SeriesView<const S>); \
   template void mul1p_middle(Series<S>&, const S*, const int64_t); \
   template void write_series(const string& path, const vector<string>& comments, SeriesView<const S> x, const int64_t); \
-  template tuple<vector<string>,Series<S>> read_series(const string& path);
+  template tuple<vector<string>,Series<S>> read_series(const string& path); \
+  template void write_series_npy(const string&, SeriesView<const S>);
 Ss(double)
 Ss(Expansion<2>)
 IF_CUDA(

@@ -66,7 +66,7 @@ argparse = custom_target('argparse', output: 'argparse.hpp',
 
 base_deps = openmp + (cuda.found() ? [cuda] : [])
 base = declare_dependency(
-    link_with: library('base', ['cutil.cc', 'debug.cc', 'loops.cc', 'print.cc', 'shutdown.cc',
+    link_with: library('base', ['cutil.cc', 'debug.cc', 'loops.cc', 'numpy.cc', 'print.cc', 'shutdown.cc',
                                 tinyformat, argparse], dependencies: base_deps),
     sources: [tinyformat, argparse], dependencies: base_deps)
 tests = declare_dependency(

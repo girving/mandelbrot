@@ -8,19 +8,27 @@ using namespace mandelbrot;
 
 void exp(const string& input, const string& output) {
   // Verify that output file doesn't exist
-  print("%s = exp(%s)", input, output);
+  print("%s = exp(%s)", output, input);
   slow_assert(access(output.c_str(), F_OK) == -1, "%s exists", output);
 
   // Read series, assuming exp2 for now
+#ifndef __CUDACC__
   typedef Expansion<2> S;
-  const auto [comments, x] = read_series<S>(input); 
+#else
+  typedef Device<Expansion<2>> S;
+#endif
+  print("reading...");
+  const auto [_, x] = read_series<S>(input);
 
   // Exponentiate
+  print("exponentiating...");
   Series<S> y(x.nonzero());
   y = exp(x);
 
   // Write output
-  write_series<S>(output, comments, y);
+  print("writing...");
+  write_series_npy<S>(output, y);
+  print("done");
 }
 
 int main(const int argc, const char** argv) {

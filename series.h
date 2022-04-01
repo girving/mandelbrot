@@ -683,6 +683,7 @@ host_copy(const Series<T,v>& x) {
 template<class T> void write_series(const string& path, const vector<string>& comments, SeriesView<const T> x,
                                     const int64_t batch_size = 1 << 15);
 template<class T> tuple<vector<string>,Series<T>> read_series(const string& path);
+template<class T> void write_series_npy(const string& path, SeriesView<const T> x);
 
 }  // namespace mandelbrot
 
