@@ -112,3 +112,4 @@ endif
 
 executable('mandelbrot', ['mandelbrot.cc'], dependencies: [area, arb_area])
 executable('logo', ['logo.cc'], dependencies: [area, png])
+executable('series-to-npy', ['series-to-npy.cc'], dependencies: [area])
