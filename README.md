@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png?raw=true" title="Bottcher visualization">
+  <img src="logo-2x.png?raw=true" width="282" height="256" title="Bottcher visualization">
 </p>
 
 # Mandelbrot set area via the Böttcher series
@@ -25,9 +25,31 @@ We use [expansion arithmetic](https://people.eecs.berkeley.edu/~jrs/papers/robus
 unevaluated sums of double precision numbers, as computing in double runs out of precision around
 2<sup>23</sup> terms.
 
+## Alas, the series approach isn't the fastest
+
+The fastest of the mostly trustworthy methods I've seen for Mandelbrot area is [Fisher and Hill 1993](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.53.2337&rep=rep1&type=pdf), who use the [Koebe 1/4 theorem](https://en.wikipedia.org/wiki/Koebe_quarter_theorem) to prove (up to double precision) that quadree cells are either entirely outside or entirely inside the set.  Their bounds are
+
+<p align="center"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle 1.50296686 < \mu(M) < 1.57012937}#gh-light-mode-only"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \color{white}1.50296686 < \mu(M) < 1.57012937}#gh-dark-mode-only"></p>
+
+Worse, accurate extrapolation of the series seems out of reach: out to 2<sup>26</sup> terms the area contribution locally averages to a noisy power law fit with exponent -1.08, but as shown by [Bielefeld et al. 1988](https://archive.mpim-bonn.mpg.de/id/eprint/3259/1/preprint_1988_46.pdf) this would violate non-Hölder continuity at the boundary.  Attempts at extrapolating from our results out to infinity produce area estimates around 1.59 or 1.60, which is already contradicted by Fisher and Hill.
+
+## Explanation, analysis, and downloads
+
+[This colab](https://colab.research.google.com/drive/19FcWTtfXystwet4p06L2vMXOpP-r51ZH) has more explanation of the methods used, and some plots of the computed series.  For example, here is a plot of the locally averaged area contributions vs. the illusory -1.08 power law fit:
+
+<p align="center">
+  <img src="fit.svg?raw=true" title="Illusory power law fit">
+</p>
+
+For a `.npy` file with the series coefficients out to `2^k` terms, set `$k` to 1, 2, ..., 26, or 27 and download
+
+* `https://storage.googleapis.com/mandelbrot/numpy/f-k$k.npy`
+
+The shape will be `[2^k, 2]` corresponding to expansion arithmetic with 2 doubles; sum across the last axis if you want a single double.
+
 ## Building
 
-First, install dependencies:
+We use the [Meson](https://mesonbuild.com) build system, and the excellent high precision arithmetic library [Arb](https://arblib.org) for bootstrapping.  We also depend on clang even when compiling CUDA, to allow more recent C++ features.  To install dependencies:
 
     # On Mac
     brew install meson arb
@@ -47,10 +69,10 @@ Then build and test with
     meson compile
     meson test
 
-This `README.md` is generated from `README.tex.md` via `make-readme`.
-
-## CUDA profiling
+For CUDA profiling, use
 
     # https://developer.nvidia.com/nsight-systems
     # https://docs.nvidia.com/nsight-systems/UserGuide/index.html#example-single-command-lines
     nsys profile --stats=true ./build/release/area_cuda_test
+
+This `README.md` is generated from `README.tex.md` via `make-readme`.
