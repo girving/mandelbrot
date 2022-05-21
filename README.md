@@ -4,34 +4,35 @@
 
 # Mandelbrot set area via the Böttcher series
 
-Let C be the complex plane, M the [Mandelbrot set](https://en.wikipedia.org/wiki/Mandelbrot_set), and D the closed unit disk.  There is an analytic [Böttcher map](https://en.wikipedia.org/wiki/External_ray)
+Let $\mathbb{C}$ be the complex plane, $M$ the [Mandelbrot set](https://en.wikipedia.org/wiki/Mandelbrot_set), and $D$ the closed unit disk.  There is an analytic [Böttcher map](https://en.wikipedia.org/wiki/External_ray)
 
-<p align="center"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \phi : \mathbb{C} - D \to \mathbb{C} - M}#gh-light-mode-only"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \color{white}\phi : \mathbb{C} - D \to \mathbb{C} - M}#gh-dark-mode-only"></p>
-<p align="center"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \phi(z) = z %2B \sum_n b_n z^{-n}}#gh-light-mode-only"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \color{white}\phi(z) = z %2B \sum_n b_n z^{-n}}#gh-dark-mode-only"></p>
+$$\phi : \mathbb{C} - D \to \mathbb{C} - M$$
+
+$$\phi(z) = z + \sum_n b_n z^{-n}$$
 
 and the area of the Mandelbrot set is
 
-<p align="center"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \mu(M) = \pi \left(1 - \sum_n n b_n^2\right)}#gh-light-mode-only"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \color{white}\mu(M) = \pi \left(1 - \sum_n n b_n^2\right)}#gh-dark-mode-only"></p>
+$$\mu(M) = \pi \left(1 - \sum_n n b_n^2\right)$$
 
 [Bittner et al. 2014](https://arxiv.org/abs/1410.1212) computed 5M terms of this series, resulting in the bound
 
-<p align="center"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \mu(M) \le 1.68288}#gh-light-mode-only"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \color{white}\mu(M) \le 1.68288}#gh-dark-mode-only"></p>
+$$\mu(M) \le 1.68288$$
 
-We can compute out to 2<sup>27</sup> = 134,217,728 terms in a couple hours on an A100, producing
+We can compute out to $2^{27} = 134,217,728$ terms in a couple hours on an A100, producing
 
-<p align="center"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \mu(M) \le 1.651587035834859}#gh-light-mode-only"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \color{white}\mu(M) \le 1.651587035834859}#gh-dark-mode-only"></p>
+$$\mu(M) \le 1.651587035834859$$
 
 We use [expansion arithmetic](https://people.eecs.berkeley.edu/~jrs/papers/robustr.pdf), representing numbers as
 unevaluated sums of double precision numbers, as computing in double runs out of precision around
-2<sup>23</sup> terms.
+$2^{23}$ terms.
 
 ## Alas, the series approach isn't the fastest
 
 The fastest of the mostly trustworthy methods I've seen for Mandelbrot area is [Fisher and Hill 1993](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.53.2337&rep=rep1&type=pdf), who use the [Koebe 1/4 theorem](https://en.wikipedia.org/wiki/Koebe_quarter_theorem) to prove (up to double precision) that quadree cells are either entirely outside or entirely inside the set.  Their bounds are
 
-<p align="center"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle 1.50296686 < \mu(M) < 1.57012937}#gh-light-mode-only"><img src="https://render.githubusercontent.com/render/math?math={\displaystyle \color{white}1.50296686 < \mu(M) < 1.57012937}#gh-dark-mode-only"></p>
+$$1.50296686 < \mu(M) < 1.57012937$$
 
-Worse, accurate extrapolation of the series seems out of reach: out to 2<sup>26</sup> terms the area contribution locally averages to a noisy power law fit with exponent -1.08, but as shown by [Bielefeld et al. 1988](https://archive.mpim-bonn.mpg.de/id/eprint/3259/1/preprint_1988_46.pdf) this would violate non-Hölder continuity at the boundary.  Attempts at extrapolating from our results out to infinity produce area estimates around 1.59 or 1.60, which is already contradicted by Fisher and Hill.
+Worse, accurate extrapolation of the series seems out of reach: out to $2^{26}$ terms the area contribution locally averages to a noisy power law fit with exponent -1.08, but as shown by [Bielefeld et al. 1988](https://archive.mpim-bonn.mpg.de/id/eprint/3259/1/preprint_1988_46.pdf) this would violate non-Hölder continuity at the boundary.  Attempts at extrapolating from our results out to infinity produce area estimates around 1.59 or 1.60, which is already contradicted by Fisher and Hill.
 
 ## Explanation, analysis, and downloads
 
@@ -41,7 +42,7 @@ Worse, accurate extrapolation of the series seems out of reach: out to 2<sup>26<
   <img src="fit.svg?raw=true" title="Illusory power law fit">
 </p>
 
-For a `.npy` file with the series coefficients out to `2^k` terms, set `$k` to 1, 2, ..., 26, or 27 and download
+For an `.npy` file with the series coefficients out to $2^k$ terms, set `$k` to 1, 2, ..., 26, or 27 and download
 
 * `https://storage.googleapis.com/mandelbrot/numpy/f-k$k.npy`
 
@@ -74,5 +75,3 @@ For CUDA profiling, use
     # https://developer.nvidia.com/nsight-systems
     # https://docs.nvidia.com/nsight-systems/UserGuide/index.html#example-single-command-lines
     nsys profile --stats=true ./build/release/area_cuda_test
-
-This `README.md` is generated from `README.tex.md` via `make-readme`.
