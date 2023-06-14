@@ -15,7 +15,7 @@ if darwin
   # Add Homebrew paths
   brew = run_command('brew', '--prefix', check: true).stdout().strip()
   add_global_arguments('-I' + brew + '/include', language: 'cpp')
-  libpaths += [brew + '/lib', brew + '/opt/llvm/lib']
+  libpaths += [brew + '/lib']
 endif
 
 # Linker flags
@@ -30,6 +30,7 @@ add_global_arguments('-Wno-gnu-statement-expression', language: 'cpp')
 add_global_arguments('-Wno-unused-parameter', language: 'cpp')
 add_global_arguments('-Wno-deprecated-copy', language: 'cpp')
 add_global_arguments('-Wno-c++11-narrowing', language: 'cpp')
+add_global_arguments('-Wno-unqualified-std-cast-call', language: 'cpp')
 add_global_link_arguments('-lc++', language: 'cpp')
 
 cpp = meson.get_compiler('cpp')

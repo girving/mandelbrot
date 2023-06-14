@@ -53,7 +53,7 @@ The shape will be `[2^k, 2]` corresponding to expansion arithmetic with 2 double
 We use the [Meson](https://mesonbuild.com) build system, and the excellent high precision arithmetic library [Arb](https://arblib.org) for bootstrapping.  We also depend on clang even when compiling CUDA, to allow more recent C++ features.  To install dependencies:
 
     # On Mac
-    brew install meson arb
+    brew install meson arb cmake pkg-config openssl
 
     # On Debian Buster
     echo deb http://apt.llvm.org/buster/ llvm-toolchain-buster-13 main | sudo tee -a /etc/apt/sources.list
