@@ -4,3 +4,5 @@ bazel-mandelbrot
 bazel-out
 bazel-testlogs
 area.dSYM
+/exp2-11mar
+/f-k25.npy
