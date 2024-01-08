@@ -31,13 +31,11 @@ add_global_arguments('-Wno-unused-parameter', language: 'cpp')
 add_global_arguments('-Wno-deprecated-copy', language: 'cpp')
 add_global_arguments('-Wno-c++11-narrowing', language: 'cpp')
 add_global_arguments('-Wno-unqualified-std-cast-call', language: 'cpp')
-add_global_link_arguments('-lc++', language: 'cpp')
 
 cpp = meson.get_compiler('cpp')
 gmp = cpp.find_library('gmp', dirs: libpaths)
 m = cpp.find_library('m')
-flint = declare_dependency(link_args: ['-lflint'] + linkflags, dependencies: [gmp])
-arb = declare_dependency(link_args: [darwin ? '-larb' : '-lflint-arb'] + linkflags, dependencies: [flint, m])
+flint = declare_dependency(link_args: ['-lflint'] + linkflags, dependencies: [gmp, m])
 threads = dependency('threads')
 openmp = darwin ? [] : [declare_dependency(link_args: linkflags, dependencies: [dependency('openmp')])]
 crypto = dependency('libcrypto')
@@ -78,14 +76,14 @@ known = declare_dependency(
     dependencies: [base])
 arb_cc = declare_dependency(
     link_with: library('arbcc', ['acb_cc.cc', 'arb_cc.cc', 'arf_cc.cc', 'fmpq_cc.cc', 'poly.cc'],
-                       dependencies: [base, arb]),
-    dependencies: [base, arb])
+                       dependencies: [base, flint]),
+    dependencies: [base, flint])
 arb_area = declare_dependency(
     link_with: library('arb_area', ['arb_area.cc'], dependencies: [arb_cc, known]),
-    dependencies: [base, arb, arb_cc, known])
+    dependencies: [base, flint, arb_cc, known])
 
 codelets = executable('codelets', ['sig.cc', 'exp.cc', 'nearest.cc', 'codelets.cc'],
-                      dependencies: [base, arb, arb_cc, m, crypto])
+                      dependencies: [base, flint, arb_cc, m, crypto])
 generated = [
     custom_target('gen_expansion', output: 'gen-expansion.h', command: [codelets, '@OUTPUT@']),
     custom_target('gen_mul_bases', output: 'gen-mul-bases.h', command: [codelets, '@OUTPUT@']),

@@ -1,7 +1,7 @@
 // C++ interface to arf_t
 #pragma once
 
-#include <arf.h>
+#include <flint/arf.h>
 #include <string>
 namespace mandelbrot {
 

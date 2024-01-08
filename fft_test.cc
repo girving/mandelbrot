@@ -1,12 +1,12 @@
 // FFT tests
 
 #include "fft.h"
-#include "acb_dft.h"
 #include "arb_cc.h"
 #include "debug.h"
 #include "nearest.h"
 #include "print.h"
 #include "tests.h"
+#include <flint/acb_dft.h>
 #include <cmath>
 #include <complex>
 #include <random>

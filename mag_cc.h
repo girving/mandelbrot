@@ -1,7 +1,7 @@
 // C++ interface to mag_t
 #pragma once
 
-#include <mag.h>
+#include <flint/mag.h>
 namespace mandelbrot {
 
 struct Mag {

@@ -1,7 +1,7 @@
 // C++ interface to acb_t
 #pragma once
 
-#include <acb.h>
+#include <flint/acb.h>
 #include <string>
 namespace mandelbrot {
 

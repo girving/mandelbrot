@@ -1,7 +1,7 @@
 // C++ interface to arb_t
 #pragma once
 
-#include <arb.h>
+#include <flint/arb.h>
 #include <string>
 namespace mandelbrot {
 

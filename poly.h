@@ -1,7 +1,7 @@
 // C++ interface to arb_poly_t
 #pragma once
 
-#include <arb_poly.h>
+#include <flint/arb_poly.h>
 #include "arb_cc.h"
 #include "print.h"
 namespace mandelbrot {
