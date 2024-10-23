@@ -61,7 +61,7 @@ int main(const int argc, const char** argv) {
     for (const auto& m : modes) mode_names.push_back(m.first);
 
     // Parse arguments
-    program.add_argument("mode").help(format("computation method (one of %s)", mode_names))
+    program.add_argument("mode").help(tfm::format("computation method (one of %s)", mode_names))
         .default_value(string("exp2"));
     program.add_argument("-k").help("stop after 2^k terms").scan<'g',double>().default_value(inf);
     program.add_argument("-p", "--prec").help("precision, if we're using arb").scan<'i',int>().default_value(2000);

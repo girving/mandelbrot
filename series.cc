@@ -100,7 +100,7 @@ static string time_str() {
   // From https://stackoverflow.com/questions/16357999/current-date-and-time-as-string/16358264
   const auto t = std::time(nullptr);
   const auto tm = *std::localtime(&t);
-  return format("time = %s", std::put_time(&tm, "%F %T"));
+  return tfm::format("time = %s", std::put_time(&tm, "%F %T"));
 }
 
 template<class T> void write_series(const string& path, const vector<string>& comments, SeriesView<const T> x,
@@ -109,8 +109,8 @@ template<class T> void write_series(const string& path, const vector<string>& co
 
   // Add comments for known(), nonzero(), and time
   auto cs = comments;
-  cs.push_back(format("known = %d", x.known()));
-  cs.push_back(format("nonzero = %d", x.nonzero()));
+  cs.push_back(tfm::format("known = %d", x.known()));
+  cs.push_back(tfm::format("nonzero = %d", x.nonzero()));
   cs.push_back(time_str());
 
   // Write comments at top of file
@@ -144,7 +144,7 @@ template<class T> tuple<vector<string>,Series<T>> read_series(const string& path
         const int64_t i = stol(string(n));
         if (i >= 0) return i;
       } catch (const exception&) {}
-      throw runtime_error(format("failed to parse comment '%s' as nonnegative integer", c));
+      throw runtime_error(tfm::format("failed to parse comment '%s' as nonnegative integer", c));
     };
     ifstream in(path);
     int64_t known = -1, nonzero = -1, terms = -1;

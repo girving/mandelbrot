@@ -44,7 +44,7 @@ TEST(bit_ceil) {
     ASSERT_EQ(bit_ceil(I(0)), I(1));
     for (int i = 0; i < bits; i++) {
       ASSERT_EQ(bit_ceil(I(1) << i), I(1) << i)
-          << format("i %d, 1<<i %d, bit_ceil %d", i, I(1) << i, bit_ceil(I(1) << i));
+          << tfm::format("i %d, 1<<i %d, bit_ceil %d", i, I(1) << i, bit_ceil(I(1) << i));
       if (i + 1 < bits) {
         for (int j = 0; j < i; j++)
           ASSERT_EQ(bit_ceil(I(1) << i | I(1) << j), I(1) << (i+1));

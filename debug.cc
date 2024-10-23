@@ -10,8 +10,8 @@ using std::runtime_error;
 
 void assertion_failed(const char* function, const char* file, unsigned int line,
                       const char* condition, const string& message) {
-  const string error = format("%s:%d:%s: %s, condition = %s", file, line, function,
-                              message.size() ? message : "Assertion failed", condition);
+  const string error = tfm::format("%s:%d:%s: %s, condition = %s", file, line, function,
+                                   message.size() ? message : "Assertion failed", condition);
   static const bool break_on_assert = getenv("BREAK_ON_ASSERT") != 0;
   if (break_on_assert) {
     print_error("\n\n*** Error: %s\n", error);

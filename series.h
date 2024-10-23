@@ -650,7 +650,7 @@ Series<double> approx(const Poly& x, const int64_t n);
 double error(SeriesView<const double> x, SeriesView<const double> y, const bool relative = false);
 double error(SeriesView<const double> x, initializer_list<double>&& ys, const bool relative = false);
 double error(SeriesView<const double> x, const Poly& y, const bool relative = false);
-#define ASSERT_TOL2(tol, x, y) { const auto e = error(x, y); ASSERT_LE(e, tol) << format("e %g, x %g, y %g", e, x, y); }
+#define ASSERT_TOL2(tol, x, y) { const auto e = error(x, y); ASSERT_LE(e, tol) << tfm::format("e %g, x %g, y %g", e, x, y); }
 #define ASSERT_TOL(tol, x, ...) { const Series<double> _y({__VA_ARGS__}); ASSERT_TOL2(tol, x, _y); }
 #define ASSERT_CLOSE(x, ...) ASSERT_TOL(3e-14, x, __VA_ARGS__)
 #define ASSERT_CLOSE2(x, y) ASSERT_TOL2(3e-14, x, y)

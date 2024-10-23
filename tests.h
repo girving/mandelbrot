@@ -33,7 +33,7 @@ template<class X> static inline bool
 test_bool(const char* sx, X&& x, const bool y, const char* function, const int line) {
   const bool r = bool(x) == y;
   if (!r)
-    print("%s %s != %s", red(format("%s:%d:", function, line)), sx, y ? "true" : "false");
+    print("%s %s != %s", red(tfm::format("%s:%d:", function, line)), sx, y ? "true" : "false");
   return r;
 }
 
@@ -42,7 +42,7 @@ test_compare(const char* sx, X&& x, const char* sy, Y&& y, Op&& op, const char* 
              const char* function, const int line) {
   const bool r = op(x, y);
   if (!r)
-    print("%s %s %s %s (%s %s %s)", red(format("%s:%d:", function, line)), sx, nop, sy, x, nop, y);
+    print("%s %s %s %s (%s %s %s)", red(tfm::format("%s:%d:", function, line)), sx, nop, sy, x, nop, y);
   return r;
 }
 

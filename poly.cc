@@ -35,7 +35,7 @@ string Poly::stats() const {
     arf_max(hi, hi, t);
     radius = max(radius, mag_get_d(arb_radref(c)));
   }
-  return format("degree %d, coeffs [%.3g,%.3g], radius %g", degree(), lo, hi, radius);
+  return tfm::format("degree %d, coeffs [%.3g,%.3g], radius %g", degree(), lo, hi, radius);
 }
 
 void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, const slong n, const slong prec) {

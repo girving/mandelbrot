@@ -75,7 +75,7 @@ TEST(grid_stride_loop) {
     INVOKE_GRID_STRIDE_LOOP(sqr1a, n, device_get(dy), device_get(dx), a);
     device_to_host<S>(span<S>(y).first(ns), dy.span().first(ns));
     for (int i = 0; i < ns; i++)
-      ASSERT_EQ(y[i], i < n ? sqr(x[i] + a) : -1) << format("n %d, ns %d, a %d, i %d", n, ns, a, i);
+      ASSERT_EQ(y[i], i < n ? sqr(x[i] + a) : -1) << tfm::format("n %d, ns %d, a %d, i %d", n, ns, a, i);
   }
 }
 

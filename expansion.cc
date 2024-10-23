@@ -62,7 +62,7 @@ template<int n> ostream& operator<<(ostream& out, const Expansion<n> e) {
 template<int n> string maybe_nice_safe(const Expansion<n> x) {
   const auto a = exact_arf(x);
   for (int p = 15*n-2; p <= 30*n; p++) {
-    auto s = format("%.*g", p, a);
+    auto s = tfm::format("%.*g", p, a);
     if (x == Expansion<n>(s)) return s;
   }
   return string();
@@ -70,7 +70,7 @@ template<int n> string maybe_nice_safe(const Expansion<n> x) {
 
 template<int n> string safe(const Expansion<n> x) {
   auto s = maybe_nice_safe(x);
-  return s.size() ? s : format("%.17g", x.span());
+  return s.size() ? s : tfm::format("%.17g", x.span());
 }
 
 template<int n> Expansion<n>::Expansion(string_view s) : Expansion(string(s)) {}
@@ -93,7 +93,7 @@ template<int n> Expansion<n>::Expansion(const string& s) {
       arb_set_str(a, cs, prec);
       return a;
     }, [cs]() {
-      return format("Expansioon(\"%s\")", cs);
+      return tfm::format("Expansioon(\"%s\")", cs);
     });
   }
 }

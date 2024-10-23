@@ -4,15 +4,16 @@
 #include "tinyformat.h"
 #include "span.h"
 #include <vector>
-namespace mandelbrot {
+namespace tinyformat {
+
+static inline std::string format() { return std::string(); }
+static inline const std::string& format(const std::string& s) { return s; }
+
+} namespace mandelbrot {
 
 using std::string;
-using tinyformat::format;
 
-static inline string format() { return string(); }
-static inline const string& format(const string& s) { return s; }
-
-static inline string safe(const double x) { return format("%.17g", x); }
+static inline string safe(const double x) { return tfm::format("%.17g", x); }
 
 }  // namespace mandelbrot
 namespace std {

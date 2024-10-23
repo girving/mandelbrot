@@ -14,7 +14,7 @@ void assert_rel(SeriesView<const Device<double>> dz, SeriesView<const double> z,
   Series<double> hz(dz.nonzero());
   device_to_host(hz, dz);
   const auto e = error(hz, z, true);
-  ASSERT_LE(e, tol) << format("n %d, e %g\ndz %g\nz %g", z.nonzero(), e, hz, z);
+  ASSERT_LE(e, tol) << tfm::format("n %d, e %g\ndz %g\nz %g", z.nonzero(), e, hz, z);
 }
 
 Series<double> random_series(mt19937& mt, const int n) {

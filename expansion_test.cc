@@ -97,7 +97,7 @@ template<int n> void convert_test() {
     const Arb z = y.arb(prec);
     arb_sub(e, x, z, prec);
     const double ae = bound(e);
-    ASSERT_LE(ae, ldexp(ax, -52*n)) << format("n %d, i %d, ax %g", n, i, ax);
+    ASSERT_LE(ae, ldexp(ax, -52*n)) << tfm::format("n %d, i %d, ax %g", n, i, ax);
   }
 }
 
@@ -110,9 +110,9 @@ template<int n,class I> void convert_int_test() {
     const I a = I(mt());
     const E x(a);
     ASSERT_TRUE(ulp_valid(x))
-        << format("n %d, i %d, a %d", n, i, a)
-        << format("\nx %.30", x)
-        << format("\nx %s (ulp %g)", x.span(), ulp(x.x[0]));
+        << tfm::format("n %d, i %d, a %d", n, i, a)
+        << tfm::format("\nx %.30", x)
+        << tfm::format("\nx %s (ulp %g)", x.span(), ulp(x.x[0]));
     const Arf y = exact_arf(x);
     ASSERT_TRUE(arf_equal_si(y, a));
   }
@@ -139,7 +139,7 @@ template<int n> void random_expansion_test() {
       print(x.span());
   }
   for (int i = 0; i < int(anys.size()); i++)
-    ASSERT_TRUE(found[i]) << format("%s (i %d)", get<0>(anys[i]), i);
+    ASSERT_TRUE(found[i]) << tfm::format("%s (i %d)", get<0>(anys[i]), i);
 }
 
 template<int n,class Op,class ArbOp> void exact_unary_test(const Op& op, const ArbOp& arb_op) {
@@ -201,14 +201,14 @@ binary_test(const string& name, const Op& op, const ArbOp& arb_op, const bool ca
     arb_sub(error, z.arb(prec), correct, prec);
     const auto want = ldexp(bound(correct), -52*n + eslop);
     ASSERT_LE(ulp_slop(z), uslop)
-        << format("op %s, n %d, i %d, near %d, error %g > %g", name, n, i, near, bound(error), want)
-        << format("\n\nx %.100g\ny %.100g\nz %.100g", x, y, z);
+        << tfm::format("op %s, n %d, i %d, near %d, error %g > %g", name, n, i, near, bound(error), want)
+        << tfm::format("\n\nx %.100g\ny %.100g\nz %.100g", x, y, z);
     ASSERT_LE(bound(error), want)
-        << format("op %s, n %d, i %d, near %d, error %g > %g", name, n, i, near, bound(error), want)
-        << format("\n\nx %.100g\ny %.100g\nz %.100g", x, y, z)
-        << format("\n\nx %.17g (valid %d)\ny %.17g (valid %d)\nz %.17g (valid %d)",
-                  x.span(), ulp_valid(x), y.span(), ulp_valid(y), z.span(), ulp_valid(z))
-        << format("\n\nax %s\nay %s\naz %s", safe(x), safe(y), safe(z));
+        << tfm::format("op %s, n %d, i %d, near %d, error %g > %g", name, n, i, near, bound(error), want)
+        << tfm::format("\n\nx %.100g\ny %.100g\nz %.100g", x, y, z)
+        << tfm::format("\n\nx %.17g (valid %d)\ny %.17g (valid %d)\nz %.17g (valid %d)",
+                       x.span(), ulp_valid(x), y.span(), ulp_valid(y), z.span(), ulp_valid(z))
+        << tfm::format("\n\nax %s\nay %s\naz %s", safe(x), safe(y), safe(z));
   }
 }
 
@@ -267,7 +267,7 @@ template<int n> void equal_test() {
 template<int n> static string old_safe(const Expansion<n> x) {
   const auto a = exact_arf(x);
   for (int p = 1; p < 1000*n; p++) {
-    const string s = format("%.*g", p, a);
+    const string s = tfm::format("%.*g", p, a);
     const Expansion<n> y(s);
     if (x == y)
       return s;
@@ -283,11 +283,11 @@ template<int n> void safe_test() {
     // Default version of safe()
     const string nice = safe(x);
     const E yn = E(nice);
-    ASSERT_EQ(x, yn) << format("nice %s\nx %.17g\ny %.17g", nice, x.span(), yn.span());
+    ASSERT_EQ(x, yn) << tfm::format("nice %s\nx %.17g\ny %.17g", nice, x.span(), yn.span());
     // Simple span printing fallback
-    const string simple = format("%.17g", x.span());
+    const string simple = tfm::format("%.17g", x.span());
     const E ys = E(simple);
-    ASSERT_EQ(x, ys) << format("simple %s\nx %.17g\ny %.17g", simple, x.span(), ys.span());
+    ASSERT_EQ(x, ys) << tfm::format("simple %s\nx %.17g\ny %.17g", simple, x.span(), ys.span());
     // Verify that maybe_nice_safe does the adaptation
     const string maybe = maybe_nice_safe(x);
     if (maybe.size())
@@ -300,7 +300,7 @@ template<int n> void safe_test() {
     E x = random_expansion<n>(mt);
     x.x[n-1] = ldexp(x.x[n-1], -200);
     const string nice = safe(x);
-    const string simple = format("%.17g", x.span());
+    const string simple = tfm::format("%.17g", x.span());
     ASSERT_EQ(nice, simple);
     ASSERT_EQ(x, E(simple));
   }

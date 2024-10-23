@@ -7,13 +7,13 @@ namespace mandelbrot {
 // Print a message and abort
 void die(const string& msg) __attribute__((noreturn, cold));
 template<class... Args> static inline void __attribute__((noreturn, cold)) die(const Args&... args) {
-  die(format(args...));
+  die(tfm::format(args...));
 }
 
 // Assert that still happens in optimized mode
 #define slow_assert(condition, ...) \
   ((condition) ? (void)0 : mandelbrot::assertion_failed( \
-      __PRETTY_FUNCTION__, __FILE__, __LINE__, #condition, format(__VA_ARGS__)))
+      __PRETTY_FUNCTION__, __FILE__, __LINE__, #condition, tfm::format(__VA_ARGS__)))
 
 // If slow_assert fails...
 void __attribute__((noreturn, cold))

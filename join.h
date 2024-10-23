@@ -8,7 +8,7 @@ template<class C> string join(const C& ss, const string& sep = ", ") {
   string j;
   for (const auto& s : ss) {
     if (j.size()) j += sep;
-    j += format("%s", s);
+    j += tfm::format("%s", s);
   }
   return j;
 }

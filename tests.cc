@@ -30,10 +30,10 @@ void test_throw(const function<void()>& f, const char* sx, const char* se, const
     const string s = typeid(e).name();
     if (s.find(string(se)) != string::npos)
       return;
-    print("%s %s threw %s, not %s", red(format("%s:%d:", function, line)), sx, s, se);
+    print("%s %s threw %s, not %s", red(tfm::format("%s:%d:", function, line)), sx, s, se);
     throw test_error();
   }
-  print("%s %s didn't throw %s", red(format("%s:%d:", function, line)), sx, se);
+  print("%s %s didn't throw %s", red(tfm::format("%s:%d:", function, line)), sx, se);
   throw test_error();
 }
 
@@ -61,7 +61,7 @@ Tmpdir::~Tmpdir() {
 }
 
 // See https://stackoverflow.com/questions/2616906/how-do-i-output-coloured-text-to-a-linux-terminal
-static string color(const string& s, const int color) { return format("\033[%dm%s\033[0m", color, s); }
+static string color(const string& s, const int color) { return tfm::format("\033[%dm%s\033[0m", color, s); }
 string red(const string& s) { return color(s, 31); }
 string green(const string& s) { return color(s, 32); }
 string blue(const string& s) { return color(s, 34); }
@@ -72,7 +72,7 @@ static int run_tests(const vector<string>& args) {
   const auto skip = [&chosen](const string& name) {
     return chosen.size() && chosen.find(name) == chosen.end();
   };
-  const auto count = [](const int n) { return format("%d %s", n, n == 1 ? "test" : "tests"); };
+  const auto count = [](const int n) { return tfm::format("%d %s", n, n == 1 ? "test" : "tests"); };
   wall_time_t total;
   print("%s %s: %s", green("[==========]"), args[0], count(tests.size()));
 

@@ -29,7 +29,7 @@ template<class S> void area_test(const double tol) {
 
   // Recompute last step, and check equality
   {
-    auto g = read_bottcher<S>(format("%s/g-k%d", tmp.path, max_k-1));
+    auto g = read_bottcher<S>(tfm::format("%s/g-k%d", tmp.path, max_k-1));
     const auto mu = get<1>(bottcher_step(g, tol));
     ASSERT_EQ(g.known(), last_g.known());
     ASSERT_EQ(mu, last_mu);

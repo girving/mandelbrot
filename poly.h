@@ -45,7 +45,7 @@ struct Poly {
 };
 
 template<class... Args> void stats(const Poly& f, const char* fmt, const Args&... args) {
-  print("    %s: %s", format(fmt, args...), f.stats());
+  print("    %s: %s", tfm::format(fmt, args...), f.stats());
 }
 
 void safe_poly_mullow(arb_poly_t fg, const arb_poly_t f, const arb_poly_t g, const slong n, const slong prec);

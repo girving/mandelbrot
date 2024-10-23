@@ -69,18 +69,18 @@ void line() {
 }
 template<class T> void line(T&& x) {
   slow_assert(out);
-  const auto s = format("%*s%s", indent, "", x);
+  const auto s = tfm::format("%*s%s", indent, "", x);
   if (debug) print(s);
   *out << s << endl;
 }
-template<class... Args> void line(const Args&... args) { line(format(args...)); }
+template<class... Args> void line(const Args&... args) { line(tfm::format(args...)); }
 
 struct Scope : public Noncopyable {
   const string close;
   unique_ptr<Indent> i;
   template<class... Args> Scope(const string& close, const Args&... args)
     : close(close) {
-    line(format(args...));
+    line(tfm::format(args...));
     i.reset(new Indent);
   }
   ~Scope() { i.reset(); line(close); }
@@ -117,7 +117,7 @@ private:
 
   string fresh(const string& prefix) {
     for (int n = -1;; n++) {
-      const auto s = n < 0 ? prefix : format("%s%d", prefix, n);
+      const auto s = n < 0 ? prefix : tfm::format("%s%d", prefix, n);
       if (names.insert(s).second)
         return s;
     }
@@ -137,7 +137,7 @@ public:
   Exps inputs(const string& prefix, const int n) {
     Exps xs;
     for (int i = 0; i < n; i++)
-      xs.push_back(input(format("%s%d", prefix, i)));
+      xs.push_back(input(tfm::format("%s%d", prefix, i)));
     return xs;
   }
 
@@ -274,7 +274,7 @@ void expansion_arithmetic(const string& path) {
       Scope fun("}", "__host__ __device__ static inline Expansion<%d> operator-(const Expansion<%d> x) {", n, n);
       vector<string> nx;
       for (int i = 0; i < n; i++)
-        nx.push_back(format("-x.x[%d]", i));
+        nx.push_back(tfm::format("-x.x[%d]", i));
       line("return Expansion<%d>(%s, nonoverlap);", n, join(nx));
     }
 
@@ -313,7 +313,7 @@ void mul_bases(const string& path) {
 
   // Zero extension
   const auto extend = [](Block& B, const string& x, const int i) {
-    const auto v = format("%s%d", x, i);
+    const auto v = tfm::format("%s%d", x, i);
     line("const auto %s = %d < n%s ? %s[%d] : S(0);", v, i, x, x, i);
     return B.input(v);
   };
@@ -416,14 +416,14 @@ void series_bases(const string& path) {
       CSE cse(true);  // Assume exact arithmetic for CSE
       Block B;
       B.inputs(vector<string>{"y", "ny", "x", "nx"});
-      for (int i = 0; i < leading; i++) B.input(format("x%d", i));  // Make names nicer
+      for (int i = 0; i < leading; i++) B.input(tfm::format("x%d", i));  // Make names nicer
       Series<Exp> x(n), y(n);
       x.set_counts(n, n);
       for (int i = 0; i < n; i++) {
         if (i < leading)
           x[i] = 0;
         else {
-          x[i] = B.input(format("x%d", i));
+          x[i] = B.input(tfm::format("x%d", i));
           line("const auto %s = %d < nx ? x[%d] : S(0);", x[i], i, i);
         }
       }
@@ -488,7 +488,7 @@ template<> Loc<CExp> loc(Block& B, const string& name, const Exp& j, const bool 
 template<class E> Locs<E> locs(Block& B, const int n, const Exp& j, const Exp& dj, const bool add = false) {
   Locs<E> zs;
   for (int i = 0; i < n; i++)
-    zs.push_back(loc<E>(B, format("%c%d", is_same_v<E,Exp> ? 'x' : 'y', i), j + i*dj, add));
+    zs.push_back(loc<E>(B, tfm::format("%c%d", is_same_v<E,Exp> ? 'x' : 'y', i), j + i*dj, add));
   return zs;
 }
 
@@ -564,8 +564,8 @@ template<class Xs,class Ys> Xs gradient(const Xs xs, const Ys ys, const Ys dys) 
 }
 
 Exp constant(const Expansion<2> x, const Sig sig) {
-  const auto s = format("%.17g", x.span());
-  return other(format("constant<S>(%s)", s.substr(1, s.size()-2)), 2, sig);
+  const auto s = tfm::format("%.17g", x.span());
+  return other(tfm::format("constant<S>(%s)", s.substr(1, s.size()-2)), 2, sig);
 }
 
 Exp constant_sqrt_half() {
@@ -607,7 +607,7 @@ way(Block& B, const bool fwd, const vector<I>& inputs, const vector<O>& outputs,
   if (fwd) return forward(B, inputs, outputs, compute);
   // Take the symbolic transpose
   vector<typename I::E> pxs;
-  for (int i = 0; i < int(inputs.size()); i++) pxs.push_back(B.input<typename I::E>(format("px%d", i)));
+  for (int i = 0; i < int(inputs.size()); i++) pxs.push_back(B.input<typename I::E>(tfm::format("px%d", i)));
   const auto pys = compute(pxs);
   forward(B, outputs, inputs, [pxs, pys](const auto& ys) { return gradient(pxs, pys, ys); });
 }
@@ -755,14 +755,14 @@ void butterflies(const string& path) {
   const vector<string> twiddle_args = {"BigTwiddleSlice<S> twiddle", "const int p"};
   for (int r = 1; r <= 3; r++) {
     string suffix;
-    for (int i = 0; i < r; i++) suffix += format("%d", i);
-    const auto nr = format("n%d", 1 << r);
+    for (int i = 0; i < r; i++) suffix += tfm::format("%d", i);
+    const auto nr = tfm::format("n%d", 1 << r);
     both(true, [r,nr,suffix,twiddle_args](const bool fwd, const bool add, const string& i, const string& arrow) {
-      const auto name = format("%s%ssrfft_butterfly_%s", add ? "add_" : "", i, suffix);
+      const auto name = tfm::format("%s%ssrfft_butterfly_%s", add ? "add_" : "", i, suffix);
       loop(name, r < 3, fwd ? GetX : SetX, nr, r == 3 ? twiddle_args : vector<string>(),
         [fwd,r,add](Block& B, const Exp nr, const Exp j) {
           const auto p = B.input("p");
-          const auto m = r > 2 ? B.now("m", format("1 << (%s)", p-r), random_sig()) : 0;
+          const auto m = r > 2 ? B.now("m", tfm::format("1 << (%s)", p-r), random_sig()) : 0;
           const int R = 1 << r;
           const auto x = locs<Exp>(B, R, j, nr, add);
           const auto y = locs<CExp>(B, R/2, j, nr);
@@ -781,8 +781,8 @@ void butterflies(const string& path) {
                 tie(y[i], y[i+R/4]) = butterfly_1(j+i*nr, tw, y[i], y[i+R/4]);
             }
             for (int a = 3; a <= r; a++) {
-              const auto ma = B.now(format("m%d", a), format("m << %d", r-a), m.sig() << (r-a));
-              const auto j1 = B.now("j1", format("%s & (%s-1)", j, ma), random_sig());
+              const auto ma = B.now(tfm::format("m%d", a), tfm::format("m << %d", r-a), m.sig() << (r-a));
+              const auto j1 = B.now("j1", tfm::format("%s & (%s-1)", j, ma), random_sig());
               const int R0 = 1 << (a-2);
               const int R1 = R >> a;
               const auto twa = [tw,a](const Exp& j) { return tw((1 << a) * j); };
@@ -803,16 +803,16 @@ void butterflies(const string& path) {
 
   // Remaining butterflies, using varying radix
   for (int r = 1; r <= 3; r++) {
-    const auto nr = format("n%d", 1 << (r+1));
+    const auto nr = tfm::format("n%d", 1 << (r+1));
     both(false, [r,nr](const bool fwd, const bool add, const string& i, const string& arrow) {
       slow_assert(!add);
       line("// Radix-%d %ssrfft butterfly, in place", r, i);
-      loop(format("%ssrfft_butterfly_s%d", i, r), false, NoX, nr, {"TwiddleSlice<S> twiddle", "const int s"},
+      loop(tfm::format("%ssrfft_butterfly_s%d", i, r), false, NoX, nr, {"TwiddleSlice<S> twiddle", "const int s"},
         [fwd,r](Block& B, const Exp nr, const Exp j) {
           const auto s = B.input("s");
           const auto m = B.now("m", "1 << s", random_sig());
-          const auto j1 = B.now("j1", format("%s & (m-1)", j), random_sig());
-          const auto j0 = B.now("j0", format("(%s - j1) << %d", j, r), random_sig());
+          const auto j1 = B.now("j1", tfm::format("%s & (m-1)", j), random_sig());
+          const auto j0 = B.now("j0", tfm::format("(%s - j1) << %d", j, r), random_sig());
           const auto y = locs<CExp>(B, 1 << r, j0 + j1, m);
           way(B, fwd, y, y, [r,s,m,j1](CExps y) {
             const auto tw = [](const Exp& j) { return base_twiddle(j); };

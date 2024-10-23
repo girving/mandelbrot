@@ -15,7 +15,7 @@ using std::variant;
 
 CSE* CSE::active_ = 0;
 
-static string parens_if(const string& s, const bool p) { return p ? format("(%s)", s) : s; }
+static string parens_if(const string& s, const bool p) { return p ? tfm::format("(%s)", s) : s; }
 
 // Expression subtypes
 // Precedence follows https://en.wikipedia.org/wiki/Operators_in_C_and_C++#Operator_precedence
@@ -28,26 +28,26 @@ static string parens_if(const string& s, const bool p) { return p ? format("(%s)
   EXP(prec_, args_, arbitrary_) \
   string show(const int need_prec) const { return parens_if(str, prec > need_prec); }
 struct VarExp { string v; Sig sig; SIMPLE(0, span<Exp>(), sig, v) };
-struct IntExp { int n; SIMPLE(0, span<Exp>(), Sig(n), format("%d", n)) };
-struct FieldExp { Exp x; const char* f; SIMPLE(2, (span{&x, 1}), arbitrary(f, x.sig()), format("%s.%s", x.show(2), f)) };
-struct NegExp { Exp x; SIMPLE(3, (span{&x, 1}), -x.sig(), format("-%s", x.show(3))) };
-struct AddExp { Exp x, y; SIMPLE(6, (span{&x,2}), arbitrary(x.sig(), y.sig()), format("%s + %s", x.show(6), y.show(5))) };
-struct SubExp { Exp x, y; SIMPLE(6, (span{&x,2}), arbitrary(x.sig(), y.sig()), format("%s - %s", x.show(6), y.show(5))) };
+struct IntExp { int n; SIMPLE(0, span<Exp>(), Sig(n), tfm::format("%d", n)) };
+struct FieldExp { Exp x; const char* f; SIMPLE(2, (span{&x, 1}), arbitrary(f, x.sig()), tfm::format("%s.%s", x.show(2), f)) };
+struct NegExp { Exp x; SIMPLE(3, (span{&x, 1}), -x.sig(), tfm::format("-%s", x.show(3))) };
+struct AddExp { Exp x, y; SIMPLE(6, (span{&x,2}), arbitrary(x.sig(), y.sig()), tfm::format("%s + %s", x.show(6), y.show(5))) };
+struct SubExp { Exp x, y; SIMPLE(6, (span{&x,2}), arbitrary(x.sig(), y.sig()), tfm::format("%s - %s", x.show(6), y.show(5))) };
 struct MulExp {
   Exp x, y; EXP(5, (span{&x, 2}), arbitrary(x.sig(), y.sig()))
   string show(const int need_prec) const {
-    if (x.sig() == y.sig()) return format("sqr(%s)", x);
-    if (x.two()) return format("twice(%s)", y);
-    if (y.two()) return format("twice(%s)", x);
-    return parens_if(format("%s * %s", x.show(5), y.show(4)), prec > need_prec);
+    if (x.sig() == y.sig()) return tfm::format("sqr(%s)", x);
+    if (x.two()) return tfm::format("twice(%s)", y);
+    if (y.two()) return tfm::format("twice(%s)", x);
+    return parens_if(tfm::format("%s * %s", x.show(5), y.show(4)), prec > need_prec);
   }
 };
 struct DivExp {
   Exp x; int a; EXP(5, (span{&x, 1}), arbitrary(x.sig(), Sig(a)))
   string show(const int need_prec) const {
-    if (a == 2) return format("half(%s)", x);
-    if (a > 2 && has_single_bit(unsigned(a))) return format("ldexp(%s, -%d)", x, int(countr_zero(unsigned(a))));
-    return parens_if(format("%s / %s", x.show(5), a), prec > need_prec);
+    if (a == 2) return tfm::format("half(%s)", x);
+    if (a > 2 && has_single_bit(unsigned(a))) return tfm::format("ldexp(%s, -%d)", x, int(countr_zero(unsigned(a))));
+    return parens_if(tfm::format("%s / %s", x.show(5), a), prec > need_prec);
   }
 };
 template<int n> struct CallExp {
@@ -60,7 +60,7 @@ template<int n> struct CallExp {
     for (int i = 0; i < n; i++) s[i] = xs[i].sig();
     return mandelbrot::arbitrary(f, s);
   }
-  string show(const int need_prec) const { return format("%s(%s)", f, join(xs)); }
+  string show(const int need_prec) const { return tfm::format("%s(%s)", f, join(xs)); }
 };
 struct OtherExp {
   string s; int prec; Sig sig;
@@ -271,12 +271,12 @@ string Stats::show() const {
   vector<string> terms;
   const auto p = [&total, &terms](const char* name, const int n) {
     total += n;
-    if (n) terms.push_back(format("%d %s%s", n, name, n == 1 ? "" : "s"));
+    if (n) terms.push_back(tfm::format("%d %s%s", n, name, n == 1 ? "" : "s"));
   };
   #define P(n) p(#n, n##s);
   P(add) P(mul) P(neg) P(call) P(other)
   #undef P
-  return format("%d op%s = %s", total, total == 1 ? "" : "s", join(terms, " + "));
+  return tfm::format("%d op%s = %s", total, total == 1 ? "" : "s", join(terms, " + "));
 }
 
 }  // namespace mandelbrot

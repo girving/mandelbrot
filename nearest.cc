@@ -71,7 +71,7 @@ template<class S> S nearest_sqrt(const int64_t a, const int64_t b) {
     arb_sqrt(s, r, prec);
     return s;
   }, [a,b]() {
-    return format("nearest_sqrt(%d, %d)", a, b);
+    return tfm::format("nearest_sqrt(%d, %d)", a, b);
   });
 }
 
@@ -86,7 +86,7 @@ template<class S> Complex<S> nearest_twiddle(const int64_t a, const int64_t b) {
   return nearest<S>([t=move(t)](const int prec) {
     Acb z; cis_pi(z, t, prec); return z;
   }, [a,b]() {
-    return format("nearest_twiddle(%d, %d)", a, b);
+    return tfm::format("nearest_twiddle(%d, %d)", a, b);
   });
 }
 

@@ -9,7 +9,7 @@ namespace mandelbrot {
 static Bittner bittner(const string& s, const double v) {
   slow_assert(s.size() && s[s.size()-1] == 'M');
   const int t = int(atof(s.substr(0, s.size()-1).c_str()) * 1e6);
-  slow_assert(s == format("%.1fM", 1e-6*t));
+  slow_assert(s == tfm::format("%.1fM", 1e-6*t));
   return Bittner{t, v};
 }
 extern const Bittner bittner_areas[10] = {

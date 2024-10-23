@@ -119,11 +119,11 @@ TEST(assert_low_near_zero) {
 
 TEST(print) {
   Series<double> x(2);
-  ASSERT_EQ(format("%g", x), "[]");
+  ASSERT_EQ(tfm::format("%g", x), "[]");
   x.set_scalar(1, 7);
-  ASSERT_EQ(format("%g", x), "[7]");
+  ASSERT_EQ(tfm::format("%g", x), "[7]");
   x.set_counts(2, 2); x[1] = 4.5;
-  ASSERT_EQ(format("%g", x), "[7, 4.5]");
+  ASSERT_EQ(tfm::format("%g", x), "[7, 4.5]");
 }
 
 TEST(set_known) {
@@ -277,19 +277,19 @@ TEST(mul) {
     {
       z = mul(x, y);
       const auto e = error(z, az);
-      ASSERT_LT(e, 1e-14) << format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
+      ASSERT_LT(e, 1e-14) << tfm::format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
     }
     // Aliased versions
     {
       z = x;
       z = mul(z, y);
       const auto e = error(z, az);
-      ASSERT_LT(e, 1e-14) << format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
+      ASSERT_LT(e, 1e-14) << tfm::format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
     } {
       z = y;
       z = mul(x, z);
       const auto e = error(z, az);
-      ASSERT_LT(e, 1e-14) << format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
+      ASSERT_LT(e, 1e-14) << tfm::format("e = %g\nz = %.3g\naz = %.3g", e, z, az);
     }
   }
 }
@@ -317,14 +317,14 @@ TEST(sqr) {
     {
       y = sqr(x);
       const auto e = error(y, ay);
-      ASSERT_LT(e, 1e-14) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
+      ASSERT_LT(e, 1e-14) << tfm::format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
     }
     // Aliased version
     {
       y = x;
       y = sqr(y);
       const auto e = error(y, ay);
-      ASSERT_LT(e, 1e-14) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
+      ASSERT_LT(e, 1e-14) << tfm::format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
     }
   }
 }
@@ -342,7 +342,7 @@ TEST(newton_steps) {
     for (int n = n0; n < 100; n++) {
       const auto slow = slow_steps(n0, n);
       const auto fast = newton_steps(n0, n);
-      ASSERT_EQ(fast, slow) << format("n0 %d, n %d, slow %d, fast %d", n0, n, slow, fast);
+      ASSERT_EQ(fast, slow) << tfm::format("n0 %d, n %d, slow %d, fast %d", n0, n, slow, fast);
     }
   }
 }
@@ -366,7 +366,7 @@ TEST(inv) {
     Series<double> y(n);
     y = inv(approx(ax, n));
     const auto e = error(y, ay);
-    ASSERT_LT(e, 1e-6) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
+    ASSERT_LT(e, 1e-6) << tfm::format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
   }
 }
 
@@ -382,8 +382,8 @@ TEST(div) {
     Series<double> z(n);
     z = div(approx(ax, n), approx(ay, n));
     const auto e = error(z, az);
-    ASSERT_LT(e, 4e-6) << format("n = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
-                                 n, e, approx(ax, n), approx(ay, n), z, az);
+    ASSERT_LT(e, 4e-6) << tfm::format("n = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+                                      n, e, approx(ax, n), approx(ay, n), z, az);
   }
 }
 
@@ -402,8 +402,8 @@ TEST(mul1p) {
       Series<double> z(n);
       z = mul1p(x, y.low(n-s), s);
       const auto e = error(z, az);
-      ASSERT_LT(e, 1e-14) << format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
-                                    e, approx(ax, n), approx(ay, n), z, az);
+      ASSERT_LT(e, 1e-14) << tfm::format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+                                         e, approx(ax, n), approx(ay, n), z, az);
       // Aliasing works
       Series<double> w(n);
       w = x;
@@ -429,8 +429,8 @@ TEST(inv1p) {
       Series<double> y(n);
       y = inv1p(approx(ax, n), s);
       const auto e = error(y, ay);
-      ASSERT_LT(e, 1e-8) << format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                   s, e, approx(ax, n), y, approx(ay, n));
+      ASSERT_LT(e, 1e-8) << tfm::format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                        s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -448,8 +448,8 @@ TEST(div1p) {
       Series<double> z(n);
       z = div1p(approx(ax, n), approx(ay, n).low(n-s), s);
       const auto e = error(z, az);
-      ASSERT_LT(e, 2e-10) << format("\nn %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
-                                    n, e, approx(ax, n), approx(ay, n), z, az);
+      ASSERT_LT(e, 2e-10) << tfm::format("\nn %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+                                         n, e, approx(ax, n), approx(ay, n), z, az);
     }
   }
 }
@@ -464,7 +464,7 @@ TEST(log) {
     Series<double> y(n);
     y = log(approx(ax, n));
     const auto e = error(y, ay);
-    ASSERT_LT(e, 1e-12) << format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
+    ASSERT_LT(e, 1e-12) << tfm::format("e = %g\ny = %.3g\nay = %.3g", e, y, ay);
   }
 }
 
@@ -480,8 +480,8 @@ TEST(log1p) {
       Series<double> y(n);
       y = log1p(approx(ax, n), s);
       const auto e = error(y, ay);
-      ASSERT_LT(e, 2.3e-10) << format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                      s, e, approx(ax, n), y, approx(ay, n));
+      ASSERT_LT(e, 2.3e-10) << tfm::format("\ns = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                           s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -501,8 +501,8 @@ TEST(derivative_shift) {
       Series<double> y(n);
       y = derivative_shift(approx(ax, n), s);
       const auto e = error(y, ay);
-      ASSERT_LT(e, 1e-14) << format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                    e, approx(ax, n), y, approx(ay, n));
+      ASSERT_LT(e, 1e-14) << tfm::format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                         e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -522,8 +522,8 @@ TEST(integral_shift) {
       Series<double> y(n);
       y = integral_shift(approx(ax, n), s);
       const auto e = error(y, ay);
-      ASSERT_LT(e, 1e-14) << format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                    e, approx(ax, n), y, approx(ay, n));
+      ASSERT_LT(e, 1e-14) << tfm::format("\ne = %g\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                         e, approx(ax, n), y, approx(ay, n));
     }
   }
 }
@@ -538,7 +538,7 @@ TEST(exp) {
     Series<double> y(n);
     y = exp(approx(ax, n));
     const auto e = error(y, ay);
-    ASSERT_LT(e, 1e-13) << format("n %d, e = %g\nx = %.3g\ny = %.3g\nay = %.3g", n, e, approx(ax, n), y, ay);
+    ASSERT_LT(e, 1e-13) << tfm::format("n %d, e = %g\nx = %.3g\ny = %.3g\nay = %.3g", n, e, approx(ax, n), y, ay);
   }
 }
 
@@ -556,8 +556,8 @@ TEST(expm1) {
         Series<double> y(n);
         y = expm1(approx(ax, n), a, s);
         const auto e = error(y, ay);
-        ASSERT_LT(e, 1.2e-13) << format("\na %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                        a, s, e, approx(ax, n), y, approx(ay, n));
+        ASSERT_LT(e, 1.2e-13) << tfm::format("\na %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                             a, s, e, approx(ax, n), y, approx(ay, n));
       }
     }
   }
@@ -577,8 +577,8 @@ TEST(log1p_exp) {
       Series<double> y(n);
       y = log1p_exp(approx(ax, n), s);
       const auto e = error(y, ay, true);
-      ASSERT_LT(e, 4.5e-5) << format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
-                                     n, s, e, approx(ax, n), y, approx(ay, n));
+      ASSERT_LT(e, 4.5e-5) << tfm::format("\nn %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+                                          n, s, e, approx(ax, n), y, approx(ay, n));
     }
   }
 }

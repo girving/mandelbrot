@@ -20,7 +20,7 @@ std::ostream& operator<<(std::ostream& out, const Acb& a) {
 
 string Acb::safe() const {
   const auto n = numeric_limits<int64_t>::max();
-  return format("%.*g", n, *this);
+  return tfm::format("%.*g", n, *this);
 }
 
 }  // namespace mandelbrot

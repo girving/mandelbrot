@@ -181,7 +181,7 @@ void logo() {
 
   // Read f series
   const int max_k = 25;
-  const auto [_, f_] = read_series<E>(format("exp2-11mar/f-k%d", max_k));
+  const auto [_, f_] = read_series<E>(tfm::format("exp2-11mar/f-k%d", max_k));
   const auto f = f_.view();
 
   // Render

@@ -11,9 +11,9 @@ string numpy_header(const vector<int>& shape) {
   const char letter = 'f';
   const int bytes = 8;
   string header("\x93NUMPY\x01\x00??", 10);
-  header += format("{'descr': '%c%c%d', 'fortran_order': False, 'shape': (", endian, letter, bytes);
+  header += tfm::format("{'descr': '%c%c%d', 'fortran_order': False, 'shape': (", endian, letter, bytes);
   for (const int n : shape)
-    header += format("%d,", n);
+    header += tfm::format("%d,", n);
   header += "), }";
   while ((header.size()+1) & 15)
     header.push_back(' ');

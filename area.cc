@@ -163,7 +163,7 @@ template<class T> tuple<Series<T>,Undevice<T>> bottcher_step(Series<T>& g, const
       const Arb ours = exact_arb(mu);
       arb_sub(error_a, known, ours, prec);
       error = bound(error_a);
-      error_s = format(", error = %.3g", error);
+      error_s = tfm::format(", error = %.3g", error);
     }
 
     // Report results
@@ -211,8 +211,8 @@ template<class T> void write_bottcher(const string& output, const string& mode,
     slow_assert(f[0] == 1 && g[0] == 0, "f[0] = %g, g[0] = %g", f[0], g[0]);  // Make sure f and g aren't flipped
     const auto write = [&output,&mode,k,mu=mu](const string& n, const string& name, const auto& x) {
       write_series(
-          format("%s/%c-k%d", output, n, k),
-          {name, format("mode = %s", mode), format("k = %d", k), format("mu = %s", safe(mu))},
+          tfm::format("%s/%c-k%d", output, n, k),
+          {name, tfm::format("mode = %s", mode), tfm::format("k = %d", k), tfm::format("mu = %s", safe(mu))},
           x);
     };
     write("g", "g = log(f)", g);
