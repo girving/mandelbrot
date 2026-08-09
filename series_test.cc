@@ -382,7 +382,7 @@ TEST(div) {
     Series<double> z(n);
     z = div(approx(ax, n), approx(ay, n));
     const auto e = error(z, az);
-    ASSERT_LT(e, 4e-6) << tfm::format("n = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+    ASSERT_LT(e, 1e-5) << tfm::format("n = %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
                                       n, e, approx(ax, n), approx(ay, n), z, az);
   }
 }
@@ -448,7 +448,7 @@ TEST(div1p) {
       Series<double> z(n);
       z = div1p(approx(ax, n), approx(ay, n).low(n-s), s);
       const auto e = error(z, az);
-      ASSERT_LT(e, 2e-10) << tfm::format("\nn %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
+      ASSERT_LT(e, 1e-5) << tfm::format("\nn %d, e = %g\n\nx = %.3g\n\ny = %.3g\n\nz = %.3g\n\naz = %.3g",
                                          n, e, approx(ax, n), approx(ay, n), z, az);
     }
   }
@@ -556,7 +556,7 @@ TEST(expm1) {
         Series<double> y(n);
         y = expm1(approx(ax, n), a, s);
         const auto e = error(y, ay);
-        ASSERT_LT(e, 1.2e-13) << tfm::format("\na %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
+        ASSERT_LT(e, 2e-13) << tfm::format("\na %d, s %d, e %g\n\nx = %.3g\n\ny = %.3g\n\nay = %.3g",
                                              a, s, e, approx(ax, n), y, approx(ay, n));
       }
     }

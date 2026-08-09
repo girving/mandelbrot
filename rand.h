@@ -7,9 +7,9 @@ namespace mandelbrot {
 struct Rand {
   flint_rand_t x;
 
-  Rand() { flint_randinit(x); }
-  Rand(ulong seed0, ulong seed1) { flint_randinit(x); seed(seed0, seed1); }
-  ~Rand() { flint_randclear(x); }
+  Rand() { flint_rand_init(x); }
+  Rand(ulong seed0, ulong seed1) { flint_rand_init(x); seed(seed0, seed1); }
+  ~Rand() { flint_rand_clear(x); }
 
   // Noncopyable
   Rand(const Rand& a) = delete;
@@ -18,11 +18,11 @@ struct Rand {
   Rand& operator=(Rand&& a) = delete;
 
   // Seeding
-  void seed(ulong seed0, ulong seed1) { flint_randseed(x, seed0, seed1); }
+  void seed(ulong seed0, ulong seed1) { flint_rand_set_seed(x, seed0, seed1); }
 
   // Implicit converson
-  operator flint_rand_s*() { return x; }
-  operator const flint_rand_s*() const { return x; }
+  operator flint_rand_struct*() { return x; }
+  operator const flint_rand_struct*() const { return x; }
 };
 
 }  // namespace mandelbrot
