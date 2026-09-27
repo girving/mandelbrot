@@ -13,12 +13,12 @@ step() { echo; echo "=== $* [$(( $(date +%s) - T0 )) s]"; }
 
 # Build environment
 export MAMBA_ROOT_PREFIX=/data/mamba
-ENV=/data/env-v1
+ENV=/data/env-v2
 if [ ! -x $ENV/bin/clang++ ]; then
   step "Creating conda environment $ENV"
   timeout 1800 /data/bin/micromamba create -y -q -p $ENV -c conda-forge --override-channels \
     clangxx=22 libcxx=22 libcxx-devel=22 llvm-openmp=22 lld=22 meson ninja pkg-config \
-    "libflint>=3" gmp libpng "openssl>=3" git curl
+    "libflint>=3" gmp libpng zlib "openssl>=3" git curl
 fi
 export PATH=$ENV/bin:/usr/local/cuda/bin:$PATH
 export PKG_CONFIG_PATH=$ENV/lib/pkgconfig
