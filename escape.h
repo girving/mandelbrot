@@ -13,6 +13,7 @@ struct Escape {
   int64_t steps;  // Steps until |z| > 2^32, or -1 if it never escaped (or an attracting cycle was found)
   double log2g;   // log2 of the Green's function g_M(c) = lim 2^-n log|z_n| if escaped, else -inf
   int period = 0; // Minimal period of the attracting cycle if one was found with period ≤ 32, else 0
+  int64_t iters = 0;  // Iterations performed
   double g() const { return std::exp2(log2g); }
 };
 
