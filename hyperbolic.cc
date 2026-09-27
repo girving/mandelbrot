@@ -177,12 +177,13 @@ struct Area {
   double area_d, res_d;  // Double: area, max final residual
   E area_e;              // Expansion<2> area
   double res_e;          // Max final Expansion<2> residual
+  double dc2, perimeter; // ∫|c'(e^{iθ})|^2 dθ and ∫|c'(e^{iθ})| dθ, in double
 };
 
 // Area of the period p component with center c0, using N boundary points
 Area area(const Complex<E> c0, const int p, const int N, const vector<Complex<E>>& lams,
           const E pi, const int steps = 60) {
-  Area A{true, 0, 0, E(0), 0};
+  Area A{true, 0, 0, E(0), 0, 0, 0};
   E sum_e(0);
   double sum_d = 0;
   const Complex<double> c0d = to_double(c0);
@@ -206,6 +207,8 @@ Area area(const Complex<E> c0, const int p, const int N, const vector<Complex<E>
     if (!(r.residual < 1e-6)) { A.ok = false; return A; }
     A.res_d = max(A.res_d, r.residual);
     sum_d += (conj(c) * r.dc_dlam * lam_d).r;
+    A.dc2 += sqr_abs(r.dc_dlam);
+    A.perimeter += abs(r.dc_dlam);
 
     // Polish in Expansion<2>
     auto ze = to_e(z), ce = to_e(c);
@@ -218,6 +221,8 @@ Area area(const Complex<E> c0, const int p, const int N, const vector<Complex<E>
     sum_e += (conj(ce) * re.dc_dlam * lam_e).r;
   }
   A.area_d = M_PI * sum_d / N;
+  A.dc2 *= 2 * M_PI / N;
+  A.perimeter *= 2 * M_PI / N;
   A.area_e = pi * sum_e / E(int64_t(N));
   return A;
 }
@@ -248,7 +253,7 @@ void run(const int min_p, const int max_p, const int N) {
     slow_assert(C.distinct == (1 << (p - 1)) && int(C.c.size()) == want, "center count mismatch at p = %d", p);
 
     t0 = wall_time();
-    double sum_d = 0, res_d = 0, res_e = 0;
+    double sum_d = 0, res_d = 0, res_e = 0, dc2 = 0, perimeter = 0;
     E sum_e(0);
     int failed = 0;
     vector<Area> As(C.c.size());
@@ -262,6 +267,8 @@ void run(const int min_p, const int max_p, const int N) {
       }
       sum_d += A.area_d;
       sum_e += A.area_e;
+      dc2 += A.dc2;
+      perimeter += A.perimeter;
       res_d = max(res_d, A.res_d);
       res_e = max(res_e, A.res_e);
     }
@@ -285,6 +292,7 @@ void run(const int min_p, const int max_p, const int N) {
     print("  area dbl  %.17g,  exp2 - dbl %.2e,  2N - N (exp2) %s", sum_d, double(sum_e - E(sum_d)), check);
     print("  cum from p = %d %.15g,  max resid dbl %.1e exp2 %.1e,  failed %d,  area %.3f s, 2N check %.3f s",
           min_p, double(cum), res_d, res_e, failed, ta, t2);
+    print("  sum of ∫|c'|^2 dθ %.10e,  p * that %.10e,  perimeter %.10e", dc2, p * dc2, perimeter);
     if (p == 1) print("  cardioid err vs 3π/8: %.2e", double(sum_e - E(3) * pi / E(int64_t(8))));
     if (p == 2) print("  disk err vs π/16: %.2e", double(sum_e - pi / E(int64_t(16))));
   }
