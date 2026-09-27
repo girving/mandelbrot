@@ -95,6 +95,7 @@ area = declare_dependency(
                        dependencies: [base, arb_cc, known, m]),
     sources: generated, dependencies: [arb_cc, known, m])
 
+test('tests', executable('tests_test', ['tests_test.cc'], dependencies: [tests]))
 test('bit', executable('bit_test', ['bit_test.cc'], dependencies: [tests]))
 test('expansion', executable('expansion_test', ['expansion_test.cc'], dependencies: [area, tests]))
 test('loops', executable('loops_test', ['loops_test.cc'], dependencies: [base, tests]))
