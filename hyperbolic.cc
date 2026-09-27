@@ -14,10 +14,14 @@
 #include "print.h"
 #include "wall_time.h"
 #include <algorithm>
+#include <atomic>
+#include <functional>
+#include <thread>
 #include <vector>
 namespace mandelbrot {
 namespace {
 
+using std::function;
 using std::max;
 using std::min;
 using std::vector;
@@ -56,42 +60,68 @@ struct Centers {
   double max_step;       // Size of the final Expansion<2> Newton step
 };
 
+// Run f(i) for i in [0,n) on all cores
+void parallel_for(const int64_t n, const function<void(int64_t)>& f) {
+  const int threads = max(1u, std::thread::hardware_concurrency());
+  std::atomic<int64_t> next(0);
+  vector<std::thread> pool;
+  for (int t = 0; t < threads; t++)
+    pool.emplace_back([&]() {
+      for (int64_t i; (i = next++) < n;) f(i);
+    });
+  for (auto& t : pool) t.join();
+}
+
 Centers centers(const int p) {
   const int d = 1 << (p - 1);  // Degree of f_c^p(0)
   const double pi = M_PI;
 
-  // Hubbard-Schleicher-Sutherland starting points, scaled since the roots lie in |c| <= 2
-  const double logd = std::log(max(d, 2));
-  const int s = max(1, int(std::ceil(0.26632 * logd)));
-  const int n = max(16, int(std::ceil(8.32547 * d * logd)));
+  // Newton from rings just outside the root disk |c| <= 2, adding rings until all d roots are found.
+  // (Hubbard-Schleicher-Sutherland rings far outside cost ~d iterations per start to crawl inward.)
+  const int n = max(16, 4*d);
+  vector<Complex<double>> found;
+  int starts = 0, distinct = 0;
+  const double radii[] = {2.2, 2.6, 3.2, 4.0, 5.0, 2.4, 2.9, 3.6};
   vector<Complex<double>> roots;
-  int starts = 0;
-  for (int v = 1; v <= s; v++) {
-    const double r = 2 * (1 + std::sqrt(2.)) * std::pow((d - 1.) / d, (2*v - 1) / (4.*s));
-    for (int j = 0; j < n; j++) {
-      starts++;
-      const double t = 2 * pi * (j + 0.5*v) / n;
-      Complex<double> c(r * std::cos(t), r * std::sin(t));
-      bool ok = false;
-      for (int it = 0; it < 40*d + 200; it++) {
-        const auto dc = center_step(c, p);
-        c -= dc;
+  for (int ring = 0; ring < 8 && distinct < d; ring++) {
+    const double r = radii[ring], offset = ring * 0.6180339887498949;
+    vector<Complex<double>> c(n);
+    vector<char> ok(n);
+    parallel_for(n, [&](const int64_t j) {
+      const double t = 2 * pi * (j + offset) / n;
+      Complex<double> x(r * std::cos(t), r * std::sin(t));
+      for (int it = 0; it < 2*d + 2000; it++) {
+        const auto dc = center_step(x, p);
+        x -= dc;
         if (!(cabs(dc) < 1e3)) break;
-        if (cabs(dc) < 1e-14) { ok = true; break; }
+        if (cabs(dc) < 1e-15 * max(1.0, cabs(x))) { ok[j] = 1; break; }
       }
-      if (!ok) continue;
+      c[j] = x;
+    });
+    starts += n;
+    for (int64_t j = 0; j < n; j++)
+      if (ok[j]) found.push_back(c[j]);
+
+    // Deduplicate: sort by real part and compare against recent uniques within the tolerance
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.r < b.r; });
+    roots.clear();
+    const double tol = 1e-12;
+    for (const auto& x : found) {
       bool dup = false;
-      for (const auto& o : roots)
-        if (cabs(c - o) < 1e-9) { dup = true; break; }
-      if (!dup) roots.push_back(c);
+      for (int64_t k = int64_t(roots.size()) - 1; k >= 0 && roots[k].r > x.r - tol; k--)
+        if (cabs(x - roots[k]) < tol) { dup = true; break; }
+      if (!dup) roots.push_back(x);
     }
+    found = roots;
+    distinct = int(roots.size());
   }
 
-  // Keep exact period p: reject if f_c^k(0) ≈ 0 for a proper divisor k
+// Keep exact period p: reject if f_c^k(0) ≈ 0 for a proper divisor k
   Centers C;
-  C.distinct = int(roots.size());
+  C.distinct = distinct;
   C.starts = starts;
   C.max_step = 0;
+  vector<Complex<double>> exact;
   for (const auto& c : roots) {
     Complex<double> z = c;
     bool lower = false;
@@ -99,15 +129,20 @@ Centers centers(const int p) {
       if (p % k == 0 && cabs(z) < 1e-8) { lower = true; break; }
       z = sqr(z) + c;
     }
-    if (lower) continue;
-    auto ce = to_e(c);
+    if (!lower) exact.push_back(c);
+  }
+  C.c.resize(exact.size());
+  vector<double> steps(exact.size());
+  parallel_for(exact.size(), [&](const int64_t i) {
+    auto ce = to_e(exact[i]);
     for (int it = 0; it < 3; it++) {
       const auto dc = center_step(ce, p);
       ce -= dc;
-      if (it == 2) C.max_step = max(C.max_step, cabs(to_double(dc)));
+      if (it == 2) steps[i] = cabs(to_double(dc));
     }
-    C.c.push_back(ce);
-  }
+    C.c[i] = ce;
+  });
+  for (const double x : steps) C.max_step = max(C.max_step, x);
   return C;
 }
 
@@ -216,11 +251,13 @@ void run(const int min_p, const int max_p, const int N) {
     double sum_d = 0, res_d = 0, res_e = 0;
     E sum_e(0);
     int failed = 0;
-    for (const auto& c0 : C.c) {
-      const auto A = area(c0, p, N, lams, pi);
+    vector<Area> As(C.c.size());
+    parallel_for(C.c.size(), [&](const int64_t i) { As[i] = area(C.c[i], p, N, lams, pi); });
+    for (size_t i = 0; i < As.size(); i++) {
+      const auto& A = As[i];
       if (!A.ok) {
         failed++;
-        print("  FAILED to converge: center %s", to_double(c0));
+        print("  FAILED to converge: center %s", to_double(C.c[i]));
         continue;
       }
       sum_d += A.area_d;
@@ -235,10 +272,10 @@ void run(const int min_p, const int max_p, const int N) {
     string check = "skipped";
     if (p == max_p) {
       E sum2(0);
-      for (const auto& c0 : C.c) {
-        const auto A = area(c0, p, 2*N, lams2, pi);
+      vector<Area> As2(C.c.size());
+      parallel_for(C.c.size(), [&](const int64_t i) { As2[i] = area(C.c[i], p, 2*N, lams2, pi); });
+      for (const auto& A : As2)
         if (A.ok) sum2 += A.area_e;
-      }
       check = tfm::format("%.2e", double(sum2 - sum_e));
     }
     const double t2 = (wall_time() - t0).seconds();
