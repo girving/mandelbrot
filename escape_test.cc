@@ -87,5 +87,17 @@ TEST(below) {
   ASSERT_TRUE(e.steps < 0 && below(e, 1000000));
 }
 
+TEST(period) {
+  // Centers of known components report their period
+  const struct { double x, y; int p; } cs[] = {
+      {0, 0, 1}, {-1, 0, 2}, {-0.1225611668766536, 0.7448617666197442, 3}, {-1.754877666246693, 0, 3},
+      {-1.310702641336833, 0, 4}, {0.2822713907669139, 0.5300606175785253, 4}, {-1.985424253054205, 0, 5}};
+  for (const auto& c : cs) {
+    const auto e = escape(c.x + 1e-8, c.y + 1e-8, 1 << 16);  // Near, not at, the center
+    ASSERT_EQ(e.steps, -1);
+    ASSERT_EQ(e.period, c.p) << tfm::format("c = %g + %gi", c.x, c.y);
+  }
+}
+
 }  // namespace
 }  // namespace mandelbrot

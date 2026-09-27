@@ -14,7 +14,10 @@ bool in_cardioid_or_disk(const double x, const double y) {
 
 Escape escape(const double x, const double y, const int64_t max_iter) {
   const double inside = -INFINITY;
-  if (in_cardioid_or_disk(x, y)) return {-1, inside};
+  if (in_cardioid_or_disk(x, y)) {
+    const bool disk = (x + 1) * (x + 1) + y * y <= 1.0 / 16;
+    return {-1, inside, disk ? 2 : 1};
+  }
   // Iterate z_1 = c, z_{n+1} = z_n^2 + c, escaping at |z| > 2^32 so that log|z| is accurate
   const double R2 = std::ldexp(1.0, 64);
   double zx = x, zy = y;
@@ -28,7 +31,18 @@ Escape escape(const double x, const double y, const int64_t max_iter) {
     zy = 2 * zx * zy + y;
     zx = t;
     const double dx = zx - cx, dy = zy - cy;
-    if (dx * dx + dy * dy < 1e-26) return {-1, inside};
+    if (dx * dx + dy * dy < 1e-26) {
+      // Converged to an attracting cycle: find its minimal period, if small
+      double wx = zx, wy = zy;
+      for (int p = 1; p <= 32; p++) {
+        const double t2 = wx * wx - wy * wy + x;
+        wy = 2 * wx * wy + y;
+        wx = t2;
+        const double ex = wx - zx, ey = wy - zy;
+        if (ex * ex + ey * ey < 1e-20) return {-1, inside, p};
+      }
+      return {-1, inside, 0};
+    }
     if (n == next_check) { cx = zx; cy = zy; next_check *= 2; }
   }
   return {-1, inside};
