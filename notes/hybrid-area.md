@@ -15,8 +15,8 @@ repo plus the coefficient file `f-k27.npy` (2^27 Böttcher coefficients, 2 GiB) 
 - **Structure:** Böttcher octave energy decays locally like a power of log n at parabolic points
   (j^-4 at satellite roots, about j^-6 at primitive cusps, with j = log₂ n), and like a power of n at
   Misiurewicz points.  Over the whole circle it decays like j^-2, which is a 1/log N tail.
-- **Rigorous piece (sketch):** given a standard parabolic-escape estimate near c = -3/4, the tail
-  Σ_{n>N} n|b_n|² is at least c (log N)^-3.  So the Böttcher bounds can never converge like a power of N,
+- **Rigorous piece (elementary proof, §4):** the tail Σ_{n>N} n|b_n|² is at least c (log N)^-5, by
+  shadowing real orbits near the cusp 1/4.  So the Böttcher bounds can never converge like a power of N,
   and β_M(2) = 1 for the integral means spectrum of the exterior map.
 
 ## Notation
@@ -136,47 +136,82 @@ Structural consistency: the weights Q_p = p Σ_{W of period p} ∫|c'_W|² dθ f
 - The heuristic is weakest at boundary points with irrational internal angle, and where bulbs crowd the
   boundary.
 
-## 4. A rigorous lower bound on the tail (sketch)
+## 4. A rigorous lower bound on the tail
 
-**Proposition.**  There is c > 0 with T(N) = Σ_{n>N} n|b_n|² ≥ c (log N)^-3 for all large N.  Hence
-U_N - μ ≥ πc (log N)^-3, T(N) is not O(N^-a) for any a > 0, and β_M(2) = 1.
+**Theorem.**  There are explicit constants c, N₀ > 0 such that for all N ≥ N₀,
 
-*Step 1 (shell identity).*  Let A(δ) = area{c ∉ M : g_M(c) < δ}, the image of the annulus
-1 < |w| < e^δ under ψ.  By the area theorem,
+  T(N) = Σ_{n>N} n|b_n|² ≥ c (log N)^-5.
 
-  A(δ) = π(e^{2δ} - 1) + π Σ_n n|b_n|² (1 - e^{-2nδ}).
+Hence U_N − μ ≥ πc (log N)^-5.  In particular T(N) is not O(N^-a) for any a > 0, which means
+β_M(2) = 1 for the integral means spectrum of ψ.  No extrapolation of the Böttcher bounds as a power
+of N can be correct.
 
-*Step 2 (upper bound by the tail).*  Split the sum at M, using 1 - e^{-2nδ} ≤ 2nδ for n ≤ M and ≤ 1
-for n > M, together with Σ_{n≤M} n·n|b_n|² ≤ M Σ n|b_n|² ≤ M:
+The proof is elementary.  Its only inputs are the Böttcher map Φ : C∖M → {|w| > 1}, Grönwall's area
+theorem, and estimates on real orbits near the cusp c = 1/4.  All three exist in or near `ray`.
 
-  A(δ) ≤ π(e^{2δ} - 1) + 2πδM + π T(M).
+**Step 1 (shell identity).**  Let g_M = log|Φ| be the Green's function of M, and let
+A(δ) = area{c ∉ M : g_M(c) < δ} = area ψ({1 < |w| < e^δ}).  Applying the area theorem to ψ on
+|w| > R (after rescaling, ψ_R(w) = ψ(Rw)/R) gives the missed area πR² − πΣ n|b_n|² R^{-2n}.
+Subtracting the R = 1 case,
 
-Taking M = ⌊δ^{-1/2}⌋ gives A(δ) ≤ O(δ^{1/2}) + π T(⌊δ^{-1/2}⌋).
+  A(δ) = π(e^{2δ} − 1) + π Σ_n n|b_n|² (1 − e^{−2nδ}).
 
-*Step 3 (lower bound from the root −3/4).*  This step needs **Lemma B**: there are s₀, κ, c₁ > 0 such
-that for s < s₀, the exterior of M within distance s of −3/4 contains a set G_s of area ≥ c₁ s³ on which
-|f_c^k(0)| ≤ 2 for all k ≤ κ/s.
+**Step 2 (the shell area is controlled by the tail).**  Use 1 − e^{−2nδ} ≤ 2nδ for n ≤ M, and ≤ 1 for
+n > M.  Also Σ_{n≤M} n·n|b_n|² ≤ M Σ n|b_n|² ≤ M, since the missed area is nonnegative.  So
 
-- On G_s, g_M(c) = 2^{1-k} g_c(f_c^{k-1}(c)) ≤ 2^{1-κ/s} log 4.
-- So G_s ⊂ {g_M < δ} once s ≈ κ ln 2 / log(1/δ), and A(δ) ≥ c₂ (log 1/δ)^-3.
+  A(δ) ≤ π(e^{2δ} − 1) + 2πδM + πT(M).
 
-*Step 4.*  Combining steps 2 and 3 with M = δ^{-1/2}, so that log(1/δ) = 2 log M:
+Take M = ⌊δ^{-1/2}⌋.  This gives πT(M) ≥ A(M^{-2}) − O(M^{-1}).
 
-  π T(M) ≥ c₂ (2 log M)^-3 - O(M^-1).
+**Step 3 (a horn of slowly escaping parameters at the cusp).**  Fix 0 < ε ≤ 1/16 and the real
+parameter c = 1/4 + ε.  Let z_0 = 0 and z_{n+1} = z_n² + c.  Set u_n = z_n − 1/2 and
+φ(u) = u² + ε, so that u_{n+1} = u_n + φ(u_n).  The sequence u_n increases from −1/2 to +∞.
 
-**Status of Lemma B.**
-- Along the vertical line c = −3/4 + iε, the escape time is about π/ε.  This is Boll's observation,
-  proved by Klebanoff (Fractals 9, 2001).  I recalled this citation and have not checked it.
-- The gap between the cardioid and the period-2 disk has width about s² at height s.  So it lies within
-  a sector of perturbation directions around the imaginary axis, where the pitchfork normal form of f²
-  near its parabolic fixed point gives passage time ≍ 1/|c + 3/4|.
-- Making that uniform over the sector is standard parabolic implosion, but I have not written it out.
-- The same argument at the cusp 1/4 (escape ≍ 1/√ε, horn area ≍ ε^{5/2}) gives the weaker
-  T(N) ≳ (log N)^-5.
+- *(3a) Slow passage.*  The map u ↦ u + u² + ε is increasing for u > −1/2, and sends −√ε to −√ε + 2ε.
+  So the first u_n ≥ −√ε is at most −√ε + 2ε.  While |u_n| ≤ √ε, each step is at most 2ε.  Hence
+  z_n ≤ 1/2 + √ε ≤ 1 for all n ≤ n₁ := ⌈1/√ε⌉ − 2.
+- *(3b) A telescoping identity.*  φ(u_{n+1}) = φ(u_n)·(1 + 2u_n + φ(u_n)).  So
+  2z_n = 1 + 2u_n ≤ φ(u_{n+1})/φ(u_n).
+- *(3c) The key sum.*  Let n₂ be the first n with u_n ≥ 1.4, i.e. z_n ≥ 1.9.  Then
+  Σ_{k=1}^{n₂} 1/φ(u_k) ≤ 57 ε^{-3/2}.
 
-The constant is tiny: at N = 2^27 the bound is far below the actual T ≈ 0.046.  Its value is qualitative:
-no extrapolation of the Böttcher bounds as a power of N can be correct.  The heuristic in §3 suggests the
-true rate is 1/log N, three powers of log slower.
+  *Proof.*  Each term equals Δu_k/φ(u_k)², where Δu_k = u_{k+1} − u_k.  On [u_k, u_{k+1}], the
+  ratio φ(u)/φ(u_k) is at most max(1, φ(u_{k+1})/φ(u_k)) ≤ 6, because u_k ≤ 1.4.  So each term is
+  at most 36∫_{u_k}^{u_{k+1}} du/φ(u)², and the sum is at most 36 ∫_ℝ du/(u² + ε)² = 18π ε^{-3/2}.
+  Numerically the sum tends to (π/2) ε^{-3/2}.
+- *(3d) Shadowing.*  Let c' = c + h with |h| ≤ ε^{3/2}/6000, let z'_n be its orbit, and let
+  e_n = z'_n − z_n.  Put τ_n = |h| Σ_{k≤n} 1/φ(u_k), so that τ_n ≤ 1/100 for n ≤ n₂ by (3c).
+
+  *Claim:* |e_n| ≤ τ_n φ(u_n) for 1 ≤ n ≤ n₂.
+
+  *Proof, by induction.*  e_1 = h, so the case n = 1 holds.  For the step, e_{n+1} = (2z_n + e_n)e_n + h.
+  Since z_n ≥ 0, (3b) gives |2z_n + e_n| ≤ 1 + 2u_n + φ(u_n) = φ(u_{n+1})/φ(u_n).  Hence
+  |e_{n+1}| ≤ φ(u_{n+1})(τ_n + |h|/φ(u_{n+1})) = τ_{n+1} φ(u_{n+1}).  Numerically the bound is sharp.
+
+  Consequences:
+  - At n₂ we have z_{n₂} ≥ 1.9 and φ(u_{n₂}) ≤ 12, so |z'_{n₂}| ≥ 1.78.  Then
+    |z'_{n₂+1}| ≥ 1.78² − |c'| > 2, so c' escapes and c' ∉ M.
+  - For n ≤ n₁, |z'_n| ≤ 1 + 1/100·φ(u_n) ≤ 1.1.  Using g_c(z) ≤ 1.2 for |z| ≤ 2 and |c| ≤ 1/2,
+    and g_M(c') = 2^{1−n} g_{c'}(z'_n), we get g_M(c') ≤ 2.4 · 2^{−n₁}.
+- *(3e) The horn.*  For ε ≤ 1/32, the region H_ε = {1/4 + x + iy : ε ≤ x ≤ 2ε, |y| ≤ x^{3/2}/6000} applies (3d) with
+  base point 1/4 + x.  It lies outside M, satisfies g_M ≤ δ(ε) := 2.4 · 2^{2−1/√(2ε)}, and has area
+  (4/30000)(2^{5/2} − 1) ε^{5/2}.
+
+**Step 4 (conclusion).**  Since log(1/δ(ε)) ≍ (ln 2)/√(2ε), Step 3 gives A(δ) ≥ c₁ (log 1/δ)^{-5}.
+With δ = M^{-2}, Step 2 then gives T(M) ≥ c (log M)^{-5}. ∎
+
+The constants are far from sharp: 57 could be π/2, and 1/6000 could be about 1/(50π).  The exponent 5
+comes from the horn's area, ε^{5/2}, where the width ε^{3/2} is exactly the width at which shadowing
+still works.  The heuristic in §3 predicts the true rate is 1/log N.
+
+**Stronger versions, not yet proved.**
+- At the satellite root −3/4, the exterior gap between the cardioid and the period-2 disk has area
+  about s³ within distance s, and escape there takes about π/s iterations (Boll's π; proved on the
+  vertical line by Klebanoff, Fractals 9 (2001) — citation not checked).  This would give T(N) ≳ (log N)^-3.
+  Its exterior parameters are not real, though, so the shadowing proof above does not apply; it would
+  need the parabolic normal form of f² made uniform over the gap.
+- A proof of the 1/log N rate would need the neutral-boundary shell of §3 at every component, including
+  boundary points with irrational internal angles.  That is well beyond the elementary methods here.
 
 ## 5. Reproducing
 
@@ -195,7 +230,8 @@ force, octave spectra against a direct DFT, and `.npy` round trips.
 
 ## Open directions
 
-1. Prove Lemma B, which makes §4 a theorem.
+1. Formalize §4 in Lean, in `ray`, which already has Grönwall's theorem for M (`multibrot_volume_sum`).
+   Then strengthen it to (log N)^-3 via the satellite root −3/4.
 2. Compute C, the lingering constant, from the dynamics just outside neutral boundaries.  Then Q predicts
    K with no fitting, which would be a real test of the 1/log N mechanism.
 3. Use the 1/log N law with measured K to sharpen μ, e.g. by fitting only a and the parity oscillation
