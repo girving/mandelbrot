@@ -272,6 +272,33 @@ of 2·10⁹ samples each:
 - *Precision gained.*  Böttcher extrapolation alone gave μ ≈ 1.507 ± 0.003, so the escape-time
   measurement adds about three digits.
 
+### 5.1 Toward two more digits (September 2026)
+
+Target: error ~3·10^-11, two digits beyond the published 1.5065918849.
+
+- *Certified adaptive tree* (`escape_tree`).  Cells whose center carries a Koebe distance certificate are
+  decided exactly; the rest split, down to leaves sampled with m points.  Leaf samples are jittered in
+  2 × 2 strata (1.64× in error² × time over iid points).  Error ∝ cost^-0.69.  Leaves are collected and
+  sampled in batches (`escape_batch`), on CPU threads or a persistent-thread CUDA kernel (`--cuda`).
+- *Failed ideas*: control variates from known components, smoothing, roulette, multilevel over thresholds,
+  linearization jumps and BLA (orbits leave the linear regime at once), and sampling only the exterior
+  shell {2^-K ≤ g < 2^-19} against the exact Grönwall F(2^-19).  The last one fails because at leaf scale
+  the level curve g = 2^-19 is as wiggly as ∂M: var(shell) ≈ var(A(19)) + var(A(K)).
+- *Float is biased.*  `escape_tree --prec compare` classifies every leaf sample in float and double.  At
+  k = 2^20 float overcounts by +1.2·10^-5 ± 8·10^-8, growing with k.  The flips are float orbits wrongly
+  declared non-escaping: Brent cycles 65%, Newton certificates 27%, max_iter 9%.  These are finite-state
+  and tolerance artifacts, so float is out; H200 double is only 2× slower anyway.
+- *Double rounding.*  For slow escapers, double and double-double escape steps differ by about the step
+  count itself (sd ~7·10^4 at 2^16 steps).  Rounding re-randomizes the orbit, so it acts like a
+  ~10^-16 jitter of c.  Averaging the indicator over a jitter kernel preserves its integral, so the bias is
+  second order (c-dependence of the kernel) plus non-shadowing artifacts like the float ones.  This is an
+  argument, not a proof.  A paired double vs double-double tree run can check it only to ~10^-9.
+- *Budget.*  The tree reaches 3.4·10^-7 in 44 s on an M5 Pro (3.2·10^9 iterations/s).  3·10^-11 then
+  needs ~335 laptop-days.  An H200 does ~34 TFLOPS in double, about 3·10^12 iterations/s at peak; at
+  30–50% of peak that is 300–500× the laptop, so 0.7–1.1 GPU-days.  Tree traversal (escape_de at cell
+  centers, 15% of CPU time) would then dominate and needs to move to the GPU too.  The tail extrapolation
+  in k (the tail beyond 2^20 is ~2.7·10^-6, needed to ~10^-5 relative) is the other open risk.
+
 ## 6. Reproducing
 
 ```
@@ -281,6 +308,7 @@ meson compile -C build/release
 ./build/release/census f-k27.npy 26 20 4                # root census and wake ownership; ~12 s
 ./build/release/renorm angle_map.npy                    # wake periodicity and pullback tests
 ./build/release/escape_area 16000 1048576 SEED 16384 ... 1048568   # fattened areas; ~22 s per 2e9 samples
+./build/release/escape_tree --prec compare 64 1024 16384 262144 1048568   # certified tree, float vs double; ~85 s
 ```
 
 Unit tests cover everything the analyses use: `meson test -C build/release angles octaves numpy tests`.

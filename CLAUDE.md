@@ -14,7 +14,7 @@ Dependencies (Mac): `brew install meson pkgconf flint openssl@3` (arb is part of
     meson test -C build/debug series           # run one test suite
     ./build/debug/series_test div1p exp        # run specific tests within a suite by name
 
-Builds use `-Werror` with `warning_level=2`. CUDA (sm_80, via clang `-x cuda`) is optional; `*_cuda_test` targets only exist when CUDA is found. `meson.build` downloads `tinyformat.h` and `argparse.hpp` with curl at build time, so first builds need network access.
+Builds use `-Werror` with `warning_level=2`. CUDA (sm_80 and sm_90, via clang `-x cuda`) is optional; `*_cuda_test` targets only exist when CUDA is found. `meson.build` downloads `tinyformat.h` and `argparse.hpp` with curl at build time, so first builds need network access.
 
 ## Architecture
 

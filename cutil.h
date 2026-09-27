@@ -41,7 +41,7 @@ cuda_check_fail(cudaError_t code, const char* function, const char* file, unsign
 #define cuda_check(code, ...) ({ \
   auto _code = (code); \
   if (_code != cudaSuccess) \
-    cuda_check_fail(_code, __PRETTY_FUNCTION__, __FILE__, __LINE__, #code, format(__VA_ARGS__)); })
+    cuda_check_fail(_code, __PRETTY_FUNCTION__, __FILE__, __LINE__, #code, tfm::format(__VA_ARGS__)); })
 
 // For now, we share one stream for simplicity
 CUstream stream();
