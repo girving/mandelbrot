@@ -119,7 +119,12 @@ EscapeDE escape_de(const double x, const double y, const int64_t max_iter) {
     if (r2 > R2) {
       const double lz = 0.5 * std::log(r2);
       r.e = {n, std::log2(lz) - double(n - 1), 0, n};
-      r.dist = std::ldexp(std::sqrt(r2) * lz / (2 * std::hypot(dx, dy)), int(-std::min<int64_t>(dexp, 100000)));
+      // Koebe: dist(c, M) ≥ (1 - e^-g) / (4 |∇g|), with g = log|z_n| / 2^(n-1) and
+      // |∇g| = |dz_n/dc| / (|z_n| 2^(n-1)).  So dist ≥ (1 - e^-g) 2^(n-1) |z_n| / (4 |dz_n/dc|), where
+      // (1 - e^-g) 2^(n-1) = lz for small g.
+      const double g = std::exp2(std::log2(lz) - double(n - 1));
+      const double scale = g > 1e-8 ? -std::expm1(-g) / g : 1 - g / 2;  // (1 - e^-g) / g
+      r.dist = std::ldexp(scale * std::sqrt(r2) * lz / (4 * std::hypot(dx, dy)), int(-std::min<int64_t>(dexp, 100000)));
       return r;
     }
     const double ndx = 2 * (zx * dx - zy * dy) + std::ldexp(1.0, int(-std::min<int64_t>(dexp, 2000))),
