@@ -3,6 +3,7 @@
 #include "escape_batch.h"
 #include "debug.h"
 #include <algorithm>
+#include <cstdlib>
 #include <atomic>
 #include <thread>
 #include <vector>
@@ -58,12 +59,21 @@ template<class T, int L> int64_t cpu_worker(span<const Leaf> leaves, const Sampl
 
 }  // namespace
 
+int cpu_threads() {
+  static const int n = []() {
+    const char* s = getenv("MANDELBROT_THREADS");
+    const int t = s ? atoi(s) : int(std::thread::hardware_concurrency());
+    return std::max(1, t);
+  }();
+  return n;
+}
+
 template<class T> int64_t sample_leaves_cpu(span<const Leaf> leaves, const SampleParams& p, span<uint32_t> bits) {
   slow_assert(bits.size() == leaves.size() * size_t(p.m));
   slow_assert(0 < p.K && p.K <= 32);
   std::atomic<int64_t> next(0), iters(0);
   std::vector<std::thread> pool;
-  for (int t = 0; t < int(std::thread::hardware_concurrency()); t++)
+  for (int t = 0; t < cpu_threads(); t++)
     pool.emplace_back([&]() { iters += cpu_worker<T, BATCH_LANES>(leaves, p, bits, next); });
   for (auto& t : pool) t.join();
   return iters;

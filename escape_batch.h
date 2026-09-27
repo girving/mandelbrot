@@ -51,6 +51,9 @@ __host__ __device__ static inline uint32_t below_bits(const Escape& e, const Sam
   return b;
 }
 
+// CPU threads to use: $MANDELBROT_THREADS if set (say, a container's CPU request), else all hardware threads
+int cpu_threads();
+
 // Classify all leaves.size() * m samples into bits (one word per sample), returning total iterations.
 // T is the orbit precision (float or double).
 template<class T> int64_t sample_leaves_cpu(std::span<const Leaf> leaves, const SampleParams& p,

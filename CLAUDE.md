@@ -22,4 +22,5 @@ Builds use `-Werror` with `warning_level=2`. CUDA (sm_80 and sm_90, via clang `-
 - **Flint C++ wrappers**: `arb_cc.h`, `acb_cc.h`, `arf_cc.h`, `fmpq_cc.h`, `mag_cc.h`, `poly.h`, `rand.h` are thin RAII wrappers around flint C types.
 - **Series machinery**: `series.h/cc` implements power-series operations (mul, div, inv, exp, log and their `1p`-shifted variants) on top of `fft.h/cc`; `area.cc` drives the Böttcher-series area computation, and `arb_area.cc` is its rigorous arb counterpart.
 - **Build-time code generation**: the `codelets` executable (from `codelets.cc`, `exp.cc`, `nearest.cc`, `sig.cc`) generates the `gen-*.h` headers (expansion arithmetic, FFT butterflies, series bases) that `area`/`expansion`/`series` compile against.
+- **Cluster**: `cluster/` holds a one-H200 Kueue benchmark job (`pvc.yaml`, `bench.yaml`, `bench.sh`) that builds with a conda-forge toolchain.
 - **CPU/GPU sharing**: the same `.cc` sources compile for CUDA when available; `loops.h`, `device.h`, and `cutil.h` abstract over serial, OpenMP, and CUDA execution.

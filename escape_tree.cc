@@ -152,7 +152,7 @@ void run(const Params& p) {
     std::mutex mu;
     vector<Leaf> leaves;
     vector<std::thread> pool;
-    for (int t = 0; t < int(std::thread::hardware_concurrency()); t++)
+    for (int t = 0; t < cpu_threads(); t++)
       pool.emplace_back([&]() {
         for (int64_t i; (i = next++) < row1;) {
           Walker wk(p);
@@ -201,8 +201,10 @@ void run(const Params& p) {
 
   const double secs = (wall_time() - t0).seconds();
   print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, max_iter %d, seed %d, "
-        "prec %s, %s: %.1f s (tree %.1f s, sampling %.1f s)", p.base, p.depth, p.base << p.depth, p.safety, p.m,
-        p.strata, p.max_iter, p.seed, p.prec, p.cuda ? "cuda" : "cpu", secs, tree_secs, sample_secs);
+        "prec %s, %s, %d threads: %.1f s (tree %.1f s, sampling %.1f s)", p.base, p.depth, p.base << p.depth,
+        p.safety, p.m, p.strata, p.max_iter, p.seed, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), secs, tree_secs,
+        sample_secs);
+  print("  sampling throughput: %.3g iterations/s", double(leaf_iters + leaf_iters_f) / sample_secs);
   print("  centers: %.3g samples, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations",
         double(center_samples), double(center_iters), double(n_leaves), double(n_leaves * p.m),
         double(leaf_iters + leaf_iters_f));
