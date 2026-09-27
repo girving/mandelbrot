@@ -91,7 +91,7 @@ generated = [
     custom_target('gen_butterflies', output: 'gen-butterflies.h', command: [codelets, '@OUTPUT@']),
 ]
 area = declare_dependency(
-    link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc'] + generated,
+    link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc', 'octaves.cc'] + generated,
                        dependencies: [base, arb_cc, known, m]),
     sources: generated, dependencies: [arb_cc, known, m])
 
@@ -104,6 +104,7 @@ test('loops', executable('loops_test', ['loops_test.cc'], dependencies: [base, t
 test('arb_area', executable('arb_area_test', ['arb_area_test.cc'], dependencies: [arb_area, tests]))
 test('poly', executable('poly_test', ['poly_test.cc'], dependencies: [arb_area, tests]))
 test('fft', executable('fft_test', ['fft_test.cc'], dependencies: [area, tests]))
+test('octaves', executable('octaves_test', ['octaves_test.cc'], dependencies: [area, tests]))
 test('series', executable('series_test', ['series_test.cc'], dependencies: [area, tests]))
 test('area', executable('area_test', ['area_test.cc'], dependencies: [area, arb_area, tests]))
 if cuda.found()
