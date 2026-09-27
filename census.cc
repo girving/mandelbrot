@@ -27,7 +27,9 @@ void run(const string& path, const int max_j, const int P, const int W) {
 
   // near[type][p][j]: energy within ±W bins of period p roots; type 0 = satellite, 1 = primitive.  p = 1 is the cusp.
   vector<vector<vector<double>>> near(2, vector<vector<double>>(P + 1, vector<double>(max_j + 1)));
-  vector<double> S(max_j + 1);
+  vector<double> S(max_j + 1), covered(max_j + 1);
+  // owned[type][p][j]: energy at angles whose deepest wake of period <= P is a period p root; p = 1: no wake
+  vector<vector<vector<double>>> owned(2, vector<vector<double>>(P + 1, vector<double>(max_j + 1)));
   for (int j = 1; j <= max_j; j++) {
     const auto e = octave_energy(F.data, j);
     const int64_t lo = int64_t(1) << j, n = 2*lo;
@@ -44,6 +46,13 @@ void run(const string& path, const int max_j, const int P, const int W) {
       take(r.w.lo.value(), acc);
       take(r.w.hi.value(), acc);
     }
+    covered[j] = double(std::count(used.begin(), used.end(), true)) / double(used.size());
+    const auto owner = wake_owner(roots, n);
+    for (int64_t i = 0; i <= lo; i++) {
+      const int32_t r = owner[i];
+      if (r < 0) owned[1][1][j] += e[i];
+      else owned[roots[r].satellite ? 0 : 1][roots[r].w.lo.q][j] += e[i];
+    }
   }
   print("octaves done (%.2f s)\n", (wall_time() - t0).seconds());
 
@@ -54,7 +63,7 @@ void run(const string& path, const int max_j, const int P, const int W) {
     string h = "    p  ";
     for (int j = 10; j <= max_j; j++) h += tfm::format(" %5d", j);
     print(h);
-    for (int p = 1; p <= P; p++) {
+    for (int p = 1; p <= std::min(P, 12); p++) {
       if (!near[type][p][max_j]) continue;
       string row = tfm::format("   %2d  ", p);
       for (int j = 10; j <= max_j; j++) row += tfm::format(" %5.2f", 100 * near[type][p][j] / S[j]);
@@ -80,6 +89,78 @@ void run(const string& path, const int max_j, const int P, const int W) {
         print("   %s p = %2d: gamma %5.2f over %d octaves", type ? "primitive" : "satellite", p, -fit_line(x, y).b,
               int(x.size()));
     }
+  // Primitive profile collapse: near-root energy of period p vs x = j - p, normalized to its peak
+  print("\nPrimitive roots: profile prim_p(j) / peak vs x = j - p, and peak amplitude F(p) = max_j prim_p(j)");
+  string h = "    p   peak x   F(p)      pi F(p)    pi B(p)   ";
+  for (int x = -2; x <= 12; x++) h += tfm::format(" %4d", x);
+  print(h);
+  for (int p = 3; p <= P; p++) {
+    const auto& E = near[1][p];
+    int jp = 1;
+    for (int j = 1; j <= max_j; j++) if (E[j] > E[jp]) jp = j;
+    if (jp == max_j) continue;  // Peak not yet reached
+    double B = 0;  // Integrated over the octaves we have
+    for (int j = 1; j <= max_j; j++) B += E[j];
+    string row = tfm::format("   %2d   %4d   %.3e  %.3e  %.3e%s", p, jp - p, E[jp], M_PI * E[jp], M_PI * B,
+                             p + 12 <= max_j ? " " : "+");
+    for (int x = -2; x <= 12; x++) {
+      const int j = p + x;
+      row += j >= 1 && j <= max_j ? tfm::format(" %4.2f", E[j] / E[jp]) : "     ";
+    }
+    print(row);
+  }
+
+  // Satellite amplitudes: if sat_p(j) ~ A(p) j^-4, then sat_p(j) j^4 is flat in j
+  print("\nSatellite roots: sat_p(j) * j^4 (x1e3) for resolved octaves");
+  h = "    p  ";
+  for (int j = 14; j <= max_j; j++) h += tfm::format(" %6d", j);
+  print(h);
+  for (int p = 2; p <= P; p++) {
+    string row = tfm::format("   %2d  ", p);
+    for (int j = 14; j <= max_j; j++)
+      row += j >= p + 4 ? tfm::format(" %6.2f", 1e3 * near[0][p][j] * std::pow(j, 4)) : "       ";
+    print(row);
+  }
+
+  // Totals by type
+  print("\nShare of S_j near roots of period <= %d, by type", P);
+  print("    j   satellite  primitive   total    angle covered");
+  for (int j = 14; j <= max_j; j++) {
+    double sat = 0, prim = 0;
+    for (int p = 1; p <= P; p++) { sat += near[0][p][j]; prim += near[1][p][j]; }
+    print("   %2d   %7.1f%%   %7.1f%%  %6.1f%%   %7.2f%%", j, 100*sat/S[j], 100*prim/S[j], 100*(sat+prim)/S[j],
+          100*covered[j]);
+  }
+
+  // Ownership partition: no windows, every angle counted once
+  for (int type = 0; type < 2; type++) {
+    print("\nOwnership (deepest wake of period <= %d): percent of S_j owned by %s components of period p",
+          P, type ? "primitive (p = 1: outside all wakes)" : "satellite");
+    string h = "    p  ";
+    for (int j = 12; j <= max_j; j++) h += tfm::format(" %5d", j);
+    print(h);
+    for (int p = 1; p <= P; p++) {
+      if (!owned[type][p][max_j]) continue;
+      string row = tfm::format("   %2d  ", p);
+      for (int j = 12; j <= max_j; j++) row += tfm::format(" %5.2f", 100 * owned[type][p][j] / S[j]);
+      print(row);
+    }
+  }
+  print("\nOwnership profile, primitive components of period p: owned_p(j) / peak vs x = j - p");
+  string h2 = "    p   peak x   peak       ";
+  for (int x = 0; x <= 12; x++) h2 += tfm::format(" %4d", x);
+  print(h2);
+  for (int p = 3; p <= P; p++) {
+    const auto& E = owned[1][p];
+    int jp = 1;
+    for (int j = 1; j <= max_j; j++) if (E[j] > E[jp]) jp = j;
+    string row = tfm::format("   %2d   %4d%s  %.3e  ", p, jp - p, jp == max_j ? "+" : " ", E[jp]);
+    for (int x = 0; x <= 12; x++) {
+      const int j = p + x;
+      row += j <= max_j ? tfm::format(" %4.2f", E[j] / E[jp]) : "     ";
+    }
+    print(row);
+  }
   print("\ntotal %.1f s", (wall_time() - t0).seconds());
 }
 

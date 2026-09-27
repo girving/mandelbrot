@@ -24,7 +24,7 @@ using std::vector;
 typedef Expansion<2> E;
 
 // OEIS A000740: number of hyperbolic components of exact period p
-const int a000740[] = {0, 1, 1, 3, 6, 15, 27, 63, 120, 252, 495, 1023, 2010};
+const int a000740[] = {0, 1, 1, 3, 6, 15, 27, 63, 120, 252, 495, 1023, 2010, 4095, 8127, 16365, 32640};
 
 template<class S> Complex<S> cdiv(const Complex<S> a, const Complex<S> b) {
   const S d = sqr(b.r) + sqr(b.i);
@@ -262,8 +262,8 @@ int main(const int argc, const char** argv) {
     const int max_p = argc > 1 ? atoi(argv[1]) : 8;
     const int N = argc > 2 ? atoi(argv[2]) : 1024;
     const int min_p = argc > 3 ? atoi(argv[3]) : 1;
-    slow_assert(1 <= min_p && min_p <= max_p && max_p <= 12 && N >= 16,
-                "usage: %s [max_p <= 12] [N] [min_p]", argv[0]);
+    slow_assert(1 <= min_p && min_p <= max_p && max_p <= 16 && N >= 16,
+                "usage: %s [max_p <= 16] [N] [min_p]", argv[0]);
     const auto t0 = wall_time();
     run(min_p, max_p, N);
     print("total %.3f s", (wall_time() - t0).seconds());
