@@ -35,4 +35,9 @@ Wake cardioid_wake(const int p, const int q);
 Periodic tune(const Wake& w, const Periodic& a);
 Wake tune(const Wake& w, const Wake& v);
 
+// Inverse tuning on the leading digits of the binary fraction bits / 2^nbits: decode successive words of
+// length w.lo.q (w.lo's word -> 0, w.hi's word -> 1), stopping at the first other word or after D digits.
+// Returns the number of digits decoded, with the decoded digits in prefix.
+int untune(const Wake& w, const uint64_t bits, const int nbits, const int D, uint64_t& prefix);
+
 }  // namespace mandelbrot

@@ -96,5 +96,30 @@ TEST(tune) {
     ASSERT_LT(ws[i].hi.value(), ws[i+1].lo.value());
 }
 
+TEST(untune) {
+  const auto half = cardioid_wake(1, 2), third = cardioid_wake(1, 3);
+  for (const auto& w : {half, third}) {
+    const int r = w.lo.q;
+    for (int q = 1; q <= 8; q++)
+      for (uint64_t k = 0; k < (uint64_t(1) << q); k++) {
+        // tune(w, k/(2^q-1)) repeats a word of r*q bits; its first r*q bits decode back to k's q bits
+        const auto t = tune(w, Periodic{k, q});
+        uint64_t prefix;
+        ASSERT_EQ(untune(w, t.k, r * q, q, prefix), q);
+        ASSERT_EQ(prefix, k);
+        // Asking for fewer digits stops early
+        ASSERT_EQ(untune(w, t.k, r * q, q - 1, prefix), q - 1);
+        ASSERT_EQ(prefix, k >> 1);
+      }
+  }
+  // Decoding stops at the first word outside {01, 10}
+  uint64_t prefix;
+  ASSERT_EQ(untune(half, 0b01101101, 8, 4, prefix), 2);  // 01 10 11 01
+  ASSERT_EQ(prefix, uint64_t(0b01));
+  ASSERT_EQ(untune(half, 0b00, 2, 4, prefix), 0);
+  // Too few bits for another word
+  ASSERT_EQ(untune(half, 0b011, 3, 4, prefix), 1);
+}
+
 }  // namespace
 }  // namespace mandelbrot

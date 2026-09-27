@@ -140,21 +140,6 @@ double tv(const vector<double>& P, const vector<double>& Q) {
   return d / 2;
 }
 
-// Inverse tuning: decode a full-circle bin's leading binary digits in r-bit words (w.lo's word -> 0,
-// w.hi's word -> 1).  Returns the number of decoded digits before the first other word, capped at D.
-int untune(const Map& m, const Wake& w, const int i, const int D, int& prefix) {
-  const int bits = std::countr_zero(unsigned(m.bins)), r = w.lo.q;
-  prefix = 0;
-  int d = 0;
-  for (; d < D && (d + 1) * r <= bits; d++) {
-    const int word = i >> (bits - (d + 1) * r) & ((1 << r) - 1);
-    if (uint64_t(word) == w.lo.k) prefix = prefix << 1;
-    else if (uint64_t(word) == w.hi.k) prefix = prefix << 1 | 1;
-    else break;
-  }
-  return d;
-}
-
 // Angular distribution (2^D bins) of octave j's energy on angles that untune to at least D digits,
 // and the fraction of the wake's energy that does
 vector<double> untuned(const Map& m, const Wake& w, const int j, const int D, double& captured) {
@@ -163,8 +148,11 @@ vector<double> untuned(const Map& m, const Wake& w, const int j, const int D, do
   for (int i = 0; i < m.bins; i++) {
     if (!w.contains(center(m, i))) continue;
     wake += m.e[j][i];
-    int prefix;
-    if (untune(m, w, i, D, prefix) == D) { P[prefix] += m.e[j][i]; total += m.e[j][i]; }
+    uint64_t prefix;
+    if (untune(w, uint64_t(i), std::countr_zero(unsigned(m.bins)), D, prefix) == D) {
+      P[prefix] += m.e[j][i];
+      total += m.e[j][i];
+    }
   }
   captured = total / wake;
   for (auto& p : P) p /= total;

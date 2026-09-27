@@ -38,4 +38,18 @@ Wake tune(const Wake& w, const Wake& v) {
   return Wake{tune(w, v.lo), tune(w, v.hi)};
 }
 
+int untune(const Wake& w, const uint64_t bits, const int nbits, const int D, uint64_t& prefix) {
+  const int r = w.lo.q;
+  slow_assert(w.hi.q == r && nbits <= 64, "untune: bad arguments");
+  prefix = 0;
+  int d = 0;
+  for (; d < D && (d + 1) * r <= nbits; d++) {
+    const uint64_t word = bits >> (nbits - (d + 1) * r) & ((uint64_t(1) << r) - 1);
+    if (word == w.lo.k) prefix = prefix << 1;
+    else if (word == w.hi.k) prefix = prefix << 1 | 1;
+    else break;
+  }
+  return d;
+}
+
 }  // namespace mandelbrot
