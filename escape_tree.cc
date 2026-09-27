@@ -32,6 +32,7 @@ struct Params {
   int depth;         // Maximum refinement levels below the base grid
   double safety;     // Certify a cell if its half-diagonal is at most dist / safety
   int m;             // Fresh samples per sampled leaf
+  int strata;        // Each group of strata^2 leaf samples is jittered on a strata × strata grid
   int pilots;        // Pilot samples per uncertified leaf (0 disables roulette)
   double q;          // Roulette probability for leaves whose pilots agree with the center
   int64_t max_iter;
@@ -131,8 +132,10 @@ struct Worker {
       }
       return;
     }
+    const int ss = p.strata * p.strata;
     for (int i = 0; i < p.m; i++) {
-      const auto e = escape(x + u(rng) * w, y + u(rng) * h, p.max_iter);
+      const int j = i % ss, jx = j % p.strata, jy = j / p.strata;
+      const auto e = escape(x + (jx + u(rng)) / p.strata * w, y + (jy + u(rng)) / p.strata * h, p.max_iter);
       st.samples++;
       st.iters += e.iters;
       st.leaf_iters += e.iters;
@@ -142,12 +145,16 @@ struct Worker {
       for (int diff = 0; diff < (k + 1 < K ? 2 : 1); diff++) {
         const double ctrl = diff ? double(below(c.e, p.ks[k])) - double(below(c.e, p.ks[k + 1]))
                                  : double(below(c.e, p.ks[k]));
+        // Group means are iid across the m / strata^2 groups
+        const int groups = p.m / ss;
         double s = 0, s2 = 0;
-        for (int i = 0; i < p.m; i++) {
-          const double v = diff ? xs[i * K + k] - xs[i * K + k + 1] : xs[i * K + k];
+        for (int gi = 0; gi < groups; gi++) {
+          double v = 0;
+          for (int i = gi * ss; i < (gi + 1) * ss; i++) v += diff ? xs[i * K + k] - xs[i * K + k + 1] : xs[i * K + k];
+          v /= ss;
           s += v; s2 += v * v;
         }
-        const double mean = s / p.m;
+        const double mean = s / groups;
         double est, var;
         if (qq < 1) {
           // Roulette: ctrl + (mean - ctrl) / q, with the conservative variance (mean - ctrl)^2 / q^2
@@ -155,7 +162,7 @@ struct Worker {
           var = (mean - ctrl) * (mean - ctrl) / (qq * qq);
         } else {
           est = mean;
-          var = (s2 - s * mean) / (p.m - 1) / p.m;
+          var = (s2 - s * mean) / (groups - 1) / groups;
         }
         (diff ? st.dest : st.est)[k] += a * est;
         (diff ? st.dvar : st.var)[k] += a * a * var;
@@ -184,8 +191,8 @@ void run(const Params& p, const uint64_t seed) {
     });
   for (auto& t : pool) t.join();
   const double secs = (wall_time() - t0).seconds();
-  print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, %d pilots, q %g, max_iter %d, "
-        "seed %d: %.1f s", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.pilots, p.q, p.max_iter, seed, secs);
+  print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, %d pilots, q %g, max_iter %d, "
+        "seed %d: %.1f s", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.pilots, p.q, p.max_iter, seed, secs);
   print("  %.3g samples, %.3g iterations (centers %.3g, leaves %.3g)", double(total.samples),
         double(total.iters), double(total.center_iters), double(total.leaf_iters));
   string ls = "  sampled leaves by depth:", es = "  certified leaves by depth:";
@@ -207,15 +214,16 @@ void run(const Params& p, const uint64_t seed) {
 int main(const int argc, const char** argv) {
   using namespace mandelbrot;
   try {
-    slow_assert(argc >= 10, "usage: %s <base> <depth> <safety> <samples/leaf> <pilots> <q> <max_iter> <seed> <k...>",
+    slow_assert(argc >= 11, "usage: %s <base> <depth> <safety> <samples/leaf> <strata> <pilots> <q> <max_iter> <seed> <k...>",
                 argv[0]);
-    Params p{atoll(argv[1]), atoi(argv[2]), atof(argv[3]), atoi(argv[4]), atoi(argv[5]), atof(argv[6]),
-             atoll(argv[7]), {}};
-    const uint64_t seed = atoll(argv[8]);
-    for (int i = 9; i < argc; i++) p.ks.push_back(atoi(argv[i]));
+    Params p{atoll(argv[1]), atoi(argv[2]), atof(argv[3]), atoi(argv[4]), atoi(argv[5]), atoi(argv[6]),
+             atof(argv[7]), atoll(argv[8]), {}};
+    const uint64_t seed = atoll(argv[9]);
+    for (int i = 10; i < argc; i++) p.ks.push_back(atoi(argv[i]));
     for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
     for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");
-    slow_assert(p.m >= 2, "need at least 2 samples per leaf for variance estimates");
+    slow_assert(p.strata >= 1 && p.m % (p.strata * p.strata) == 0 && p.m / (p.strata * p.strata) >= 2,
+                "need m a multiple of strata^2 with at least 2 groups for variance estimates");
     run(p, seed);
     return 0;
   } catch (const std::exception& e) {
