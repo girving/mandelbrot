@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <ostream>
+#include <vector>
 namespace mandelbrot {
 
 using std::ostream;
@@ -39,5 +40,14 @@ Wake tune(const Wake& w, const Wake& v);
 // length w.lo.q (w.lo's word -> 0, w.hi's word -> 1), stopping at the first other word or after D digits.
 // Returns the number of digits decoded, with the decoded digits in prefix.
 int untune(const Wake& w, const uint64_t bits, const int nbits, const int D, uint64_t& prefix);
+
+// Roots of all hyperbolic components of periods 2 through max_period (<= 24), as the wakes bounded by
+// their two landing rays, via Lavaurs' algorithm: for each period in turn, pair each unpaired angle of
+// exact period p (in increasing order) with the next unpaired one whose chord crosses no earlier chord.
+struct Root {
+  Wake w;          // w.lo.q = w.hi.q = period
+  bool satellite;  // Satellite roots have both rays on one doubling cycle; primitive roots have two cycles
+};
+std::vector<Root> lavaurs(const int max_period);
 
 }  // namespace mandelbrot

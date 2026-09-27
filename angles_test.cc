@@ -121,5 +121,56 @@ TEST(untune) {
   ASSERT_EQ(untune(half, 0b011, 3, 4, prefix), 1);
 }
 
+TEST(lavaurs) {
+  const int P = 14;
+  const auto roots = lavaurs(P);
+  // Component counts per period: OEIS A000740
+  const int comps[] = {0, 1, 1, 3, 6, 15, 27, 63, 120, 252, 495, 1023, 2010, 4095, 8127};
+  vector<int> count(P + 1), sats(P + 1);
+  for (const auto& r : roots) {
+    ASSERT_EQ(r.w.lo.q, r.w.hi.q);
+    ASSERT_LT(r.w.lo.value(), r.w.hi.value());
+    count[r.w.lo.q]++;
+    sats[r.w.lo.q] += r.satellite;
+  }
+  for (int p = 2; p <= P; p++) {
+    ASSERT_EQ(count[p], comps[p]) << tfm::format("period %d", p);
+    // Satellites of period p: each component of period k | p, k < p, has phi(p/k) of them
+    int want = 0;
+    for (int k = 1; k < p; k++)
+      if (p % k == 0) {
+        int phi = 0;
+        for (int a = 1; a <= p / k; a++) phi += gcd(a, p / k) == 1;
+        want += comps[k] * phi;
+      }
+    ASSERT_EQ(sats[p], want) << tfm::format("period %d", p);
+  }
+  const auto has = [&](const Wake& w, const bool satellite) {
+    for (const auto& r : roots)
+      if (r.w == w) return r.satellite == satellite;
+    return false;
+  };
+  // Known small roots
+  ASSERT_TRUE(has(Wake{{1, 2}, {2, 2}}, true));    // -3/4
+  ASSERT_TRUE(has(Wake{{3, 3}, {4, 3}}, false));   // -1.75, primitive period 3
+  ASSERT_TRUE(has(Wake{{3, 4}, {4, 4}}, false));   // primitive period 4 in the 1/3 limb
+  ASSERT_TRUE(has(Wake{{7, 4}, {8, 4}}, false));   // -1.94, primitive period 4
+  ASSERT_TRUE(has(Wake{{6, 4}, {9, 4}}, true));    // -5/4, satellite of the period 2 disk
+  // Every cardioid wake and every tuned wake of the period 2 disk is a satellite root
+  for (int q = 2; q <= P; q++)
+    for (int p = 1; p < q; p++)
+      if (gcd(p, q) == 1) {
+        ASSERT_TRUE(has(cardioid_wake(p, q), true)) << tfm::format("%d/%d", p, q);
+        if (2*q <= P) ASSERT_TRUE(has(tune(cardioid_wake(1, 2), cardioid_wake(p, q)), true));
+      }
+  // Wakes are nested or disjoint
+  for (size_t i = 0; i < roots.size(); i += 7)
+    for (size_t j = 0; j < roots.size(); j += 5) {
+      const auto &a = roots[i].w, &b = roots[j].w;
+      const bool lo_in = b.contains(a.lo.value()), hi_in = b.contains(a.hi.value());
+      ASSERT_EQ(lo_in, hi_in) << a << " vs " << b;
+    }
+}
+
 }  // namespace
 }  // namespace mandelbrot

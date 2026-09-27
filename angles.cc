@@ -52,4 +52,49 @@ int untune(const Wake& w, const uint64_t bits, const int nbits, const int D, uin
   return d;
 }
 
+vector<Root> lavaurs(const int max_period) {
+  slow_assert(max_period <= 24, "lavaurs: max_period %d too large", max_period);
+  // Exact comparison of a/(2^p-1) and b/(2^q-1)
+  const auto less = [](const Periodic& a, const Periodic& b) {
+    return a.k * ((uint64_t(1) << b.q) - 1) < b.k * ((uint64_t(1) << a.q) - 1);
+  };
+  // Chord (c,d) crosses chord (a,b) iff exactly one of c,d lies strictly between a and b
+  const auto inside = [&](const Periodic& x, const Wake& w) { return less(w.lo, x) && less(x, w.hi); };
+  vector<Root> roots;
+  for (int p = 2; p <= max_period; p++) {
+    const uint64_t M = (uint64_t(1) << p) - 1;
+    // Angles of exact period p, in increasing order
+    vector<Periodic> angles;
+    for (uint64_t k = 1; k < M; k++) {
+      bool exact = true;
+      for (int d = 1; d < p && exact; d++)
+        if (p % d == 0 && k % (M / ((uint64_t(1) << d) - 1)) == 0) exact = false;
+      if (exact) angles.push_back(Periodic{k, p});
+    }
+    vector<bool> paired(angles.size());
+    for (size_t i = 0; i < angles.size(); i++) {
+      if (paired[i]) continue;
+      bool done = false;
+      for (size_t j = i + 1; j < angles.size() && !done; j++) {
+        if (paired[j]) continue;
+        const Wake w{angles[i], angles[j]};
+        bool crosses = false;
+        for (const auto& r : roots)
+          if (inside(w.lo, r.w) != inside(w.hi, r.w)) { crosses = true; break; }
+        if (crosses) continue;
+        // Satellite iff hi is on lo's doubling cycle
+        bool same = false;
+        uint64_t x = w.lo.k;
+        for (int s = 0; s < p; s++, x = 2*x % M)
+          if (x == w.hi.k) same = true;
+        roots.push_back(Root{w, same});
+        paired[i] = paired[j] = true;
+        done = true;
+      }
+      slow_assert(done, "lavaurs: failed to pair %s at period %d", angles[i], p);
+    }
+  }
+  return roots;
+}
+
 }  // namespace mandelbrot
