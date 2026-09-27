@@ -46,6 +46,8 @@ if cuda.found()
   add_global_arguments('-I/usr/local/cuda/include', language: 'cpp')
   add_global_arguments('-x', 'cuda', '--cuda-gpu-arch=sm_80', '--cuda-gpu-arch=sm_90', language: 'cpp')
   add_global_arguments('-Wno-unknown-cuda-version', language: 'cpp')
+  # CUDA ≥ 12 rejects libc++ on x86 unless asked; clang's CUDA support works with it
+  add_global_arguments('-D_ALLOW_UNSUPPORTED_LIBCPP', language: 'cpp')
 
   # Clang defaults to -ffp-contract=fast with CUDA, which breaks expansion arithmetic
   #   https://llvm.org/docs/CompileCudaWithLLVM.html#flags-that-control-numerical-code
