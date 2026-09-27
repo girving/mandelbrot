@@ -25,6 +25,7 @@ foreach p : libpaths
 endforeach
 
 add_global_arguments('-stdlib=libc++', language: 'cpp')
+add_global_link_arguments('-stdlib=libc++', language: 'cpp')  # Not the default on Linux
 add_global_arguments('-Wsign-compare', language: 'cpp')
 add_global_arguments('-Wno-gnu-statement-expression', language: 'cpp')
 add_global_arguments('-Wno-unused-parameter', language: 'cpp')
