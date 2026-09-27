@@ -65,7 +65,7 @@ argparse = custom_target('argparse', output: 'argparse.hpp',
 
 base_deps = openmp + (cuda.found() ? [cuda] : [])
 base = declare_dependency(
-    link_with: library('base', ['cutil.cc', 'debug.cc', 'loops.cc', 'numpy.cc', 'print.cc', 'shutdown.cc',
+    link_with: library('base', ['angles.cc', 'cutil.cc', 'debug.cc', 'loops.cc', 'numpy.cc', 'print.cc', 'shutdown.cc',
                                 tinyformat, argparse], dependencies: base_deps),
     sources: [tinyformat, argparse], dependencies: base_deps)
 tests = declare_dependency(
@@ -95,6 +95,7 @@ area = declare_dependency(
                        dependencies: [base, arb_cc, known, m]),
     sources: generated, dependencies: [arb_cc, known, m])
 
+test('angles', executable('angles_test', ['angles_test.cc'], dependencies: [tests]))
 test('tests', executable('tests_test', ['tests_test.cc'], dependencies: [tests]))
 test('bit', executable('bit_test', ['bit_test.cc'], dependencies: [tests]))
 test('numpy', executable('numpy_test', ['numpy_test.cc'], dependencies: [tests]))
