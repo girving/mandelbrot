@@ -50,7 +50,10 @@ spec:
                 curl -fsSL -o /data/bin/micromamba \
                   https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-linux-64
                 chmod +x /data/bin/micromamba; }
-              curl -fsSL -o /work/bench.sh https://raw.githubusercontent.com/girving/mandelbrot/$COMMIT/cluster/bench.sh
+              # The contents API, not raw.githubusercontent.com, which serves stale files for minutes
+              curl -fsSL -H "Accept: application/vnd.github.raw" -o /work/bench.sh \
+                "https://api.github.com/repos/girving/mandelbrot/contents/cluster/bench.sh?ref=$COMMIT"
+              grep -m1 "^ENV=" /work/bench.sh
           volumeMounts:
             - { name: data, mountPath: /data }
             - { name: work, mountPath: /work }
