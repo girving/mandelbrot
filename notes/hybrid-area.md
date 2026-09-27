@@ -238,7 +238,41 @@ the exponent is 6 rather than 5.  It depends only on the axioms `propext`, `Clas
 - A proof of the 1/log N rate would need the neutral-boundary shell of §3 at every component, including
   boundary points with irrational internal angles.  That is well beyond the elementary methods here.
 
-## 5. Reproducing
+## 5. Digits: fattened sets from escape times, bias from the 1/log law
+
+Grönwall's theorem at radius e^δ gives the area of the fattened set {c : g_M(c) < δ} exactly:
+
+  F(δ) = π e^{2δ} − π Σ n |b_n|² e^{−2nδ}.
+
+The weights e^{−2nδ} decay, so the 2^27 coefficients determine F(2^-k) to about 10^-8 for k ≤ 19
+(`scratch/fattened_exact.py`).
+
+The same sets are cheap to measure by Monte Carlo far past what the series can reach.  If the orbit of
+c has not escaped after m iterations, then g_M(c) ≤ 2^-m · O(1).  So deciding whether g < 2^-k takes
+about k iterations, plus cardioid, disk and cycle tests for the interior of M.  The tool is
+`escape_area`: a jittered grid with 8 independent points per cell, which serve as replicas.
+
+**Validation.**  With 3 × 2·10⁹ samples, the Monte Carlo F(2^-k) for k = 8, 12, 16, 18, 19 matches the
+exact Grönwall values to within 1σ, which is about 10^-6.  This checks both the classifier and the
+coefficients.
+
+**Results.**  The run goes to k = 2^20, which corresponds to 2^(10^6) Böttcher terms.  The effective
+1/k coefficient drifts slowly, from 3.8 at k = 2^10 to 2.8 at k = 2^19; at k ≈ 20 the Böttcher fits give
+πK/ln 2 ≈ 3.9.
+
+Two tail models fitted on k ≥ 2^14 agree to 2·10^-8: μ + a/k^{1.045}, and μ + a/(k·√log k).  With 9 seeds
+of 2·10⁹ samples each:
+
+  **μ = 1.5065931 ± 0.0000006 (stat) ± 0.0000015 (rounding) ± ~0.0000005 (tail model)**
+
+**Checks.**
+- *Rounding.*  On 4·10⁸ samples, double and double-double classifications flip in both directions at
+  nearly equal rates.  The net bias is ≲ 1.5·10^-6 up to k = 2^17.
+- *Agreement.*  The result matches the pixel-counting estimate 1.5065918849 to about 10^-6.
+- *Precision gained.*  Böttcher extrapolation alone gave μ ≈ 1.507 ± 0.003, so the escape-time
+  measurement adds about three digits.
+
+## 6. Reproducing
 
 ```
 meson compile -C build/release
@@ -246,6 +280,7 @@ meson compile -C build/release
 ./build/release/octscan f-k27.npy 26                    # local exponents; ~10 s
 ./build/release/census f-k27.npy 26 20 4                # root census and wake ownership; ~12 s
 ./build/release/renorm angle_map.npy                    # wake periodicity and pullback tests
+./build/release/escape_area 16000 1048576 SEED 16384 ... 1048568   # fattened areas; ~22 s per 2e9 samples
 ```
 
 Unit tests cover everything the analyses use: `meson test -C build/release angles octaves numpy tests`.

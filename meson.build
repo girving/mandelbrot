@@ -97,6 +97,7 @@ area = declare_dependency(
 
 test('angles', executable('angles_test', ['angles_test.cc'], dependencies: [tests]))
 test('tests', executable('tests_test', ['tests_test.cc'], dependencies: [tests]))
+test('escape', executable('escape_test', ['escape_test.cc', 'escape.cc'], dependencies: [tests]))
 test('bit', executable('bit_test', ['bit_test.cc'], dependencies: [tests]))
 test('numpy', executable('numpy_test', ['numpy_test.cc'], dependencies: [tests]))
 test('expansion', executable('expansion_test', ['expansion_test.cc'], dependencies: [area, tests]))
@@ -121,3 +122,4 @@ executable('hyperbolic', ['hyperbolic.cc'], dependencies: [area])
 executable('renorm', ['renorm.cc'], dependencies: [base])
 executable('octscan', ['octscan.cc'], dependencies: [area])
 executable('census', ['census.cc'], dependencies: [area])
+executable('escape_area', ['escape_area.cc', 'escape.cc'], dependencies: [base])
