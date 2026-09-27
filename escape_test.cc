@@ -132,5 +132,33 @@ TEST(newton_interior) {
   ASSERT_LT(10000, faster);
 }
 
+TEST(distance_estimates) {
+  // Exterior bound: the disk of radius dist around c escapes; interior bound: the disk stays in M.
+  // Check by sampling points in the disks (they must classify the same way as the center)
+  mt19937 rand(5);
+  uniform_real_distribution<double> ux(-2, 0.5), uy(0, 1.2), ut(0, 2 * M_PI), ur(0, 1);
+  int ext = 0, in = 0;
+  for (int i = 0; i < 20000; i++) {
+    const double x = ux(rand), y = uy(rand);
+    const auto d = escape_de(x, y, 1 << 16);
+    if (!(d.dist > 0)) continue;
+    const bool inside = d.e.steps < 0;
+    (inside ? in : ext)++;
+    for (int j = 0; j < 8; j++) {
+      const double t = ut(rand), r = d.dist * std::sqrt(ur(rand));
+      const auto e = escape(x + r * std::cos(t), y + r * std::sin(t), 1 << 18);
+      ASSERT_EQ(e.steps < 0, inside) << tfm::format("c = %.17g + %.17gi, dist %g", x, y, d.dist);
+    }
+  }
+  ASSERT_LT(1000, ext);
+  ASSERT_LT(1000, in);
+  // Points well inside the cardioid and the period 2 disk get positive interior bounds
+  for (const auto& c : {std::complex<double>(0, 0), std::complex<double>(-1, 0.05), std::complex<double>(-1.1, 0),
+                        std::complex<double>(0.1, 0.3)}) {
+    const auto d = escape_de(c.real(), c.imag(), 1000);
+    ASSERT_LT(0.01, d.dist) << c;
+  }
+}
+
 }  // namespace
 }  // namespace mandelbrot
