@@ -173,13 +173,20 @@ parameter c = 1/4 + ε.  Let z_0 = 0 and z_{n+1} = z_n² + c.  Set u_n = z_n −
 - *(3b) A telescoping identity.*  φ(u_{n+1}) = φ(u_n)·(1 + 2u_n + φ(u_n)).  So
   2z_n = 1 + 2u_n ≤ φ(u_{n+1})/φ(u_n).
 - *(3c) The key sum.*  Let n₂ be the first n with u_n ≥ 1.4, i.e. z_n ≥ 1.9.  Then
-  Σ_{k=1}^{n₂} 1/φ(u_k) ≤ 57 ε^{-3/2}.
+  Σ_{k=1}^{n₂} 1/φ(u_k) ≤ 10 ε^{-3/2}.
 
-  *Proof.*  Each term equals Δu_k/φ(u_k)², where Δu_k = u_{k+1} − u_k.  On [u_k, u_{k+1}], the
-  ratio φ(u)/φ(u_k) is at most max(1, φ(u_{k+1})/φ(u_k)) ≤ 6, because u_k ≤ 1.4.  So each term is
-  at most 36∫_{u_k}^{u_{k+1}} du/φ(u)², and the sum is at most 36 ∫_ℝ du/(u² + ε)² = 18π ε^{-3/2}.
-  Numerically the sum tends to (π/2) ε^{-3/2}.
-- *(3d) Shadowing.*  Let c' = c + h with |h| ≤ ε^{3/2}/6000, let z'_n be its orbit, and let
+  *Proof, by telescoping.*
+  - *Terms with u_k < −√ε.*  Put v = −u.  Then v_{k+1} ≤ v_k(1 − v_k), so
+    1/v_{k+1}³ − 1/v_k³ ≥ 3/v_k².  Since 1/φ ≤ 1/v², these terms sum to at most ε^{-3/2}/3.
+  - *Terms with |u_k| ≤ √ε.*  Each step is at least ε, so there are at most 2/√ε + 1 of them, each at
+    most 1/ε.  They sum to at most 2.25 ε^{-3/2}.
+  - *Terms with √ε < u_k < 1.4.*  Write u_{k+1} = u_k(1 + ρ) with u_k ≤ ρ ≤ 1.65.  Then
+    1/u_k³ − 1/u_{k+1}³ ≥ (3/2.65³)/u_k², so these terms sum to at most 6.2 ε^{-3/2}.
+  - *The last term,* at k = n₂, is at most 1/1.96.
+
+  Numerically the three parts tend to 0.14, 1.28 and 0.14 times ε^{-3/2}.  The whole sum tends to
+  (π/2) ε^{-3/2}.
+- *(3d) Shadowing.*  Let c' = c + h with |h| ≤ ε^{3/2}/1000, let z'_n be its orbit, and let
   e_n = z'_n − z_n.  Put τ_n = |h| Σ_{k≤n} 1/φ(u_k), so that τ_n ≤ 1/100 for n ≤ n₂ by (3c).
 
   *Claim:* |e_n| ≤ τ_n φ(u_n) for 1 ≤ n ≤ n₂.
@@ -193,16 +200,34 @@ parameter c = 1/4 + ε.  Let z_0 = 0 and z_{n+1} = z_n² + c.  Set u_n = z_n −
     |z'_{n₂+1}| ≥ 1.78² − |c'| > 2, so c' escapes and c' ∉ M.
   - For n ≤ n₁, |z'_n| ≤ 1 + 1/100·φ(u_n) ≤ 1.1.  Using g_c(z) ≤ 1.2 for |z| ≤ 2 and |c| ≤ 1/2,
     and g_M(c') = 2^{1−n} g_{c'}(z'_n), we get g_M(c') ≤ 2.4 · 2^{−n₁}.
-- *(3e) The horn.*  For ε ≤ 1/32, the region H_ε = {1/4 + x + iy : ε ≤ x ≤ 2ε, |y| ≤ x^{3/2}/6000} applies (3d) with
-  base point 1/4 + x.  It lies outside M, satisfies g_M ≤ δ(ε) := 2.4 · 2^{2−1/√(2ε)}, and has area
-  (4/30000)(2^{5/2} − 1) ε^{5/2}.
+- *(3e) The horn.*  For ε ≤ 1/32, the rectangle H_ε = {1/4 + x + iy : ε ≤ x ≤ 2ε, |y| ≤ ε^{3/2}/1000} applies
+  (3d) with base point 1/4 + x, since ε^{3/2} ≤ x^{3/2}.  It lies outside M, satisfies
+  g_M ≤ δ(ε) := 2.4 · 2^{2−1/√(2ε)}, and has area ε^{5/2}/500.
 
 **Step 4 (conclusion).**  Since log(1/δ(ε)) ≍ (ln 2)/√(2ε), Step 3 gives A(δ) ≥ c₁ (log 1/δ)^{-5}.
 With δ = M^{-2}, Step 2 then gives T(M) ≥ c (log M)^{-5}. ∎
 
-The constants are far from sharp: 57 could be π/2, and 1/6000 could be about 1/(50π).  The exponent 5
+The constants are far from sharp: 10 could be π/2, and 1/1000 could be about 1/(50π).  The exponent 5
 comes from the horn's area, ε^{5/2}, where the width ε^{3/2} is exactly the width at which shadowing
 still works.  The heuristic in §3 predicts the true rate is 1/log N.
+
+**Formal version (Lean, `ray` branch `cusp-tail`).**  The argument is formalized in `ray`, where
+Grönwall's theorem for M already existed as `multibrot_volume_sum`.
+
+- `Cusp.lean` proves the passage lemma, the key sum via the potential H(u) = u/(2s²φ) + arctan(u/s)/(2s³)
+  (whose derivative is 1/φ²), shadowing, and escape.
+- `CuspArea.lean` shows these parameters lie outside M with potential ≥ exp(−2/2^m).
+- `Shell.lean` applies Grönwall at radius R to get the shell area.
+- `Tail.lean` assembles the pieces and proves `areaTail_pow_two_ge`:
+
+      ∀ᶠ k in atTop, 1 / (2·10⁸ (2k+1)⁶) ≤ ∑_{n>2^k} n |b_n|²
+
+  It also proves `areaTail_pow_two_gt_rpow`: for every a > 0, eventually the tail is greater than
+  (2^k)^-a.
+
+The formal version uses a disk of parameters instead of the horn, which costs one power of log:
+the exponent is 6 rather than 5.  It depends only on the axioms `propext`, `Classical.choice` and
+`Quot.sound`.
 
 **Stronger versions, not yet proved.**
 - At the satellite root −3/4, the exterior gap between the cardioid and the period-2 disk has area
