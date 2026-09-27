@@ -4,9 +4,13 @@
 // tiny fraction of all cells.  Starting from a base grid over [-2, 0.5] × [0, 1.2], each node classifies
 // its center with distance estimates (escape_de).  If the cell fits well inside the certified disk, it is
 // decided exactly: interior cells count fully; exterior cells count per threshold using Harnack bounds on
-// g.  Otherwise the node splits into 4 children, down to `depth` levels, where leaves are estimated from R
-// independent points (one per replica).  Certified leaves have no variance; sampled leaves give an
-// unbiased estimate, and the replica spread estimates the statistical error.
+// g.  Otherwise the node splits into 4 children, down to `depth` levels, where leaves are estimated from
+// m independent uniform points.  Certified leaves have no variance.  Each sampled leaf gives an unbiased
+// estimate with an unbiased variance estimate s^2 / m, and leaves are independent, so the total variance
+// is the sum over leaves.
+//
+// Besides each area A(k), we report the differences D = A(k_i) - A(k_{i+1}) between consecutive thresholds
+// with their own variances, for multilevel estimates A(K) = A(k_0) - ∑ D computed in separate runs.
 
 #include "debug.h"
 #include "escape.h"
@@ -23,28 +27,29 @@ namespace {
 
 using std::vector;
 
-constexpr int R = 8;
-
 struct Params {
   int64_t base;      // Base grid size per axis
   int depth;         // Maximum refinement levels below the base grid
   double safety;     // Certify a cell if its half-diagonal is at most dist / safety
+  int m;             // Samples per uncertified leaf
   int64_t max_iter;
-  vector<int> ks;    // Thresholds 2^-k
+  vector<int> ks;    // Thresholds 2^-k, increasing
 };
 
 struct Stats {
-  vector<double> sum;         // sum[r * K + k]: replica r's area estimate for threshold k
-  vector<int64_t> leaves;     // Sampled leaves per depth
-  vector<int64_t> exact;      // Certified leaves per depth
-  int64_t samples = 0, iters = 0, center_iters = 0, leaf_iters = 0, leaf_exterior_iters = 0;
-  int64_t why[5] = {};  // At max depth: interior dist small, exterior dist small, exterior band, no certificate, other
+  vector<double> est, var, dest, dvar;  // Areas and consecutive differences, with variances
+  vector<int64_t> leaves, exact;        // Sampled and certified leaves per depth
+  int64_t samples = 0, iters = 0, center_iters = 0, leaf_iters = 0;
+  void init(const int K, const int D) {
+    est.assign(K, 0); var.assign(K, 0); dest.assign(K, 0); dvar.assign(K, 0);
+    leaves.assign(D + 1, 0); exact.assign(D + 1, 0);
+  }
   void add(const Stats& o) {
-    for (size_t i = 0; i < sum.size(); i++) sum[i] += o.sum[i];
+    for (size_t i = 0; i < est.size(); i++) {
+      est[i] += o.est[i]; var[i] += o.var[i]; dest[i] += o.dest[i]; dvar[i] += o.dvar[i];
+    }
     for (size_t i = 0; i < leaves.size(); i++) { leaves[i] += o.leaves[i]; exact[i] += o.exact[i]; }
-    samples += o.samples; iters += o.iters;
-    center_iters += o.center_iters; leaf_iters += o.leaf_iters; leaf_exterior_iters += o.leaf_exterior_iters;
-    for (int i = 0; i < 5; i++) why[i] += o.why[i];
+    samples += o.samples; iters += o.iters; center_iters += o.center_iters; leaf_iters += o.leaf_iters;
   }
 };
 
@@ -53,49 +58,47 @@ struct Worker {
   std::mt19937_64 rng;
   std::uniform_real_distribution<double> u{0, 1};
   Stats st;
+  vector<double> xs;  // Scratch: per-sample indicators
 
   Worker(const Params& p, const uint64_t seed) : p(p), rng(seed) {
-    st.sum.assign(R * p.ks.size(), 0);
-    st.leaves.assign(p.depth + 1, 0);
-    st.exact.assign(p.depth + 1, 0);
+    st.init(p.ks.size(), p.depth);
+    xs.resize(p.m * p.ks.size());
   }
 
-  Escape sample(const double x, const double y, const double w, const double h) {
-    const auto e = escape(x + u(rng) * w, y + u(rng) * h, p.max_iter);
-    st.samples++;
-    st.iters += e.iters;
-    return e;
+  // Exact contribution of a certified cell: below_k[k] says whether the whole cell is below threshold k
+  void certified(const double a, const vector<bool>& below_k) {
+    const int K = p.ks.size();
+    for (int k = 0; k < K; k++) {
+      st.est[k] += a * below_k[k];
+      if (k + 1 < K) st.dest[k] += a * (double(below_k[k]) - double(below_k[k + 1]));
+    }
   }
 
   void node(const double x, const double y, const double w, const double h, const int d) {
     const int K = p.ks.size();
+    const double a = w * h;
     // Certify the whole cell from its center
     const auto c = escape_de(x + w / 2, y + h / 2, p.max_iter);
     st.samples++;
     st.iters += c.e.iters;
     st.center_iters += c.e.iters;
-    const double r = 0.5 * std::hypot(w, h), a = w * h;
+    const double r = 0.5 * std::hypot(w, h);
     if (c.dist > 0 && r * p.safety <= c.dist) {
-      if (c.e.steps < 0) {  // Whole cell in one hyperbolic component: below every threshold
-        st.exact[d]++;
-        for (int rr = 0; rr < R; rr++) for (int k = 0; k < K; k++) st.sum[rr * K + k] += a;
-        return;
-      }
-      // Exterior: Harnack on the disk of radius dist gives g ∈ [lo, hi] · g0 on the cell
-      const double t = r / c.dist, lo = std::log2((1 - t) / (1 + t)), hi = -lo;
+      vector<bool> below_k(K, true);
       bool certain = true;
-      for (int k = 0; k < K; k++) certain &= c.e.log2g + hi < -p.ks[k] || c.e.log2g + lo >= -p.ks[k];
+      if (c.e.steps > 0) {
+        // Exterior: Harnack on the disk of radius dist gives g ∈ [lo, hi] · g0 on the cell
+        const double t = r / c.dist, lo = std::log2((1 - t) / (1 + t)), hi = -lo;
+        for (int k = 0; k < K; k++) {
+          below_k[k] = c.e.log2g + hi < -p.ks[k];
+          certain &= below_k[k] || c.e.log2g + lo >= -p.ks[k];
+        }
+      }
       if (certain) {
         st.exact[d]++;
-        for (int k = 0; k < K; k++)
-          if (c.e.log2g + hi < -p.ks[k])
-            for (int rr = 0; rr < R; rr++) st.sum[rr * K + k] += a;
+        certified(a, below_k);
         return;
       }
-    }
-    if (d == p.depth) {
-      const int reason = !(c.dist > 0) ? 3 : r * p.safety > c.dist ? (c.e.steps < 0 ? 0 : 1) : c.e.steps > 0 ? 2 : 4;
-      st.why[reason]++;
     }
     if (d < p.depth) {
       const double w2 = w / 2, h2 = h / 2;
@@ -105,14 +108,27 @@ struct Worker {
       node(x + w2, y + h2, w2, h2, d + 1);
       return;
     }
-    // Leaf: one independent point per replica
+    // Sampled leaf: m independent uniform points
     st.leaves[d]++;
-    for (int rr = 0; rr < R; rr++) {
-      const auto e = sample(x, y, w, h);
+    for (int i = 0; i < p.m; i++) {
+      const auto e = escape(x + u(rng) * w, y + u(rng) * h, p.max_iter);
+      st.samples++;
+      st.iters += e.iters;
       st.leaf_iters += e.iters;
-      if (e.steps > 0) st.leaf_exterior_iters += e.iters;
-      for (int k = 0; k < K; k++) st.sum[rr * K + k] += a * below(e, p.ks[k]);
+      for (int k = 0; k < K; k++) xs[i * K + k] = below(e, p.ks[k]);
     }
+    // Mean and unbiased variance of the mean, for each threshold and each consecutive difference
+    for (int k = 0; k < K; k++)
+      for (int diff = 0; diff < (k + 1 < K ? 2 : 1); diff++) {
+        double s = 0, s2 = 0;
+        for (int i = 0; i < p.m; i++) {
+          const double v = diff ? xs[i * K + k] - xs[i * K + k + 1] : xs[i * K + k];
+          s += v; s2 += v * v;
+        }
+        const double mean = s / p.m, v = (s2 - s * mean) / (p.m - 1) / p.m;
+        (diff ? st.dest : st.est)[k] += a * mean;
+        (diff ? st.dvar : st.var)[k] += a * a * v;
+      }
   }
 };
 
@@ -120,14 +136,11 @@ void run(const Params& p, const uint64_t seed) {
   const double x0 = -2, x1 = 0.5, y0 = 0, y1 = 1.2;
   const double w = (x1 - x0) / p.base, h = (y1 - y0) / p.base;
   const int K = p.ks.size();
-  slow_assert(K <= 32);
   const auto t0 = wall_time();
   std::atomic<int64_t> next(0);
   std::mutex mu;
   Stats total;
-  total.sum.assign(R * K, 0);
-  total.leaves.assign(p.depth + 1, 0);
-  total.exact.assign(p.depth + 1, 0);
+  total.init(K, p.depth);
   vector<std::thread> pool;
   for (int t = 0; t < int(std::thread::hardware_concurrency()); t++)
     pool.emplace_back([&]() {
@@ -140,28 +153,21 @@ void run(const Params& p, const uint64_t seed) {
     });
   for (auto& t : pool) t.join();
   const double secs = (wall_time() - t0).seconds();
-  print("base %d, depth %d (effective grid %d), safety %g, max_iter %d, seed %d: %.1f s", p.base, p.depth,
-        p.base << p.depth, p.safety, p.max_iter, seed, secs);
-  print("  %.3g samples, %.3g iterations: centers %.3g, leaf samples %.3g (exterior %.3g)", double(total.samples),
-        double(total.iters), double(total.center_iters), double(total.leaf_iters), double(total.leaf_exterior_iters));
+  print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, max_iter %d, seed %d: %.1f s",
+        p.base, p.depth, p.base << p.depth, p.safety, p.m, p.max_iter, seed, secs);
+  print("  %.3g samples, %.3g iterations (centers %.3g, leaves %.3g)", double(total.samples),
+        double(total.iters), double(total.center_iters), double(total.leaf_iters));
   string ls = "  sampled leaves by depth:", es = "  certified leaves by depth:";
   for (const auto n : total.leaves) ls += tfm::format(" %.3g", double(n));
   for (const auto n : total.exact) es += tfm::format(" %.3g", double(n));
   print(es);
-  print("  uncertified at max depth: interior dist small %.3g, exterior dist small %.3g, exterior band %.3g, "
-        "no certificate %.3g, other %.3g", double(total.why[0]), double(total.why[1]), double(total.why[2]),
-        double(total.why[3]), double(total.why[4]));
   print(ls);
+  // Areas use the symmetry about the real axis: total = 2 × upper half
   print("   k      area{g < 2^-k}      std err");
-  for (int k = 0; k < K; k++) {
-    double s = 0, s2 = 0;
-    for (int r = 0; r < R; r++) {
-      const double a = 2 * total.sum[r * K + k];  // Symmetry about the real axis
-      s += a; s2 += a * a;
-    }
-    const double mean = s / R, sd = std::sqrt(std::max(0.0, s2 / R - mean * mean) / (R - 1));
-    print("%8d   %.10f   %.2e", p.ks[k], mean, sd);
-  }
+  for (int k = 0; k < K; k++) print("%8d   %.10f   %.2e", p.ks[k], 2 * total.est[k], 2 * std::sqrt(total.var[k]));
+  print("   k → k'           A(k) - A(k')     std err");
+  for (int k = 0; k + 1 < K; k++)
+    print("%8d → %-8d  %.6e   %.2e", p.ks[k], p.ks[k + 1], 2 * total.dest[k], 2 * std::sqrt(total.dvar[k]));
 }
 
 }  // namespace
@@ -170,11 +176,13 @@ void run(const Params& p, const uint64_t seed) {
 int main(const int argc, const char** argv) {
   using namespace mandelbrot;
   try {
-    slow_assert(argc >= 7, "usage: %s <base> <depth> <safety> <max_iter> <seed> <k...>", argv[0]);
-    Params p{atoll(argv[1]), atoi(argv[2]), atof(argv[3]), atoll(argv[4]), {}};
-    const uint64_t seed = atoll(argv[5]);
-    for (int i = 6; i < argc; i++) p.ks.push_back(atoi(argv[i]));
+    slow_assert(argc >= 8, "usage: %s <base> <depth> <safety> <samples/leaf> <max_iter> <seed> <k...>", argv[0]);
+    Params p{atoll(argv[1]), atoi(argv[2]), atof(argv[3]), atoi(argv[4]), atoll(argv[5]), {}};
+    const uint64_t seed = atoll(argv[6]);
+    for (int i = 7; i < argc; i++) p.ks.push_back(atoi(argv[i]));
     for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
+    for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");
+    slow_assert(p.m >= 2, "need at least 2 samples per leaf for variance estimates");
     run(p, seed);
     return 0;
   } catch (const std::exception& e) {
