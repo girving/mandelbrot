@@ -2,6 +2,7 @@
 
 #include "angles.h"
 #include "debug.h"
+#include <algorithm>
 #include <numeric>
 #include <vector>
 namespace mandelbrot {
@@ -52,49 +53,112 @@ int untune(const Wake& w, const uint64_t bits, const int nbits, const int D, uin
   return d;
 }
 
+namespace {
+
+// Point update, range max (or min, with negated values) over [lo, hi)
+struct MaxTree {
+  int64_t n;
+  vector<int64_t> t;
+  explicit MaxTree(const int64_t size) : n(1) { while (n < size) n *= 2; t.assign(2*n, -1); }
+  void set(int64_t i, const int64_t v) { for (t[i += n] = v; i >>= 1;) t[i] = std::max(t[2*i], t[2*i+1]); }
+  int64_t max(int64_t lo, int64_t hi) const {
+    int64_t r = -1;
+    for (lo += n, hi += n; lo < hi; lo >>= 1, hi >>= 1) {
+      if (lo & 1) r = std::max(r, t[lo++]);
+      if (hi & 1) r = std::max(r, t[--hi]);
+    }
+    return r;
+  }
+};
+
+}  // namespace
+
 vector<Root> lavaurs(const int max_period) {
   slow_assert(max_period <= 24, "lavaurs: max_period %d too large", max_period);
-  // Exact comparison of a/(2^p-1) and b/(2^q-1)
-  const auto less = [](const Periodic& a, const Periodic& b) {
-    return a.k * ((uint64_t(1) << b.q) - 1) < b.k * ((uint64_t(1) << a.q) - 1);
-  };
-  // Chord (c,d) crosses chord (a,b) iff exactly one of c,d lies strictly between a and b
-  const auto inside = [&](const Periodic& x, const Wake& w) { return less(w.lo, x) && less(x, w.hi); };
-  vector<Root> roots;
+  // All angles of exact period 2..max_period, sorted exactly by value
+  vector<Periodic> all;
   for (int p = 2; p <= max_period; p++) {
     const uint64_t M = (uint64_t(1) << p) - 1;
-    // Angles of exact period p, in increasing order
-    vector<Periodic> angles;
     for (uint64_t k = 1; k < M; k++) {
       bool exact = true;
       for (int d = 1; d < p && exact; d++)
         if (p % d == 0 && k % (M / ((uint64_t(1) << d) - 1)) == 0) exact = false;
-      if (exact) angles.push_back(Periodic{k, p});
+      if (exact) all.push_back(Periodic{k, p});
     }
-    vector<bool> paired(angles.size());
-    for (size_t i = 0; i < angles.size(); i++) {
-      if (paired[i]) continue;
-      bool done = false;
-      for (size_t j = i + 1; j < angles.size() && !done; j++) {
-        if (paired[j]) continue;
-        const Wake w{angles[i], angles[j]};
-        bool crosses = false;
-        for (const auto& r : roots)
-          if (inside(w.lo, r.w) != inside(w.hi, r.w)) { crosses = true; break; }
-        if (crosses) continue;
-        // Satellite iff hi is on lo's doubling cycle
+  }
+  std::sort(all.begin(), all.end(), [](const Periodic& a, const Periodic& b) {
+    return a.k * ((uint64_t(1) << b.q) - 1) < b.k * ((uint64_t(1) << a.q) - 1);
+  });
+  const int64_t N = all.size();
+
+  // left[i] = partner of a chord's left endpoint at i; right[i] = N - 1 - partner of a right endpoint at i
+  MaxTree left(N), right(N);
+  vector<Root> roots;
+  for (int p = 2; p <= max_period; p++) {
+    vector<int64_t> pos;  // Positions of period p angles, increasing
+    for (int64_t i = 0; i < N; i++)
+      if (all[i].q == p) pos.push_back(i);
+    const int64_t m = pos.size();
+    vector<int64_t> next(m + 1);  // Union-find to the next unpaired index
+    std::iota(next.begin(), next.end(), 0);
+    const auto find = [&](int64_t i) {
+      while (next[i] != i) i = next[i] = next[next[i]];
+      return i;
+    };
+    const uint64_t M = (uint64_t(1) << p) - 1;
+    for (int64_t i = 0; i < m; i++) {
+      if (find(i) != i) continue;
+      const int64_t a = pos[i];
+      int64_t j = find(i + 1);
+      for (;;) {
+        slow_assert(j < m, "lavaurs: no partner for %s", all[a]);
+        const int64_t b = pos[j];
+        // A right endpoint in (a,b) whose partner is before a would mean we skipped a's region
+        slow_assert(N - 1 - right.max(a + 1, b) > a || right.max(a + 1, b) < 0, "lavaurs: skipped region");
+        const int64_t far = left.max(a + 1, b);
+        if (far > b) {  // A chord starts in (a,b) and ends beyond b: jump past its end
+          j = find(std::lower_bound(pos.begin(), pos.end(), far) - pos.begin());
+          continue;
+        }
+        const Wake w{all[a], all[b]};
         bool same = false;
         uint64_t x = w.lo.k;
         for (int s = 0; s < p; s++, x = 2*x % M)
           if (x == w.hi.k) same = true;
         roots.push_back(Root{w, same});
-        paired[i] = paired[j] = true;
-        done = true;
+        left.set(a, b);
+        right.set(b, N - 1 - a);
+        next[i] = i + 1;
+        next[j] = j + 1;
+        break;
       }
-      slow_assert(done, "lavaurs: failed to pair %s at period %d", angles[i], p);
     }
   }
   return roots;
+}
+
+vector<int32_t> wake_owner(const vector<Root>& roots, const int64_t n) {
+  // Wakes starting in [0,1/2), sorted by start
+  vector<int32_t> order;
+  for (size_t r = 0; r < roots.size(); r++)
+    if (roots[r].w.lo.value() < 0.5) order.push_back(int32_t(r));
+  std::sort(order.begin(), order.end(), [&](const int32_t a, const int32_t b) {
+    return roots[a].w.lo.value() < roots[b].w.lo.value();
+  });
+  vector<int32_t> owner(n/2 + 1, -1), stack;
+  size_t next = 0;
+  for (int64_t i = 0; i <= n/2; i++) {
+    const double t = double(i) / double(n);
+    // Open every wake starting before t, first closing those that ended before it starts
+    for (; next < order.size() && roots[order[next]].w.lo.value() < t; next++) {
+      const auto& w = roots[order[next]].w;
+      while (stack.size() && roots[stack.back()].w.hi.value() <= w.lo.value()) stack.pop_back();
+      if (w.hi.value() > t) stack.push_back(order[next]);
+    }
+    while (stack.size() && roots[stack.back()].w.hi.value() <= t) stack.pop_back();
+    if (stack.size()) owner[i] = stack.back();
+  }
+  return owner;
 }
 
 }  // namespace mandelbrot

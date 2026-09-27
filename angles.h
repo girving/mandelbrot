@@ -50,4 +50,8 @@ struct Root {
 };
 std::vector<Root> lavaurs(const int max_period);
 
+// Owner of each angle i/n for i = 0..n/2: the index of the deepest (smallest) root wake containing it, or -1
+// if none does.  Wakes must be nested or disjoint, as lavaurs produces.
+std::vector<int32_t> wake_owner(const std::vector<Root>& roots, const int64_t n);
+
 }  // namespace mandelbrot

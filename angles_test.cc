@@ -121,11 +121,59 @@ TEST(untune) {
   ASSERT_EQ(untune(half, 0b011, 3, 4, prefix), 1);
 }
 
+// Reference Lavaurs: check each candidate chord against every earlier chord
+vector<Root> slow_lavaurs(const int max_period) {
+  const auto less = [](const Periodic& a, const Periodic& b) {
+    return a.k * ((uint64_t(1) << b.q) - 1) < b.k * ((uint64_t(1) << a.q) - 1);
+  };
+  const auto inside = [&](const Periodic& x, const Wake& w) { return less(w.lo, x) && less(x, w.hi); };
+  vector<Root> roots;
+  for (int p = 2; p <= max_period; p++) {
+    const uint64_t M = (uint64_t(1) << p) - 1;
+    vector<Periodic> angles;
+    for (uint64_t k = 1; k < M; k++) {
+      bool exact = true;
+      for (int d = 1; d < p && exact; d++)
+        if (p % d == 0 && k % (M / ((uint64_t(1) << d) - 1)) == 0) exact = false;
+      if (exact) angles.push_back(Periodic{k, p});
+    }
+    vector<bool> paired(angles.size());
+    for (size_t i = 0; i < angles.size(); i++) {
+      if (paired[i]) continue;
+      for (size_t j = i + 1; j < angles.size(); j++) {
+        if (paired[j]) continue;
+        const Wake w{angles[i], angles[j]};
+        bool crosses = false;
+        for (const auto& r : roots)
+          if (inside(w.lo, r.w) != inside(w.hi, r.w)) { crosses = true; break; }
+        if (crosses) continue;
+        bool same = false;
+        uint64_t x = w.lo.k;
+        for (int s = 0; s < p; s++, x = 2*x % M)
+          if (x == w.hi.k) same = true;
+        roots.push_back(Root{w, same});
+        paired[i] = paired[j] = true;
+        break;
+      }
+    }
+  }
+  return roots;
+}
+
+TEST(lavaurs_fast_vs_slow) {
+  const auto fast = lavaurs(11), slow = slow_lavaurs(11);
+  ASSERT_EQ(fast.size(), slow.size());
+  for (size_t i = 0; i < fast.size(); i++) {
+    ASSERT_EQ(fast[i].w, slow[i].w) << i;
+    ASSERT_EQ(fast[i].satellite, slow[i].satellite);
+  }
+}
+
 TEST(lavaurs) {
-  const int P = 14;
+  const int P = 18;
   const auto roots = lavaurs(P);
   // Component counts per period: OEIS A000740
-  const int comps[] = {0, 1, 1, 3, 6, 15, 27, 63, 120, 252, 495, 1023, 2010, 4095, 8127};
+  const int comps[] = {0, 1, 1, 3, 6, 15, 27, 63, 120, 252, 495, 1023, 2010, 4095, 8127, 16365, 32640, 65535, 130788};
   vector<int> count(P + 1), sats(P + 1);
   for (const auto& r : roots) {
     ASSERT_EQ(r.w.lo.q, r.w.hi.q);
@@ -164,12 +212,29 @@ TEST(lavaurs) {
         if (2*q <= P) ASSERT_TRUE(has(tune(cardioid_wake(1, 2), cardioid_wake(p, q)), true));
       }
   // Wakes are nested or disjoint
-  for (size_t i = 0; i < roots.size(); i += 7)
-    for (size_t j = 0; j < roots.size(); j += 5) {
+  for (size_t i = 0; i < roots.size(); i += 701)
+    for (size_t j = 0; j < roots.size(); j += 503) {
       const auto &a = roots[i].w, &b = roots[j].w;
       const bool lo_in = b.contains(a.lo.value()), hi_in = b.contains(a.hi.value());
       ASSERT_EQ(lo_in, hi_in) << a << " vs " << b;
     }
+}
+
+TEST(wake_owner) {
+  const auto roots = lavaurs(9);
+  for (const int64_t n : {64, 1000, 4096, 12345}) {
+    const auto owner = wake_owner(roots, n);
+    ASSERT_EQ(int64_t(owner.size()), n/2 + 1);
+    for (int64_t i = 0; i <= n/2; i++) {
+      // Brute force: smallest wake containing i/n
+      const double t = double(i) / n;
+      int32_t best = -1;
+      for (size_t r = 0; r < roots.size(); r++)
+        if (roots[r].w.contains(t) && (best < 0 || roots[r].w.length() < roots[best].w.length()))
+          best = int32_t(r);
+      ASSERT_EQ(owner[i], best) << tfm::format("n %d, i %d", n, i);
+    }
+  }
 }
 
 }  // namespace
