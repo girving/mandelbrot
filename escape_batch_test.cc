@@ -45,6 +45,20 @@ TEST(sample_point) {
   }
 }
 
+TEST(scramble) {
+  for (const int64_t n : {1, 2, 3, 16, 1000, 1024, 65537, 1 << 20}) {
+    const int64_t s = scramble_stride(n);
+    vector<bool> seen(n);
+    for (int64_t j = 0; j < n; j++) {
+      const int64_t i = scramble(j, s, n);
+      ASSERT_TRUE(0 <= i && i < n && !seen[i]) << tfm::format("n %d, stride %d, j %d -> %d", n, s, j, i);
+      seen[i] = true;
+    }
+    // Consecutive claims should be far apart
+    if (n >= 1000) ASSERT_LE(n / 4, std::min(s, n - s)) << tfm::format("n %d, stride %d", n, s);
+  }
+}
+
 TEST(cpu_double_matches_escape) {
   const auto leaves = boundary_leaves(500, 1e-3, 3);
   const auto p = params(8, 2, 1 << 14);
