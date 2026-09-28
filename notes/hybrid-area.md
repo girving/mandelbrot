@@ -355,6 +355,40 @@ checks the Newton schedule against escape().)
 *Cost of large k.*  Depth 8: max_iter 2^20 → 2^24 costs 37.7 → 84.4 s.  Depth 6: 2^28 costs 19× 2^20: orbits that
 neither escape nor certify run to max_iter.
 
+### 5.3 Local approximations of long orbits: measured headroom (2026-09-28)
+
+Could Koenigs linearization near repelling cycles, Fatou coordinates through parabolic gates, renormalization
+near baby copies, per-component tails, or two-phase importance sampling cut the work?  `orbit_regimes` samples
+leaf-like points (as `orbit_census`), replays orbits longer than `--long` in windows, and at each window start
+finds the smallest period q ≤ 1024 returning within 1e-2, Newton-solves for that q-cycle, and classifies the
+window.  Runs of consecutive windows near one cycle (identified up to phase) bound what a jump through the
+cycle's local dynamics could skip: everything but a run's first and last windows.  On the GPU node's 22 CPUs:
+
+| max_iter | samples | long-orbit share of work | skippable (window 4096 / 512) | speedup bound |
+|---|---|---|---|---|
+| 2^20 | 160k | 69% | 13.7% / 17.3% | 1.16–1.21× |
+| 2^24 | 4M | 51% | 11.3% / 11.3% | 1.13× |
+| 2^28 | 1M | 39% | 9.8% / 10.0% | 1.11× |
+
+Long-orbit steps are 71–73% near repelling cycles, but that is mostly the triviality that Julia-set points are
+near high-period repelling cycles; they leave them quickly.  Multipliers are spread over | |λ| − 1 | from 1e-7
+to 1, with no dominant near-parabolic population (strictly parabolic, |λ| ≈ 1 at rational rotation: ≤ 1%).
+Renormalizable windows (approaches to 0 only at multiples of p ≥ 2): 3.7–3.9%.  **Verdict: Koenigs jumps,
+Fatou gates, and renormalization together are bounded by ~1.1–1.2×**, before counting their per-jump cost
+and certification complexity.  Not worth building.
+
+*Two-phase importance sampling.*  Flag a 16-sample box by 8 of its samples surviving past T1; measure how many
+of the other 8 samples' survivors past T2 fall in flagged boxes; Neyman allocation then scales the tail
+variance per sample by (√(φψ) + √((1−φ)(1−ψ)))².  Best case T1 = 2^14: 28% of boxes flagged hold 90–94% of the
+deep survivors, variance × 0.52–0.59, stable from T2 = 2^16 to 2^22.  Flagging deeper is worse (T1 = 2^16:
+× 0.82–0.86), since deep survivors are not predicted by other deep survivors (1.01–1.04 per box, as random).
+So ≤ 2× on the tail's variance, and less on the total; the tree's leaves already localize the boundary.
+
+*Per-component tails.*  The period of the last hugged cycle of escaping survivors is broad (9–256, mode
+33–64) and the distribution does not change from length 2^12 to 2^22: no finite set of components carries the
+tail, so a per-component analytic tail would need infinitely many components with self-similar weights —
+which is the tail-fit problem again, not a shortcut.
+
 ## 6. Reproducing
 
 ```
