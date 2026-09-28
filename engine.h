@@ -13,6 +13,7 @@
 //   bool run(State& o) const;                // Advance a burst; true when done
 //   void finish(const State& o, int64_t i) const;
 //   int64_t iters(const State& o) const;     // Iterations performed, for accounting
+//   int64_t progress(const State& o) const;  // Steps so far of a running orbit (for timing only)
 //   int64_t burst;                           // Steps per run call
 //   int min_blocks;                          // GPU: resident 256-thread blocks per SM (1 to 4) to budget registers for
 #pragma once
@@ -175,7 +176,7 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
   typename Task::State o;
   int32_t end = 0, i = -1, bursts = 0;  // i = current item or -1
   int64_t j = 0, pos = 0;  // pos = scramble(j - 1).  64 bits: pos + stride can exceed 2^31.
-  unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0;
+  unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
   const long long t0 = timing ? clock64() : 0;
   bool done = true, out = false;
   for (;;) {
@@ -201,10 +202,16 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
     if (!out) {
       if constexpr (timing) {
         const unsigned mask = __activemask();
-        if ((threadIdx.x & 31) == __ffs(mask) - 1) { active += __popc(mask); slots += 32; }
+        const bool leader = (threadIdx.x & 31) == __ffs(mask) - 1;
+        if (leader) { active += __popc(mask); slots += 32; }
+        const int64_t p0 = task.progress(o);
         const long long r0 = clock64();
         done = task.run(o);
         run_cycles += clock64() - r0;
+        // Steps this lane took, against the warp's longest: idle lanes within bursts
+        const unsigned steps = unsigned(task.progress(o) - p0), longest = __reduce_max_sync(mask, steps);
+        lane_steps += steps;
+        if (leader) warp_steps += 32ull * longest;
       } else {
         done = task.run(o);
       }
@@ -227,6 +234,8 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
     atomicAdd(counters + 5, (unsigned long long)(clock64() - t0));
     atomicAdd(counters + 6, active);
     atomicAdd(counters + 7, slots);
+    atomicAdd(counters + 10, lane_steps);
+    atomicAdd(counters + 11, warp_steps);
   }
 }
 
@@ -271,6 +280,7 @@ template<class Task> __global__ void overflow_kernel(const Task task, const type
     if (!out) done = task.run(o);
   }
   atomicAdd(counters + 1, it);
+  atomicAdd(counters + 9, it);
 }
 
 template<class F> __global__ void for_each_kernel(const int64_t n, const F f) {
@@ -306,7 +316,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 256));
     Mem<O> overflow(cap, true);
     Mem<int64_t> items(cap, true);
-    Mem<unsigned long long> counters(9, true);
+    Mem<unsigned long long> counters(12, true);
     counters.zero();
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
@@ -331,8 +341,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     }
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e2, stream()));
-    unsigned long long h[8];
-    counters.to_host(h, 8);
+    unsigned long long h[12];
+    counters.to_host(h, 12);
     stats.iters = int64_t(h[1]);
     stats.overflow = parked;
     if (timing) {
@@ -342,8 +352,10 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       print("    cuda run: %d items, %d threads, main %.1f ms, overflow %d orbits %.1f ms, %.3g it/s; "
             "iterations per thread mean %.3g, max %.3g", n, threads, main_ms, parked, over_ms,
             double(h[1]) / ((main_ms + over_ms) * 1e-3), double(h[1]) / threads, double(h[3]));
-      print("      main pass: %.1f%% of thread cycles in run, SIMT efficiency at run %.1f%%",
-            100.0 * double(h[4]) / double(h[5]), 100.0 * double(h[6]) / double(h[7]));
+      print("      main pass: %.3g it/s, %.1f%% of thread cycles in run, SIMT efficiency at run %.1f%%, "
+            "lane steps / warp steps %.1f%%; overflow pass %.3g it/s", double(h[1] - h[9]) / (main_ms * 1e-3),
+            100.0 * double(h[4]) / double(h[5]), 100.0 * double(h[6]) / double(h[7]),
+            100.0 * double(h[10]) / double(h[11]), over_ms > 0 ? double(h[9]) / (over_ms * 1e-3) : 0.0);
     }
     cuda_check(cudaEventDestroy(e0)); cuda_check(cudaEventDestroy(e1)); cuda_check(cudaEventDestroy(e2));
 #else

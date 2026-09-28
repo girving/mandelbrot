@@ -46,6 +46,7 @@ struct CenterTask {
   }
   __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.r.e.iters; }
+  __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     const EscapeDE& e = o.r;
     uint32_t s = kUncertified;
@@ -147,6 +148,7 @@ template<class T> struct SampleTask {
   }
   __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.e.iters; }
+  __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
     for (int k = 0; k < K; k++) b |= uint32_t(o.e.steps < 0 || escaped_below(o.e.steps, o.e.r2, ks[k])) << k;
