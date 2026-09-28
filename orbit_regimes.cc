@@ -99,6 +99,7 @@ int main(const int argc, const char** argv) {
     std::mutex mu;
     double steps[kRegimes] = {}, total = 0, all_work = 0, run_steps[5] = {};  // run_steps: in runs of ≥ 1, 4, 16, 64, 256 windows
     int64_t n_long = 0;
+    double skippable = 0;  // Steps in interior windows of runs near one cycle
     vector<double> lam_hist(40);  // log10(| |λ| - 1 |) for repelling/parabolic windows, weighted by steps
     const int qb = 12, eb = 31;  // Period buckets 1, 2, 3-4, ..., > 1024; length octaves
     vector<double> by_q(eb * qb);  // Escaped long orbits longer than 2^e by bucket of the last hugged period
@@ -107,7 +108,7 @@ int main(const int argc, const char** argv) {
     vector<std::thread> pool;
     for (int t = 0; t < cpu_threads(); t++)
       pool.emplace_back([&]() {
-        double st[kRegimes] = {}, tot = 0, all = 0, rs[5] = {};
+        double st[kRegimes] = {}, tot = 0, all = 0, rs[5] = {}, sk = 0;
         int64_t nl = 0;
         vector<double> lh(40), bq(eb * qb), rp(12);
         for (int64_t i; (i = next.fetch_add(1)) < samples;) {
@@ -130,6 +131,7 @@ int main(const int argc, const char** argv) {
           auto close_run = [&]() {
             const int thresholds[5] = {1, 4, 16, 64, 256};
             for (int k = 0; k < 5; k++) if (run >= thresholds[k]) rs[k] += run_len;
+            if (run > 2) sk += run_len * (run - 2) / run;  // Interior windows: what a jump could skip
             run = 0; run_len = 0;
           };
           while (n < o.n) {
@@ -179,7 +181,14 @@ int main(const int argc, const char** argv) {
             st[r] += double(len);
             tot += double(len);
             // Runs near the same cycle
-            if (ok && run && q == run_q && std::abs(cw - run_w) < 1e-6 * (1 + std::abs(cw))) {
+            // Same cycle if cw is within 1e-6 of any point of run_w's cycle (windows start at different phases)
+            bool same = ok && run && q == run_q;
+            if (same) {
+              C v = run_w; double d = std::abs(v - cw);
+              for (int k = 1; k < q; k++) { v = v * v + c; d = std::min(d, std::abs(v - cw)); }
+              same = d < 1e-6 * (1 + std::abs(cw));
+            }
+            if (same) {
               run++; run_len += double(len);
             } else {
               close_run();
@@ -198,7 +207,7 @@ int main(const int argc, const char** argv) {
         for (int k = 0; k < 40; k++) lam_hist[k] += lh[k];
         for (int k = 0; k < eb * qb; k++) by_q[k] += bq[k];
         for (int k = 0; k < 12; k++) renorm_p[k] += rp[k];
-        total += tot; all_work += all; n_long += nl;
+        total += tot; all_work += all; n_long += nl; skippable += sk;
       });
     for (auto& t : pool) t.join();
     const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -206,6 +215,8 @@ int main(const int argc, const char** argv) {
           "near %g, ret %g, %d threads: %.1f s", samples, max_iter, n_long, long_steps, 100 * total / all_work, window, near, ret,
           cpu_threads(), secs);
     for (int k = 0; k < kRegimes; k++) print("  %-10s %5.1f%% of long-orbit steps", names[k], 100 * steps[k] / total);
+    print("  skippable by cycle jumps (interior windows of runs): %.1f%% of all steps, speedup at most %.2fx",
+          100 * skippable / all_work, all_work / (all_work - skippable));
     string rline = "  renormal steps by period  (2, 3-4, 5-8, ...):";
     for (int k = 1; k < 12; k++) rline += tfm::format(" %.1f%%", 100 * renorm_p[k] / total);
     print(rline);
