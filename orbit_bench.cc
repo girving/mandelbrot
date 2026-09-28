@@ -29,7 +29,8 @@ template<int variant> __host__ __device__ double orbit(const double x, const dou
   } else if constexpr (variant == 4) {
     Orbit<double> o;
     o.start(x, y, int64_t(1) << 40);  // No Newton.  Reports the cardioid, but initializes the state first.
-    o.run(kSteps, kSteps);
+    o.status = 0; o.n = 1;
+    o.run(kSteps, kSteps, 256);
     return double(o.n) + o.zx;
   } else {
     double zx = x, zy = y, min_r2 = 1e300, cx = x, cy = y;
@@ -74,11 +75,12 @@ struct SiegelTask {
   __host__ __device__ bool start(State& o, const int64_t i) const {
     const double theta = 2 * M_PI * 0.6180339887498949, r = 1 - 1e-9 * (1 + double(i % 1024) / 1024);
     const double mx = r * std::cos(theta), my = r * std::sin(theta);
-    o.start(mx / 2 - (mx * mx - my * my) / 4, my / 2 - mx * my / 2, int64_t(1) << 40, 256, false);
+    o.start(mx / 2 - (mx * mx - my * my) / 4, my / 2 - mx * my / 2, int64_t(1) << 40);
+    o.status = 0; o.n = 1;
     return false;  // Iterate even though start() reports the cardioid
   }
-  __host__ __device__ bool run(State& o) const { return o.run(kSteps, burst); }
-  __host__ __device__ int64_t iters(const State& o) const { return o.e.iters; }
+  __host__ __device__ bool run(State& o) const { return o.run(kSteps, burst, 256); }
+  __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ void finish(const State& o, const int64_t i) const { out[i] = o.zx; }
 };

@@ -100,54 +100,62 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x
 
 // Orbit and OrbitDE keep step counts in 32 bits to save GPU registers, so max_iter must be below 2^30
 template<class T> struct Orbit {
+  // State is kept small, since it lives in GPU registers across the persistent loop: the result is encoded in
+  // existing fields (see status), and task-wide settings are arguments to run.
   T x, y, zx, zy;
-  T cx, cy;        // Brent checkpoint, refreshed at powers of two
+  T cx, cy;        // Brent checkpoint, refreshed at powers of two.  After escape, cx = |z_n|^2.
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
-  int32_t n, next_check, candidate, next_newton;  // 32 bits to save registers: max_iter < 2^31
-  int max_period;  // Largest atom-domain period candidate that Newton tries
-  int newton_iters;  // Newton iterations per certificate attempt
-  bool logs;       // Compute e.log2g on escape (otherwise only e.steps and e.r2, for escaped_below)
-  Escape e;        // Result, once done
+  int32_t n, next_check, candidate, next_newton;  // 32 bits to save registers: max_iter < 2^30
+  int32_t status;  // 0 running, 1 escaped at step n, 2 attracting cycle (period in candidate), 3 hit max_iter
 
-  // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling, for
-  // period candidates up to max_period.  Returns true if already decided (the cardioid or period 2 disk).
-  __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64,
-                                 const int max_period = 4096, const bool logs = true, const int newton_iters = 30) {
-    this->max_period = max_period;
-    this->newton_iters = newton_iters;
-    this->logs = logs;
+  // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling.
+  // Returns true if already decided (the cardioid or period 2 disk).
+  __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64) {
     x = T(x_); y = T(y_);
     zx = x; zy = y; cx = x; cy = y;
     min_r2 = zx * zx + zy * zy;
-    n = 1; next_check = 16; candidate = 1;
+    n = 1; next_check = 16; candidate = 1; status = 0;
     next_newton = int32_t(first_newton < (int64_t(1) << 30) ? first_newton : int64_t(1) << 30);  // ≥ 2^30: never
     if (in_cardioid_or_disk(x_, y_)) {
       const bool disk = (x_ + 1) * (x_ + 1) + y_ * y_ <= 1.0 / 16;
-      e = {-1, -INFINITY, disk ? 2 : 1, 0};
+      status = 2; candidate = disk ? 2 : 1; n = 0;
       return true;
     }
     return false;
   }
 
-  // Iterate at most `budget` steps.  Returns true when done, with the result in e.  State lives in locals
-  // during the loop so that it stays in registers.  Each step does the escape test and z → z^2 + c, carrying
-  // the squares, and tracks the atom-domain minimum while n < max_period (later candidates are never used).
-  // The rarer checks (Newton, Brent, checkpoint) run at steps that are multiples of 8: they cost as much as
-  // the iteration itself on GPUs, and tying them to absolute step numbers keeps results independent of how
-  // the orbit is split into bursts.
-  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget) {
+  // Iterations performed, once done
+  __host__ __device__ int64_t iters() const { return status == 3 ? n - 1 : n; }
+
+  // The result as an Escape, once done.  period is the minimal period if found and at most 32, else 0.
+  __host__ __device__ Escape result() const {
+    switch (status) {
+      case 1: return {n, std::log2(0.5 * std::log(double(cx))) - double(n - 1), 0, n, double(cx)};
+      case 2: return {-1, -INFINITY, candidate <= 32 ? candidate : 0, n};
+      default: return {-1, -INFINITY, 0, n - 1};
+    }
+  }
+
+  // Iterate at most `budget` steps, trying Newton on atom-domain candidates up to max_period with newton_iters
+  // iterations.  Returns true when done (see status).  State lives in locals during the loop so that it stays
+  // in registers.  Each step does the escape test and z → z^2 + c, carrying the squares, and tracks the
+  // atom-domain minimum while n < max_period (later candidates are never used).  The rarer checks (Newton,
+  // Brent, checkpoint) run at steps that are multiples of 8: they cost as much as the iteration itself on GPUs,
+  // and tying them to absolute step numbers keeps results independent of how the orbit is split into bursts.
+  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096,
+                               const int newton_iters = 30) {
     typedef OrbitTol<T> Tol;
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
     T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
     int32_t n = this->n, next_check = this->next_check, candidate = this->candidate;
     const int32_t end = int32_t(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
-    bool done = true;
     while (n < end) {
       const int32_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       for (; n < block; n++) {
         // Escape at |z| > 2^32 so that log|z| is accurate
         if (r2 > T(18446744073709551616.0)) {
-          e = {n, logs ? std::log2(0.5 * std::log(double(r2))) - double(n - 1) : NAN, 0, n, double(r2)};
+          cx = r2;
+          status = 1;
           goto finish;
         }
         const T xy = zx * zy;
@@ -166,7 +174,8 @@ template<class T> struct Orbit {
           if (candidate <= 32)
             for (int q = 1; q <= int(candidate); q++)
               if (int(candidate) % q == 0 && attracting_cycle(x, y, zx, zy, q)) { period = q; break; }
-          e = {-1, -INFINITY, period, n};
+          candidate = period ? period : 33;  // 33: a period above 32, reported as 0
+          status = 2;
           goto finish;
         }
       }
@@ -183,18 +192,18 @@ template<class T> struct Orbit {
             const T ex = wx - zx, ey = wy - zy;
             if (ex * ex + ey * ey < T(Tol::period)) { period = p; break; }
           }
-          e = {-1, -INFINITY, period, n};
+          candidate = period ? period : 33;
+          status = 2;
           goto finish;
         }
       }
       if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     }
-    if (n > max_iter) e = {-1, -INFINITY, 0, max_iter};
-    else done = false;
+    if (n > max_iter) status = 3;
   finish:
     this->zx = zx; this->zy = zy; this->cx = cx; this->cy = cy; this->min_r2 = min_r2;
     this->n = n; this->next_check = next_check; this->candidate = candidate;
-    return done;
+    return status != 0;
   }
 };
 

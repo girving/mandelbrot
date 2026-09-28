@@ -144,14 +144,14 @@ template<class T> struct SampleTask {
     const uint64_t key = mix64(uint64_t(uint32_t(l.ix)) | uint64_t(uint32_t(l.iy)) << 32) + uint64_t(s);
     const double x = X0 + (l.ix + (jx + uniform(seed, key, 0)) / strata) * w,
                  y = Y0 + (l.iy + (jy + uniform(seed, key, 1)) / strata) * h;
-    return o.start(x, y, first_newton, max_period, false, newton_iters);
+    return o.start(x, y, first_newton);
   }
-  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
-  __host__ __device__ int64_t iters(const State& o) const { return o.e.iters; }
+  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, max_period, newton_iters); }
+  __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
-    for (int k = 0; k < K; k++) b |= uint32_t(o.e.steps < 0 || escaped_below(o.e.steps, o.e.r2, ks[k])) << k;
+    for (int k = 0; k < K; k++) b |= uint32_t(o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;
     bits[i] = b;
   }
 };
