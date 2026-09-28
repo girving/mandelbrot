@@ -453,6 +453,27 @@ So satellites explain the 1/k law cleanly, but the primitive frontier, which the
 follow to the escape-time range (j ~ 10³–10⁶), increasingly carries the tail and plausibly the drift of K_eff
 there.  A principled tail form would need the frontier behaviour of primitive roots at large period.
 
+*Tuned copies carry p× the tail per unit area (escape side, `--box`).*  Near a period-p copy,
+g_M(c) ≈ C g_M(χ(c))^p, so the copy's fattened sets should be M's at threshold ~k/p, and its tail per unit
+area p times M's (a/(k/p) = p·a/k), where plain area scaling predicts 1.  Depth 8, max_iter 2^22, octave
+differences D(k) = A(k) − A(2k), ratio R = (D/A)_box / (D/A)_M with A the area at 2^22:
+
+| k | M: k·D/A | period-3 copy, box [−1.7930, −1.7485] × [0, 0.024] | period-4 copy, box [−1.94290, −1.94045] × [0, 0.0013] |
+|---|---|---|---|
+| 2^8 | 1.315 | 2.878 | 4.129 |
+| 2^12 | 1.201 | 2.853 | 3.988 |
+| 2^16 | 1.060 | 2.857 | 3.996 ± 0.002 |
+| 2^20 | 0.957 | 2.826 ± 0.003 | 3.938 ± 0.009 |
+| 2^21 | 0.938 | 2.813 ± 0.005 | 3.920 ± 0.013 |
+
+(Copy areas 4.999e-4 and 1.449e-6, doubled boxes.)  The enhancement is the period, to 5–6% for p = 3 and 1–2%
+for p = 4, flat over k = 2^8 … 2^21, so the multiplicative scaling holds on the escape side; the Böttcher-side
+rejection (§2) was pre-asymptotic (j/p ≤ 13).  With M's own drift, T(k/p)/T(k) predicts R = p·K(k/p)/K(k) ≈
+3.11 and 4.19 at 2^20, so the effective tail weights are 0.91 and 0.94 of the area ratios (the straightening
+distorts the boundary region differently from the bulk).  So the renewal equation
+T(k) = T_0(k) + Σ_W r_W T((k − c_W)/p_W) over maximal copies is quantitatively right, and D(s) = Σ_W r_W p_W^s
+governs the tail's form.
+
 ## 6. Reproducing
 
 ```
