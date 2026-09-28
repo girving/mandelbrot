@@ -343,6 +343,15 @@ step; scaling N ~ √(C/ε) from 30 bits suggests double could stall near k ~ 2^
 (+1.2e-5) came from its looser cycle and Newton tolerances, not from rounding as such.  Double-double orbits
 (--prec comparedd) give a direct reference at large k.
 
+*Brent false positives.*  Orbits past 2^24 steps (max_iter 2^28) were mostly "certified" by Brent right after
+the 2^24 checkpoint, but Newton there finds repelling cycles (|λ| from 1.000007 to 1.4): slow exterior orbits
+returning within 1e-13.  Newton now has to confirm Brent's cycle, and an unconfirmed exact (bitwise) return
+stops the orbit as capped, since the computed orbit is then periodic and would reach max_iter anyway.  At depth 6
+and max_iter 2^28 the estimates are bit-identical to before, so the false positives did not matter there.  In
+orbit_census at 2^28 the exact-return rule cuts work 72×.  (A bug in the first version, squaring a −1 default
+tolerance to +1, certified exterior orbits and moved A(2^20) at depth 8 by 8e-5; tree_newton_matches_reference now
+checks the Newton schedule against escape().)
+
 *Cost of large k.*  Depth 8: max_iter 2^20 → 2^24 costs 37.7 → 84.4 s.  Depth 6: 2^28 costs 19× 2^20: orbits that
 neither escape nor certify run to max_iter.
 
