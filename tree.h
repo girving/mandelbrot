@@ -46,7 +46,8 @@ struct TreeParams {
   double newton_close2 = INFINITY;   // Leaf Newton gives up unless |f^p(w) - w|^2 < this after one iteration
   int64_t burst = 64;                // Orbit steps per run call (finished lanes refill between bursts)
   int center_min_blocks = 2, sample_min_blocks = 3;  // GPU register budgets (H200: centers spill beyond 2)
-  string prec = "double";    // Leaf orbit precision: double, float, or compare
+  string prec = "double";    // Leaf orbits: double, float, or compare (float), compareNN (double rounded to NN
+                             // bits, NN ∈ {30, 36, 42, 48}), each paired with double
   bool cuda = false;
   int64_t batch = 1 << 22;   // Target leaves per batch
   int64_t rows = -1;         // Only the first `rows` base rows (for tests), or -1 for all
