@@ -513,6 +513,19 @@ copies carry more tail than the period-2 copy, or the period-2 box mixes in non-
 horn at −3/4, a tangency rather than the image of M's cusp); the agreement is not yet established.  D has
 poles where ζ(4 − s) = 0, i.e. at Re s = 7/2 on the critical line, and at s = 2 from ζ(3 − s).
 
+*Satellite tail weights.*  Box runs on satellite copies (depth 8, max_iter 2^22), as r_W / (area(W)/a1):
+1/2 bulb 0.628 (box to the tip −1.5437; a taller box gives the same R = 1.480, and cutting the root region at
+−0.80 lowers R to 1.41, so the root horn carries more tail per area, not less); 1/3 bulb 0.662 (box
+[−0.235, 0.005] × [0.64952, 0.95629], from the cardioid's top to the limb's principal branch point, which is
+the copy's tip); the 1/4 bulb box [0.25, 0.372] × [0.5, 0.598] cuts off part of the bulb (copy area only
+0.72 of scaled) and is unreliable.  Both clean satellite copies have copy area 0.871 of the scaled bulb and
+tail ratio R 0.72–0.76 of pure scaling, flat from k = 2^12; primitive copies (now five, including the
+period-5 copy at −1.9854 at 5.0e-9 area) stay at 0.87–0.93.  With satellite weight 0.65, D predicts
+s* ≈ 1.45, and the tail fits cannot tell: with a log term, a/k + b/(k ln k) + d k^−s + c/k² has χ² 40.4–41.1
+(k ≥ 2^16) and 45.4–46.0 (k ≥ 2^14) for every s in 1.2–1.6, with T(2^30) = 2.32–2.38e-9 (k ≥ 2^16).  So the
+s ≈ 1.2 agreement above was fortuitous; D gives the correction exponent (1.45 ± 0.05 if larger bulbs weigh
+like these two) but the tail data do not yet constrain it.
+
 ## 6. Reproducing
 
 ```
