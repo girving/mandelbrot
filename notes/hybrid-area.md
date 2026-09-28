@@ -384,6 +384,37 @@ deep survivors, variance × 0.52–0.59, stable from T2 = 2^16 to 2^22.  Flaggin
 × 0.82–0.86), since deep survivors are not predicted by other deep survivors (1.01–1.04 per box, as random).
 So ≤ 2× on the tail's variance, and less on the total; the tree's leaves already localize the boundary.
 
+*Two-phase allocation across leaves (`--leaf-stats`).*  Class leaves by their first P samples, measure each
+class's variance and cost on held-out samples 8..15, and allocate a second phase by cost-weighted Neyman
+(n ≥ 1 per leaf, estimating from the second phase only, so unbiased).  Depth 8, A(2^20): cost at equal
+variance 0.99 / 0.97 / 1.12 of uniform for P = 2 / 4 / 8.  97.7% of leaves have all 8 pilot samples outside,
+but they still carry 8.5% of the variance (and all-inside leaves 5.4%) and 37% of the cost each, so they cannot
+be starved; without the pilot's cost the gain would be 1.6×, which a free predictor (the leaf center's orbit)
+might partly recover.
+
+*Stratification is the same as depth.*  Depth 8 at A(2^20) (std err, total time, err²·t):
+
+| run | finest cell | groups | std err | time | err²·t |
+|---|---|---|---|---|---|
+| d8 m16 s2 | h_9 | 4 | 2.02e-8 | 35.7 s | 1.46e-14 |
+| d8 m32 s1 | h_8 | 32 | 1.83e-8 | 61.4 s | 2.06e-14 |
+| d8 m32 s2 | h_9 | 8 | 1.43e-8 | 61.4 s | 1.26e-14 |
+| d9 m16 s2 | h_10 | 4 | 7.88e-9 | 131 s | 8.1e-15 |
+| d8 m32 s4 | h_10 | 2 | 1.11e-8 | 61.4 s | 7.6e-15 |
+| d7 m128 s8 | h_10 | 2 | 1.11e-8 | 70.4 s | 8.7e-15 |
+| d8 m64 s4 | h_10 | 4 | 7.88e-9 | 118 s | 7.3e-15 |
+| d10 m16 s2 | h_11 | 4 | 3.09e-9 | 478 s | 4.6e-15 |
+| d9 m32 s4 | h_11 | 2 | 4.37e-9 | 211 s | 4.0e-15 |
+| d8 m128 s8 | h_11 | 2 | 4.37e-9 | 232 s | 4.4e-15 |
+
+(h_d is the depth-d cell size.)  The variance is set by the finest stratum size and the samples per stratum,
+not by how the cells got there: runs with the same stratum size agree to three digits (d7 m128 s8 = d8 m32 s4,
+d8 m128 s8 = d9 m32 s4), and at fixed stratum size variance ∝ 1/groups (d9 m16 s2 = d8 m32 s4 / 2).  So
+err²·t improves about 1.9× per halving of the stratum size however it is reached; strata vs depth is a ≤ 12%
+cost trade, and one sample per stratum (G = 1, with a collapsed-strata variance estimate) would not change
+err²·t.  Projection from d9 m32 s4 at 3.43× cost and 6.45× variance per level: statistical error 3e-11 at
+about 5.4 more levels, ~1.5e5 H200-seconds (~43 GPU-hours), before the tail extrapolation.
+
 *Per-component tails.*  The period of the last hugged cycle of escaping survivors is broad (9–256, mode
 33–64) and the distribution does not change from length 2^12 to 2^22: no finite set of components carries the
 tail, so a per-component analytic tail would need infinitely many components with self-similar weights —
