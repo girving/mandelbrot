@@ -173,8 +173,8 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
   // Item indices fit in 32 bits (n < 2^31), which saves registers.
   const int32_t chunk = 16;
   typename Task::State o;
-  int32_t end = 0, pos = 0, i = -1, bursts = 0;  // pos = scramble(j - 1); i = current item or -1
-  int64_t j = 0;
+  int32_t end = 0, i = -1, bursts = 0;  // i = current item or -1
+  int64_t j = 0, pos = 0;  // pos = scramble(j - 1).  64 bits: pos + stride can exceed 2^31.
   unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0;
   const long long t0 = timing ? clock64() : 0;
   bool done = true, out = false;
@@ -186,12 +186,12 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
         j = int64_t(atomicAdd(counters, (unsigned long long)chunk));
         if (j >= n) { out = true; i = -1; break; }
         end = int32_t(min(j + chunk, n));
-        pos = int32_t(scramble(j, stride, n));
+        pos = scramble(j, stride, n);
       } else {
-        pos += int32_t(stride);  // scramble(j) from scramble(j - 1), without a 64-bit modulus
-        if (pos >= n) pos -= int32_t(n);
+        pos += stride;  // scramble(j) from scramble(j - 1), without a 64-bit modulus
+        if (pos >= n) pos -= n;
       }
-      i = pos;
+      i = int32_t(pos);
       j++;
       bursts = 0;
       done = task.start(o, i);
