@@ -185,6 +185,21 @@ TEST(tree_matches_reference) {
   }
 }
 
+TEST(tree_newton_matches_reference) {
+  // Leaf orbits long enough for the Newton schedule: certificates change cost, never classification
+  auto p = small_params();
+  p.max_iter = 1 << 16;
+  p.first_newton = 1024;
+  p.ks = {16, 256, 4096, 65000};
+  const auto R = run_tree(p);
+  const Reference ref(p);
+  for (int k = 0; k < int(p.ks.size()); k++) {
+    const auto [est, var] = ref.area(k);
+    const double e = R.area_estimate(k);
+    ASSERT_TRUE(std::abs(e - est) <= 1e-11) << tfm::format("k %d: estimate %.17g vs %.17g", p.ks[k], e, est);
+  }
+}
+
 TEST(batching_invariant) {
   auto p = small_params();
   p.batch = 1 << 30;

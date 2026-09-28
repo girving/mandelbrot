@@ -73,7 +73,7 @@ int main(const int argc, const char** argv) {
     program.add_argument("--center-max-iter").help("iteration cap for cell centers").scan<'i', int64_t>()
         .default_value(int64_t(1) << 14);
     program.add_argument("--newton-max-period").help("largest period Newton tries for leaf samples")
-        .scan<'i', int>().default_value(256);
+        .scan<'i', int>().default_value(1024);
     program.add_argument("--newton-iters").help("Newton iterations per certificate attempt").scan<'i', int>()
         .default_value(30);
     program.add_argument("--center-first-newton").help("first Newton attempt for cell centers")
@@ -83,9 +83,9 @@ int main(const int argc, const char** argv) {
     program.add_argument("--center-max-period").help("largest period Newton tries for cell centers")
         .scan<'i', int>().default_value(256);
     program.add_argument("--newton-tol").help("leaf Newton converged when |step| < this (relative); -1: 1e-14")
-        .scan<'g', double>().default_value(-1.0);
+        .scan<'g', double>().default_value(1e-10);
     program.add_argument("--newton-margin").help("leaf Newton certifies when |λ|^2 < 1 - this; -1: 1e-9")
-        .scan<'g', double>().default_value(-1.0);
+        .scan<'g', double>().default_value(1e-6);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 
