@@ -78,7 +78,7 @@ int main(const int argc, const char** argv) {
     program.add_argument("--newton-close").help("leaf Newton needs |f^p(w) - w| below this after one iteration")
         .scan<'g', double>().default_value(double(INFINITY));
     program.add_argument("--center-max-period").help("largest period Newton tries for cell centers")
-        .scan<'i', int>().default_value(4096);
+        .scan<'i', int>().default_value(256);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 

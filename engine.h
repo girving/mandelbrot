@@ -174,11 +174,10 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
 orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32_t budget,
              typename Task::State* overflow, int64_t* overflow_items, const int64_t overflow_cap,
-             unsigned long long* counters) {
+             unsigned long long* counters, const int32_t chunk) {
   // Lanes stay in the loop until their whole warp is out of work, and reconverge before each burst, so that
   // lanes refilling at different times do not split the warp into groups that each step half empty.
   // Item indices fit in 32 bits (n < 2^31), which saves registers.
-  const int32_t chunk = 16;
   typename Task::State o;
   int32_t end = 0, i = -1, bursts = 0;  // i = current item or -1
   int64_t j = 0, pos = 0;  // pos = scramble(j - 1).  64 bits: pos + stride can exceed 2^31.
@@ -253,9 +252,10 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
 template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks, const int blocks, const Task& task,
                                                            const int64_t n, const int64_t stride, const int32_t budget,
                                                            typename Task::State* overflow, int64_t* items,
-                                                           const int64_t cap, unsigned long long* counters) {
+                                                           const int64_t cap, unsigned long long* counters,
+                                                           const int32_t chunk) {
 #define LAUNCH(b) orbit_kernel<Task, timing, b><<<blocks, 256, 0, stream()>>>(task, n, stride, budget, overflow, \
-                                                                             items, cap, counters)
+                                                                             items, cap, counters, chunk)
   switch (min_blocks) {
     case 1: LAUNCH(1); break;
     case 2: LAUNCH(2); break;
@@ -358,7 +358,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                      // pass, with all lanes of a warp at once, instead of one lane stalling the rest.
                      budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 14),
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0),
-                     park = env_int("MANDELBROT_CUDA_PARK", 8);  // Room to park n / park orbits
+                     park = env_int("MANDELBROT_CUDA_PARK", 8),  // Room to park n / park orbits
+                     chunk = env_int("MANDELBROT_CUDA_CHUNK", 16);  // Items per claim
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / park));
     Mem<O> parked(cap, true), next(cap, true);
     Mem<int64_t> items(cap, true), next_items(cap, true);
@@ -373,10 +374,10 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int32_t budget = int32_t(std::max<int64_t>(1, budget_steps / task.burst));
     if (timing)
       engine_detail::launch_orbit_kernel<Task, true>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
-                                                     cap, counters.p);
+                                                     cap, counters.p, chunk);
     else
       engine_detail::launch_orbit_kernel<Task, false>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
-                                                      cap, counters.p);
+                                                      cap, counters.p, chunk);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
     // Rounds: settle pending orbits together, then resume the rest until they are done or pending again
