@@ -430,7 +430,9 @@ TreeResult run_tree(const TreeParams& p) {
     // Aim for about p.batch leaves per batch
     // Leaves per base cell so far (a running average, since single batches can be tiny)
     const double per_cell = double(R.leaves) / double(cell1);
-    cells_per_batch = std::max<int64_t>(1, int64_t(double(max_leaves) / std::max(1e-3, per_cell)));
+    // At most 4× the last batch, since sparse early cells (common in --box domains) underestimate the density
+    cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (cell1 - cell0),
+                                                             int64_t(double(max_leaves) / std::max(1e-3, per_cell))));
     cell0 = cell1;
   }
   R.secs = secs_since(t0);
