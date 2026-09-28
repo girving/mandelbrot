@@ -293,7 +293,22 @@ Target: error ~3·10^-11, two digits beyond the published 1.5065918849.
   ~10^-16 jitter of c.  Averaging the indicator over a jitter kernel preserves its integral, so the bias is
   second order (c-dependence of the kernel) plus non-shadowing artifacts like the float ones.  This is an
   argument, not a proof.  A paired double vs double-double tree run can check it only to ~10^-9.
-- *Budget.*  The tree reaches 3.4·10^-7 in 44 s on an M5 Pro (3.2·10^9 iterations/s).  3·10^-11 then
+- *H200 pipeline (2026-09-28).*  The whole tree runs on the GPU (engine.h: persistent warp-synchronous
+  kernels with scrambled claims; Newton certificates deferred and settled in lockstep rounds; 32-bit orbit
+  state and register budgets).  Results are bit-identical to CPU runs.  Throughput: bare z² + c loop
+  2.4·10^12 it/s, Orbit::run 1.2·10^12, leaf sampling about 6·10^11 overall (rounds at 1.0·10^12), centers
+  1.4·10^11.  Error vs H200 time at base 1000, 16 samples/leaf, strata 2:
+
+  | depth | error at k = 2^20 | seconds |
+  |---|---|---|
+  | 6 | 1.33·10^-7 | 4.1 |
+  | 8 | 2.02·10^-8 | 37.7 |
+  | 9 | 7.88·10^-9 | 131 |
+  | 10 | 3.09·10^-9 | 478 |
+
+  Error ∝ cost^-0.72 between depths 9 and 10 (0.85 at 6→8).  At ~0.7, 3·10^-11 needs roughly 3.5–4
+  H200-days.  Depth 10 also gives A(2^18) − A(2^20) = 8.5761·10^-6 ± 1.6·10^-9.
+- *Budget (earlier, CPU).*  The tree reaches 3.4·10^-7 in 44 s on an M5 Pro (3.2·10^9 iterations/s).  3·10^-11 then
   needs ~335 laptop-days.  An H200 does ~34 TFLOPS in double, about 3·10^12 iterations/s at peak; at
   30–50% of peak that is 300–500× the laptop, so 0.7–1.1 GPU-days.  Tree traversal (escape_de at cell
   centers, 15% of CPU time) would then dominate and needs to move to the GPU too.  The tail extrapolation
