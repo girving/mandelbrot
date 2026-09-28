@@ -87,6 +87,23 @@ TEST(below) {
   ASSERT_TRUE(e.steps < 0 && below(e, 1000000));
 }
 
+TEST(escaped_below) {
+  // Agrees with log2 g < -k on real escapes, for thresholds on either side of each escape
+  mt19937 rand(11);
+  uniform_real_distribution<double> ux(-2, 0.5), uy(0, 1.2);
+  int checked = 0;
+  for (int i = 0; i < 100000; i++) {
+    const auto e = escape(ux(rand), uy(rand), 1 << 12);
+    if (e.steps <= 0) continue;
+    ASSERT_TRUE(e.r2 > std::ldexp(1.0, 64) && e.r2 <= std::ldexp(1.0, 130)) << e.r2;
+    for (int64_t k = std::max<int64_t>(0, e.steps - 12); k < e.steps + 4; k++) {
+      ASSERT_EQ(escaped_below(e.steps, e.r2, int(k)), e.log2g < -double(k)) << tfm::format("steps %d, k %d", e.steps, k);
+      checked++;
+    }
+  }
+  ASSERT_LT(100000, checked);
+}
+
 TEST(period) {
   // Centers of known components report their period
   const struct { double x, y; int p; } cs[] = {

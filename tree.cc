@@ -28,6 +28,7 @@ const uint32_t kUncertified = 0xffffffff;
 
 struct CenterTask {
   typedef OrbitDE State;
+  int64_t burst;  // Steps per run call
   Level level;
   double w, h, r;  // Cell size and half-diagonal at this depth
   double safety;
@@ -40,7 +41,7 @@ struct CenterTask {
     const Cell c = level.at(i);
     return o.start(X0 + (c.ix + 0.5) * w, Y0 + (c.iy + 0.5) * h);
   }
-  __host__ __device__ bool run(State& o) const { return o.run(max_iter, 16); }
+  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.r.e.iters; }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     const EscapeDE& e = o.r;
@@ -119,6 +120,7 @@ struct EmitChunk {
 // leaf's coordinates, so that it does not depend on processing order
 template<class T> struct SampleTask {
   typedef Orbit<T> State;
+  int64_t burst;  // Steps per run call
   const Cell* leaves;
   int m, strata;
   uint64_t seed;
@@ -135,13 +137,13 @@ template<class T> struct SampleTask {
     const uint64_t key = mix64(uint64_t(uint32_t(l.ix)) | uint64_t(uint32_t(l.iy)) << 32) + uint64_t(s);
     const double x = X0 + (l.ix + (jx + uniform(seed, key, 0)) / strata) * w,
                  y = Y0 + (l.iy + (jy + uniform(seed, key, 1)) / strata) * h;
-    return o.start(x, y, first_newton, max_period);
+    return o.start(x, y, first_newton, max_period, false);
   }
-  __host__ __device__ bool run(State& o) const { return o.run(max_iter, 16); }
+  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.e.iters; }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
-    for (int k = 0; k < K; k++) b |= uint32_t(o.e.steps < 0 || o.e.log2g < -ks[k]) << k;
+    for (int k = 0; k < K; k++) b |= uint32_t(o.e.steps < 0 || escaped_below(o.e.steps, o.e.r2, ks[k])) << k;
     bits[i] = b;
   }
 };
@@ -198,7 +200,7 @@ GroupSums reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const Kind kind
 
 template<class T> int64_t sample(const Mem<Cell>& leaves, const int64_t n_leaves, const TreeParams& p,
                                  const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow) {
-  SampleTask<T> task{leaves.p, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
+  SampleTask<T> task{p.burst, leaves.p, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      int(p.ks.size()), {}, bits.p};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
@@ -272,7 +274,7 @@ TreeResult run_tree(const TreeParams& p) {
       const Level level{d ? cells.p : nullptr, p.base, row0};
       const double w = (X1 - X0) / double(p.base << d), h = (Y1 - Y0) / double(p.base << d);
       Mem<uint32_t> status(n, p.cuda);
-      CenterTask task{level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter), K, {},
+      CenterTask task{p.burst, level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter), K, {},
                       status.p};
       for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
       const auto stats = run_orbits(task, n, p.cuda);

@@ -29,8 +29,18 @@ struct Escape {
   double log2g;   // log2 of the Green's function g_M(c) = lim 2^-n log|z_n| if escaped, else -inf
   int period = 0; // Minimal period of the attracting cycle if one was found with period ≤ 32, else 0
   int64_t iters = 0;  // Iterations performed
+  double r2 = 0;      // |z_steps|^2 if escaped
   double g() const { return std::exp2(log2g); }
 };
+
+// Whether an escaped orbit has g_M(c) < 2^-k, from its escape step and |z|^2 alone, without logarithms.
+// log2 g = log2(log(r2) / 2) - (steps - 1), and r2 ∈ (2^64, 2^128] at escape, so log(r2) / 2 ∈ (22.1, 44.4]:
+// with d = steps - 1 - k, g < 2^-k iff log(r2) / 2 < 2^d, which holds for d ≥ 6, fails for d ≤ 4, and for
+// d = 5 means r2 < e^64.
+__host__ __device__ static inline bool escaped_below(const int64_t steps, const double r2, const int k) {
+  const int64_t d = steps - 1 - k;
+  return d >= 6 || (d == 5 && r2 < 6.235149080811617e27);
+}
 
 // Tolerances by precision (squared distances, relative where noted)
 template<class T> struct OrbitTol;
@@ -89,13 +99,15 @@ template<class T> struct Orbit {
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
   int64_t n, next_check, candidate, next_newton;
   int max_period;  // Largest atom-domain period candidate that Newton tries
+  bool logs;       // Compute e.log2g on escape (otherwise only e.steps and e.r2, for escaped_below)
   Escape e;        // Result, once done
 
   // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling, for
   // period candidates up to max_period.  Returns true if already decided (the cardioid or period 2 disk).
   __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64,
-                                 const int max_period = 4096) {
+                                 const int max_period = 4096, const bool logs = true) {
     this->max_period = max_period;
+    this->logs = logs;
     x = T(x_); y = T(y_);
     zx = x; zy = y; cx = x; cy = y;
     min_r2 = zx * zx + zy * zy;
@@ -126,7 +138,7 @@ template<class T> struct Orbit {
       for (; n < block; n++) {
         // Escape at |z| > 2^32 so that log|z| is accurate
         if (r2 > T(18446744073709551616.0)) {
-          e = {n, std::log2(0.5 * std::log(double(r2))) - double(n - 1), 0, n};
+          e = {n, logs ? std::log2(0.5 * std::log(double(r2))) - double(n - 1) : NAN, 0, n, double(r2)};
           goto finish;
         }
         const T xy = zx * zy;
