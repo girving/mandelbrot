@@ -109,27 +109,36 @@ template<class T> struct Orbit {
   }
 
   // Iterate at most `budget` steps.  Returns true when done, with the result in e.  State lives in locals
-  // during the loop so that it stays in registers.
+  // during the loop so that it stays in registers.  Each step does the escape test and z → z^2 + c, carrying
+  // the squares, and tracks the atom-domain minimum while n < max_period (later candidates are never used).
+  // The rarer checks (Newton, Brent, checkpoint) run at steps that are multiples of 8: they cost as much as
+  // the iteration itself on GPUs, and tying them to absolute step numbers keeps results independent of how
+  // the orbit is split into bursts.
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget) {
     typedef OrbitTol<T> Tol;
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
+    T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
     int64_t n = this->n, next_check = this->next_check, candidate = this->candidate;
     const int64_t end = n + budget < max_iter + 1 ? n + budget : max_iter + 1;
     bool done = true;
-    for (; n < end; n++) {
-      // Escape at |z| > 2^32 so that log|z| is accurate
-      const T r2 = zx * zx + zy * zy;
-      if (r2 > T(18446744073709551616.0)) {
-        e = {n, std::log2(0.5 * std::log(double(r2))) - double(n - 1), 0, n};
-        goto finish;
+    while (n < end) {
+      const int64_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
+      for (; n < block; n++) {
+        // Escape at |z| > 2^32 so that log|z| is accurate
+        if (r2 > T(18446744073709551616.0)) {
+          e = {n, std::log2(0.5 * std::log(double(r2))) - double(n - 1), 0, n};
+          goto finish;
+        }
+        const T xy = zx * zy;
+        zx = zx2 - zy2 + x;
+        zy = xy + xy + y;
+        zx2 = zx * zx; zy2 = zy * zy; r2 = zx2 + zy2;
+        if (n < max_period && r2 < min_r2) { min_r2 = r2; candidate = n + 1; }  // (zx, zy) is now z_{n+1}
       }
-      const T t = zx * zx - zy * zy + x;
-      zy = 2 * zx * zy + y;
-      zx = t;
-      const T r2n = zx * zx + zy * zy;
-      if (r2n < min_r2) { min_r2 = r2n; candidate = n + 1; }  // (zx, zy) is now z_{n+1}
-      if (n == next_newton) [[unlikely]] {
-        next_newton *= 2;
+      if (n & 7) continue;  // Partial block at the end of the burst
+      // (zx, zy) is z_n, n a multiple of 8
+      if (n > next_newton) [[unlikely]] {
+        while (next_newton < n) next_newton *= 2;
         if (candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate))) {
           // Report the minimal period if it is small
           int period = 0;
@@ -140,22 +149,24 @@ template<class T> struct Orbit {
           goto finish;
         }
       }
-      const T dx = zx - cx, dy = zy - cy;
-      if (dx * dx + dy * dy < T(Tol::cycle)) [[unlikely]] {
-        // Converged to an attracting cycle: find its minimal period, if small
-        T wx = zx, wy = zy;
-        int period = 0;
-        for (int p = 1; p <= 32; p++) {
-          const T t2 = wx * wx - wy * wy + x;
-          wy = 2 * wx * wy + y;
-          wx = t2;
-          const T ex = wx - zx, ey = wy - zy;
-          if (ex * ex + ey * ey < T(Tol::period)) { period = p; break; }
+      {
+        const T dx = zx - cx, dy = zy - cy;
+        if (dx * dx + dy * dy < T(Tol::cycle)) [[unlikely]] {
+          // Converged to an attracting cycle: find its minimal period, if small
+          T wx = zx, wy = zy;
+          int period = 0;
+          for (int p = 1; p <= 32; p++) {
+            const T t2 = wx * wx - wy * wy + x;
+            wy = 2 * wx * wy + y;
+            wx = t2;
+            const T ex = wx - zx, ey = wy - zy;
+            if (ex * ex + ey * ey < T(Tol::period)) { period = p; break; }
+          }
+          e = {-1, -INFINITY, period, n};
+          goto finish;
         }
-        e = {-1, -INFINITY, period, n};
-        goto finish;
       }
-      if (n == next_check) { cx = zx; cy = zy; next_check *= 2; }
+      if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     }
     if (n > max_iter) e = {-1, -INFINITY, 0, max_iter};
     else done = false;
