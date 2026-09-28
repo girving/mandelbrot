@@ -42,13 +42,13 @@ step "Configuring and building"
 CXXFLAGS="-O3 -march=native" timeout 600 meson setup build/release --buildtype=release > /tmp/setup.log \
   || { cat /tmp/setup.log; exit 1; }
 grep -i -E "cuda|openmp" /tmp/setup.log || true
-timeout 1800 meson compile -C build/release escape_batch_test escape_tree
+timeout 1800 meson compile -C build/release tree_test escape_tree
 
 mkdir -p /data/results
 OUT=/data/results/bench-$(date +%Y%m%d-%H%M%S).txt
 run() { step "$*"; timeout 1800 "$@" 2>&1 | tee -a "$OUT"; }
 
-run ./build/release/escape_batch_test
+run ./build/release/tree_test
 if [ -n "${RUNS:-}" ]; then
   # Custom runs: RUNS holds one command per line, optionally prefixed by VAR=value settings
   while IFS= read -r cmd; do
