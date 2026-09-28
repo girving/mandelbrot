@@ -2,8 +2,8 @@
 // dynamics could skip.
 //
 // Samples leaf-like points near the boundary (as in orbit_census), keeps orbits longer than --long steps, and
-// replays each in windows of --window steps.  At the start of each window it finds the best return period
-// q ≤ --max-period of the current point, Newton-solves for the q-cycle nearby, and classifies the window:
+// replays each in windows of --window steps.  At the start of each window it finds the smallest period
+// q ≤ --max-period at which the current point returns within --ret (or the best return if --ret is 0), Newton-solves for the q-cycle nearby, and classifies the window:
 //   repelling:  the orbit is within --near of a repelling cycle (candidates for Koenigs linearization jumps)
 //   parabolic:  ... of a nearly neutral cycle with multiplier close to a root of unity (Fatou-coordinate gates)
 //   attracting: ... of an attracting cycle (slow interior convergence)
@@ -26,6 +26,7 @@
 #include <thread>
 #include <vector>
 using namespace mandelbrot;
+using std::string;
 using std::vector;
 typedef std::complex<double> C;
 
@@ -72,12 +73,14 @@ int main(const int argc, const char** argv) {
     program.add_argument("--max-period").scan<'i', int>().default_value(1024);
     program.add_argument("--near").help("distance to a cycle point (or 0) that counts as near").scan<'g', double>()
         .default_value(0.05);
+    program.add_argument("--ret").help("use the smallest period returning within this distance (0: best return)")
+        .scan<'g', double>().default_value(1e-3);
     program.add_argument("--seed").scan<'i', int64_t>().default_value(int64_t(7));
     program.parse_args(argc, argv);
     const int64_t samples = program.get<int64_t>("--samples"), max_iter = program.get<int64_t>("--max-iter"),
                   long_steps = program.get<int64_t>("--long");
     const int window = program.get<int>("--window"), max_period = program.get<int>("--max-period");
-    const double near = program.get<double>("--near");
+    const double near = program.get<double>("--near"), ret = program.get<double>("--ret");
     const auto t0 = std::chrono::steady_clock::now();
 
     // Leaf-like sample points
@@ -95,13 +98,15 @@ int main(const int argc, const char** argv) {
     double steps[kRegimes] = {}, total = 0, all_work = 0, run_steps[5] = {};  // run_steps: in runs of ≥ 1, 4, 16, 64, 256 windows
     int64_t n_long = 0;
     vector<double> lam_hist(40);  // log10(| |λ| - 1 |) for repelling/parabolic windows, weighted by steps
+    const int qb = 12, eb = 31;  // Period buckets 1, 2, 3-4, ..., > 1024; length octaves
+    vector<double> by_q(eb * qb);  // Escaped long orbits longer than 2^e by bucket of the last hugged period
     vector<int64_t> nsteps(samples);  // Per-sample orbit length, for box clustering
     vector<std::thread> pool;
     for (int t = 0; t < cpu_threads(); t++)
       pool.emplace_back([&]() {
         double st[kRegimes] = {}, tot = 0, all = 0, rs[5] = {};
         int64_t nl = 0;
-        vector<double> lh(40);
+        vector<double> lh(40), bq(eb * qb);
         for (int64_t i; (i = next.fetch_add(1)) < samples;) {
           const double x = pts[i].first, y = pts[i].second;
           Orbit<double> o;
@@ -117,7 +122,7 @@ int main(const int argc, const char** argv) {
           int64_t n = 1;
           int run = 0;
           C run_w = 0;
-          int run_q = 0;
+          int run_q = 0, last_q = 0;
           double run_len = 0;
           auto close_run = [&]() {
             const int thresholds[5] = {1, 4, 16, 64, 256};
@@ -128,11 +133,16 @@ int main(const int argc, const char** argv) {
             const int64_t len = std::min<int64_t>(window, o.n - n);
             // Best return of the window's first point
             C w = z; double bd = INFINITY; int q = 0;
-            for (int k = 1; k <= max_period; k++) { w = w * w + c; const double d = std::abs(w - z); if (d < bd) { bd = d; q = k; } }
+            for (int k = 1; k <= max_period; k++) {
+              w = w * w + c;
+              const double d = std::abs(w - z);
+              if (ret > 0 ? d < ret : d < bd) { bd = d; q = k; if (ret > 0) break; }
+            }
             C cw, lam;
             Regime r = kOther;
             const bool ok = q && cycle(c, z, q, cw, lam) && std::abs(cw - z) < near;
             if (ok) {
+              last_q = q;
               const double a = std::abs(lam);
               const double rot = std::arg(lam) / (2 * M_PI);
               if (std::abs(a - 1) < 1e-3 && rational_gap(rot) < 1e-3) r = kParabolic;
@@ -156,17 +166,22 @@ int main(const int argc, const char** argv) {
             }
           }
           close_run();
+          if (o.status == 1 && last_q) {
+            const int b = std::min(qb - 1, int(std::ceil(std::log2(double(last_q)))));
+            for (int e = 0; e < eb && (int64_t(1) << e) < o.n; e++) bq[e * qb + b]++;
+          }
         }
         std::lock_guard<std::mutex> g(mu);
         for (int k = 0; k < kRegimes; k++) steps[k] += st[k];
         for (int k = 0; k < 5; k++) run_steps[k] += rs[k];
         for (int k = 0; k < 40; k++) lam_hist[k] += lh[k];
+        for (int k = 0; k < eb * qb; k++) by_q[k] += bq[k];
         total += tot; all_work += all; n_long += nl;
       });
     for (auto& t : pool) t.join();
     const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
     print("orbit_regimes: %d samples, max_iter %d, %d orbits longer than %d (%.1f%% of all steps), window %d, "
-          "near %g, %d threads: %.1f s", samples, max_iter, n_long, long_steps, 100 * total / all_work, window, near,
+          "near %g, ret %g, %d threads: %.1f s", samples, max_iter, n_long, long_steps, 100 * total / all_work, window, near, ret,
           cpu_threads(), secs);
     for (int k = 0; k < kRegimes; k++) print("  %-10s %5.1f%% of long-orbit steps", names[k], 100 * steps[k] / total);
     const int thresholds[5] = {1, 4, 16, 64, 256};
@@ -191,6 +206,15 @@ int main(const int argc, const char** argv) {
             e, 100.0 * boxes / (samples / 16), boxes ? double(surv) / boxes : 0.0,
             surv ? double(surv) / (samples / 16) * 16 / (1 - std::pow(1 - double(surv) / samples, 16)) / 16 : 0.0,
             100 * work_in / work_all);
+    }
+    // Per-component tails: which periods do deep escaping survivors hug?
+    print("  escaped survivors by last hugged period (%% per row):\n    %-8s %8s  1     2     3-4   5-8   9-16  -32   -64   -128  -256  -512  -1024 >1024", "length", "count");
+    for (int e = 12; e < eb; e += 2) {
+      double t = 0; for (int b = 0; b < qb; b++) t += by_q[e * qb + b];
+      if (t < 20) break;
+      string line = tfm::format("    > 2^%-4d %8d ", e, int64_t(t));
+      for (int b = 0; b < qb; b++) line += tfm::format(" %5.1f", 100 * by_q[e * qb + b] / t);
+      print(line);
     }
     return 0;
   } catch (const std::exception& e) {
