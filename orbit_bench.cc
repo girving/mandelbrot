@@ -69,6 +69,7 @@ template<int variant> struct Bench {
 struct SiegelTask {
   typedef Orbit<double> State;
   int64_t burst;
+  int min_blocks;
   double* out;
   __host__ __device__ bool start(State& o, const int64_t i) const {
     const double theta = 2 * M_PI * 0.6180339887498949, r = 1 - 1e-9 * (1 + double(i % 1024) / 1024);
@@ -83,9 +84,9 @@ struct SiegelTask {
 
 void run_engine(const int64_t n, const bool cuda, const int64_t burst) {
   Mem<double> out(n, cuda);
-  run_orbits(SiegelTask{burst, out.p}, n, cuda);  // Warm up
+  run_orbits(SiegelTask{burst, 3, out.p}, n, cuda);  // Warm up
   const auto t0 = std::chrono::steady_clock::now();
-  const auto stats = run_orbits(SiegelTask{burst, out.p}, n, cuda);
+  const auto stats = run_orbits(SiegelTask{burst, 3, out.p}, n, cuda);
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   print("  run_orbits, burst %-4d        %.3g iterations/s  (%.3g s, %d overflowed)", burst,
         double(n) * kSteps / secs, secs, stats.overflow);

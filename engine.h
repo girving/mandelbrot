@@ -14,6 +14,7 @@
 //   void finish(const State& o, int64_t i) const;
 //   int64_t iters(const State& o) const;     // Iterations performed, for accounting
 //   int64_t burst;                           // Steps per run call
+//   int min_blocks;                          // GPU: resident 256-thread blocks per SM (1 to 4) to budget registers for
 #pragma once
 
 #include "cutil.h"
@@ -298,7 +299,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
 #ifdef __CUDACC__
     typedef typename Task::State O;
     static const int blocks_per_sm = env_int("MANDELBROT_CUDA_BLOCKS_PER_SM", 8),
-                     min_blocks = env_int("MANDELBROT_CUDA_MIN_BLOCKS", 2),  // Register budget: 65536 / (256 · this)
+                     min_blocks_env = env_int("MANDELBROT_CUDA_MIN_BLOCKS", 0),  // Override task.min_blocks
                      block = 256,
                      budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 15),  // Steps before parking
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0);
@@ -310,6 +311,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
     cuda_check(cudaEventRecord(e0, stream()));
+    // Register budget: 65536 / (256 · min_blocks) per thread
+    const int min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
     const int threads = blocks_per_sm * num_sms() * block;
     const int32_t budget = int32_t(std::max<int64_t>(1, budget_steps / task.burst));
     if (timing)

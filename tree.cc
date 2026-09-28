@@ -31,6 +31,7 @@ const uint32_t kUncertified = 0xffffffff;
 struct CenterTask {
   typedef OrbitDE State;
   int64_t burst;  // Steps per run call
+  int min_blocks;
   Level level;
   double w, h, r;  // Cell size and half-diagonal at this depth
   double safety;
@@ -123,6 +124,7 @@ struct EmitChunk {
 template<class T> struct SampleTask {
   typedef Orbit<T> State;
   int64_t burst;  // Steps per run call
+  int min_blocks;
   const Cell* leaves;
   int m, strata;
   uint64_t seed;
@@ -204,7 +206,7 @@ GroupSums reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const Kind kind
 
 template<class T> int64_t sample(const Mem<Cell>& leaves, const int64_t n_leaves, const TreeParams& p,
                                  const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow) {
-  SampleTask<T> task{p.burst, leaves.p, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
+  SampleTask<T> task{p.burst, p.sample_min_blocks, leaves.p, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      p.newton_iters, int(p.ks.size()), {}, bits.p};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
@@ -278,7 +280,7 @@ TreeResult run_tree(const TreeParams& p) {
       const Level level{d ? cells.p : nullptr, p.base, row0};
       const double w = (X1 - X0) / double(p.base << d), h = (Y1 - Y0) / double(p.base << d);
       Mem<uint32_t> status(n, p.cuda);
-      CenterTask task{p.burst, level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
+      CenterTask task{p.burst, p.center_min_blocks, level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
                       p.center_first_newton, K, {},
                       status.p};
       for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
