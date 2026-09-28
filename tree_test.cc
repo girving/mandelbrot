@@ -2,6 +2,7 @@
 
 #include "tree.h"
 #include "rounded.h"
+#include "double_double.h"
 #include "engine.h"
 #include "escape.h"
 #include "tests.h"
@@ -226,6 +227,28 @@ TEST(rounded) {
     // 24 bits agrees with float rounding
     ASSERT_EQ(Rounded<24>::round(a), double(float(a))) << tfm::format("%.17g", a);
   }
+}
+
+TEST(double_double) {
+  // Products and sums are exact to about 2^-104, checked against exact rational identities
+  std::mt19937_64 rng(5);
+  std::uniform_real_distribution<double> u(-4, 4);
+  for (int i = 0; i < 10000; i++) {
+    const double a = u(rng), b = u(rng);
+    const DoubleDouble p = DoubleDouble(a) * DoubleDouble(b);
+    ASSERT_EQ(p.hi + p.lo, p.hi);  // Normalized
+    ASSERT_EQ(p.lo, std::fma(a, b, -p.hi));  // Exact product
+    const DoubleDouble s = DoubleDouble(a) + DoubleDouble(b);
+    ASSERT_EQ(double(s - DoubleDouble(a)), b) << tfm::format("%.17g %.17g", a, b);
+    const DoubleDouble q = p / DoubleDouble(b);
+    ASSERT_LE(std::abs(double(q - DoubleDouble(a))), 1e-30 * std::abs(a) + 1e-300);
+  }
+  // Escape classifications mostly agree with double
+  auto p = small_params();
+  p.prec = "comparedd";
+  const auto R = run_tree(p);
+  print("  comparedd: %d flips of %d samples", R.flips, R.leaves * p.m);
+  ASSERT_LE(R.flips, R.leaves * p.m / 1000);
 }
 
 TEST(compare_rounded) {

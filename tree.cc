@@ -5,6 +5,7 @@
 #include "engine.h"
 #include "orbit.h"
 #include "rounded.h"
+#include "double_double.h"
 #include <cmath>
 namespace mandelbrot {
 namespace {
@@ -265,7 +266,8 @@ TreeResult run_tree(const TreeParams& p) {
   const int K = p.ks.size();
   slow_assert(0 < K && K <= 31, "need 1 to 31 thresholds, got %d", K);
   slow_assert(p.prec == "double" || p.prec == "float" || p.prec == "compare" || p.prec == "compare30" ||
-              p.prec == "compare36" || p.prec == "compare42" || p.prec == "compare48", "bad prec %s", p.prec);
+              p.prec == "compare36" || p.prec == "compare42" || p.prec == "compare48" || p.prec == "comparedd",
+              "bad prec %s", p.prec);
   const int ss = p.strata * p.strata;
   slow_assert(p.strata >= 1 && p.m % ss == 0 && p.m / ss >= 2,
               "need m a multiple of strata^2 with at least 2 groups for variance estimates");
@@ -352,6 +354,7 @@ TreeResult run_tree(const TreeParams& p) {
                       : p.prec == "compare36" ? sample<Rounded<36>>(lp, nl, p, w, h, fbits, R.overflow)
                       : p.prec == "compare42" ? sample<Rounded<42>>(lp, nl, p, w, h, fbits, R.overflow)
                       : p.prec == "compare48" ? sample<Rounded<48>>(lp, nl, p, w, h, fbits, R.overflow)
+                      : p.prec == "comparedd" ? sample<DoubleDouble>(lp, nl, p, w, h, fbits, R.overflow)
                                               : sample<float>(lp, nl, p, w, h, fbits, R.overflow);
       }
       R.sample_secs += secs_since(t2);
