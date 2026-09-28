@@ -86,8 +86,6 @@ int main(const int argc, const char** argv) {
         .scan<'g', double>().default_value(1e-10);
     program.add_argument("--newton-margin").help("leaf Newton certifies when |λ|^2 < 1 - this; -1: 1e-9")
         .scan<'g', double>().default_value(1e-6);
-    program.add_argument("--no-confirm-brent").help("accept Brent cycles without Newton (for timing only)")
-        .default_value(false).implicit_value(true);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 
@@ -112,7 +110,6 @@ int main(const int argc, const char** argv) {
     p.newton_iters = program.get<int>("--newton-iters");
     p.newton_tol = program.get<double>("--newton-tol");
     p.newton_margin = program.get<double>("--newton-margin");
-    p.confirm_brent = !program.get<bool>("--no-confirm-brent");
     p.newton_close2 = program.get<double>("--newton-close") * program.get<double>("--newton-close");
     p.ks = program.get<vector<int>>("ks");
     for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
