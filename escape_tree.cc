@@ -12,6 +12,8 @@ namespace {
 void report(const TreeResult& R) {
   const auto& p = R.p;
   const int K = p.ks.size();
+  if (p.x0 != -2 || p.x1 != 0.5 || p.y0 != 0 || p.y1 != 1.2)
+    print("box [%.17g, %.17g] × [%.17g, %.17g] (doubled)", p.x0, p.x1, p.y0, p.y1);
   print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, max_iter %d, seed %d, "
         "first Newton %d, center max_iter %d, center first Newton %d, center max period %d, Newton max period %d, Newton iterations %d, Newton close %g, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s with centers %.1f s, sampling %.1f s, "
         "reduce %.1f s, %d batches)", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.max_iter, p.seed,
@@ -139,6 +141,8 @@ int main(const int argc, const char** argv) {
         .scan<'g', double>().default_value(1e-10);
     program.add_argument("--newton-margin").help("leaf Newton certifies when |λ|^2 < 1 - this; -1: 1e-9")
         .scan<'g', double>().default_value(1e-6);
+    program.add_argument("--box").help("domain x0 x1 y0 y1 (estimates double it by conjugate symmetry)")
+        .nargs(4).scan<'g', double>().default_value(vector<double>{-2, 0.5, 0, 1.2});
     program.add_argument("--leaf-stats").help("report two-phase allocation gains (needs --m 16)")
         .default_value(false).implicit_value(true);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
@@ -171,6 +175,9 @@ int main(const int argc, const char** argv) {
     for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");
     slow_assert(p.first_newton >= 1, "need --first-newton ≥ 1");
     p.leaf_stats = program.get<bool>("--leaf-stats");
+    const auto box = program.get<vector<double>>("--box");
+    p.x0 = box[0]; p.x1 = box[1]; p.y0 = box[2]; p.y1 = box[3];
+    slow_assert(p.x0 < p.x1 && p.y0 < p.y1, "empty box");
     const auto R = run_tree(p);
     report(R);
     if (p.leaf_stats) allocation_report(R);

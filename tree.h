@@ -1,7 +1,7 @@
 // Certified adaptive quadtree Monte Carlo for the areas of {c : g_M(c) < 2^-k}, on CPU threads or the GPU
 //
 // Only cells straddling the boundary of these sets contribute variance, and at fine scales they are a tiny
-// fraction of all cells.  Starting from a base grid over the upper half plane part of [-2, 0.5] × [-1.2, 1.2],
+// fraction of all cells.  Starting from a base grid over a box (by default the upper half plane part of [-2, 0.5] × [-1.2, 1.2]),
 // each level classifies its cells' centers with distance estimates (OrbitDE).  A cell that fits well inside
 // its center's certified disk is decided exactly: interior cells count fully, and exterior cells count per
 // threshold using Harnack bounds on g.  Otherwise it splits into 4 children, down to `depth` levels.
@@ -30,6 +30,8 @@ using std::vector;
 
 struct TreeParams {
   int64_t base = 1000;       // Base grid size per axis
+  double x0 = -2, x1 = 0.5, y0 = 0, y1 = 1.2;  // Domain box; estimates double it (conjugate symmetry), so a
+                                               // box with y0 = 0 measures the symmetric region it reflects to
   int depth = 5;             // Refinement levels below the base grid
   double safety = 4;         // Certify a cell if its half-diagonal is at most dist / safety
   int m = 16;                // Samples per leaf

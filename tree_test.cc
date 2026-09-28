@@ -217,6 +217,16 @@ TEST(batching_invariant) {
   }
 }
 
+TEST(box) {
+  // A box inside the period-2 disk |c + 1| < 1/4 is certified interior everywhere: area exactly twice the box
+  auto p = small_params();
+  p.x0 = -1.1; p.x1 = -0.9; p.y0 = 0; p.y1 = 0.1;
+  const auto R = run_tree(p);
+  ASSERT_EQ(R.leaves, 0);
+  for (int k = 0; k < int(p.ks.size()); k++)
+    ASSERT_TRUE(std::abs(R.area_estimate(k) - 0.04) < 1e-12) << tfm::format("k %d: %.17g", k, R.area_estimate(k));
+}
+
 TEST(leaf_stats) {
   // Allocation statistics partition the leaves, and their costs add up to the leaf iterations
   auto p = small_params();
