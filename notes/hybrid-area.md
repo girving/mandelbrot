@@ -497,6 +497,22 @@ A cheap shortcut to the tuning classification, closest returns of the center's c
 with period d iff d is a closest return and all later ones are multiples of d), never misses a tuned component
 but calls 13866 of 65242 non-renormalizable ones tuned (21%, mostly p ≥ 12): necessary, not sufficient.
 
+*Tail weights, and D in closed form.*  More `--box` copies (depth 8, max_iter 2^22), as tail weight r_W over
+area(W)/area(cardioid), using R/(p K(k/p)/K(k)) and the copy's area: primitive copies 0.875 (period 3),
+0.928 (period 4), 0.893 and 0.890 (period-5 copies at −1.8608 and −1.6254); the period-2 satellite copy
+(box [−1.56, −0.75] × [0, 0.32], R = 1.48 flat in k) 0.627.  (The period-5 copy at −1.9854 is lost: its
+area, 5e-9, underflows escape_tree's %.10f output.)  Satellites hold 97–99% of the non-renormalizable area
+in every period, so D is essentially the cardioid bulbs', and since a satellite of any other component
+lies in that component's copy, the non-renormalizable satellites are exactly the cardioid's bulbs.  With
+Σ_r area(r/q bulb) ≈ π(φ(q) − μ(q))/(2q⁴) (§1) and a1 = 3π/8, their Dirichlet series is
+  D(s) ≈ (4w/3) (ζ(3 − s) − 1) / ζ(4 − s),
+which gives D(0) = 0.2489, D(1) = 0.715, s* = 1.238 at w = 1 (enumeration through 16 plus extrapolation:
+0.248, 0.72–0.75, 1.22–1.24).  s* depends on the satellite weight: 1.31 at w = 0.89, 1.50 at w = 0.63.  The
+tail fits' s ≈ 1.20–1.25 matches w ≈ 1, not the single satellite calibration, so either other bulbs'
+copies carry more tail than the period-2 copy, or the period-2 box mixes in non-scaling tail (the root
+horn at −3/4, a tangency rather than the image of M's cusp); the agreement is not yet established.  D has
+poles where ζ(4 − s) = 0, i.e. at Re s = 7/2 on the critical line, and at s = 2 from ζ(3 − s).
+
 ## 6. Reproducing
 
 ```

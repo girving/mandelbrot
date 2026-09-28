@@ -67,7 +67,7 @@ C ray_in(const Periodic& theta, const int levels, const int S = 8) {
   return c;
 }
 
-void run(const string& path, const int P, const int extra_levels) {
+void run(const string& path, const int P, const int extra_levels, const double wprim, const double wsat) {
   auto t0 = wall_time();
   const auto comps = read_components(path);
   vector<vector<int>> by_p(P + 1);
@@ -172,13 +172,20 @@ void run(const string& path, const int P, const int extra_levels) {
           p * p * p * anr[p]);
   }
 
-  // D(s) = Σ_{p ≥ 2} (a_nr_p / a1) p^s, truncated at period P' ≤ P
+  // D(s) = Σ_{p ≥ 2} (r_p / a1) p^s with r_p the weighted non-renormalizable area, truncated at period P' ≤ P
+  vector<double> r(P + 1);
+  for (int p = 2; p <= P; p++) r[p] = wprim * (anr[p] - anr_sat[p]) + wsat * anr_sat[p];
   const auto D = [&](const std::complex<double> s, const int Pt) {
     std::complex<double> d = 0;
-    for (int p = 2; p <= Pt; p++) d += anr[p] / a1 * std::exp(s * std::log(double(p)));
+    for (int p = 2; p <= Pt; p++) d += r[p] / a1 * std::exp(s * std::log(double(p)));
     return d;
   };
-  print("\n  D(s) truncated at period P' (weights r_W = area / area(cardioid)):");
+  print("\n  satellite share of non-renormalizable area by period:");
+  string sh = "   ";
+  for (int p = 2; p <= P; p++) sh += tfm::format(" %d:%.3f", p, anr_sat[p] / anr[p]);
+  print(sh);
+  print("\n  D(s) truncated at period P' (weights r_W = w area / area(cardioid), w = %g primitive, %g satellite):",
+        wprim, wsat);
   print("    P'    D(0)       D(1)       D(2)       real root s* of D(s) = 1");
   for (int Pt = 4; Pt <= P; Pt++) {
     double lo = -5, hi = 20;
@@ -196,7 +203,7 @@ void run(const string& path, const int P, const int extra_levels) {
       for (int it = 0; it < 100; it++) {
         std::complex<double> f = -1, df = 0;
         for (int p = 2; p <= P; p++) {
-          const auto term = anr[p] / a1 * std::exp(s * std::log(double(p)));
+          const auto term = r[p] / a1 * std::exp(s * std::log(double(p)));
           f += term; df += term * std::log(double(p));
         }
         const auto step = f / df;
@@ -220,10 +227,14 @@ void run(const string& path, const int P, const int extra_levels) {
 int main(const int argc, const char** argv) {
   using namespace mandelbrot;
   try {
-    slow_assert(argc >= 2, "usage: %s components.txt [max_period ≤ 16] [extra ray levels]", argv[0]);
+    slow_assert(argc >= 2, "usage: %s components.txt [max_period ≤ 16] [extra ray levels] [primitive weight] "
+                "[satellite weight]", argv[0]);
     const int P = argc > 2 ? atoi(argv[2]) : 16, extra = argc > 3 ? atoi(argv[3]) : 20;
+    // Tail weight per unit area ratio, measured on real copies with --box (notes §5.3): about 0.89 for
+    // primitive copies of periods 3–5 and 0.63 for the period-2 satellite copy
+    const double wprim = argc > 4 ? atof(argv[4]) : 1, wsat = argc > 5 ? atof(argv[5]) : 1;
     slow_assert(2 <= P && P <= 16, "max_period must be in [2, 16]");
-    run(argv[1], P, extra);
+    run(argv[1], P, extra, wprim, wsat);
     return 0;
   } catch (const std::exception& e) {
     die(e.what());
