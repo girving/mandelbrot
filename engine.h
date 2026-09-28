@@ -227,17 +227,30 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
   }
 }
 
-// One thread per parked orbit, run to completion
-template<class Task> __global__ void overflow_kernel(const Task task, typename Task::State* overflow,
+// Parked orbits, run to completion by persistent warp-synchronous threads like orbit_kernel's.
+// counters[8] is the next parked orbit to claim.
+template<class Task> __global__ void overflow_kernel(const Task task, const typename Task::State* overflow,
                                                      const int64_t* overflow_items, const int64_t count,
                                                      unsigned long long* counters) {
-  const int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x;
-  if (k >= count) return;
-  typename Task::State o = overflow[k];
-  const int64_t before = task.iters(o);
-  while (!task.run(o)) {}
-  task.finish(o, overflow_items[k]);
-  atomicAdd(counters + 1, (unsigned long long)(task.iters(o) - before));
+  typename Task::State o;
+  int64_t i = -1, before = 0;
+  unsigned long long it = 0;
+  bool done = true, out = false;
+  for (;;) {
+    while (done && !out) {
+      if (i >= 0) { task.finish(o, i); it += task.iters(o) - before; }
+      const int64_t k = int64_t(atomicAdd(counters + 8, 1ull));
+      if (k >= count) { out = true; i = -1; break; }
+      o = overflow[k];
+      i = overflow_items[k];
+      before = task.iters(o);  // Counted by orbit_kernel
+      done = false;
+    }
+    if (__all_sync(0xffffffff, out)) break;
+    __syncwarp();
+    if (!out) done = task.run(o);
+  }
+  atomicAdd(counters + 1, it);
 }
 
 template<class F> __global__ void for_each_kernel(const int64_t n, const F f) {
@@ -272,7 +285,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 256));
     Mem<O> overflow(cap, true);
     Mem<int64_t> items(cap, true);
-    Mem<unsigned long long> counters(8, true);
+    Mem<unsigned long long> counters(9, true);
     counters.zero();
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
@@ -285,9 +298,11 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
     const int64_t parked = std::min<int64_t>(cap, int64_t(counters.get(2)));
-    if (parked)
-      engine_detail::overflow_kernel<Task><<<(parked + 127) / 128, 128, 0, stream()>>>(
-          task, overflow.p, items.p, parked, counters.p);
+    if (parked) {
+      const int64_t blocks = std::min<int64_t>(blocks_per_sm * num_sms(), (parked + block - 1) / block);
+      engine_detail::overflow_kernel<Task><<<blocks, block, 0, stream()>>>(task, overflow.p, items.p, parked,
+                                                                          counters.p);
+    }
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e2, stream()));
     unsigned long long h[8];

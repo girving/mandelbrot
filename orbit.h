@@ -277,43 +277,51 @@ struct OrbitDE {
     return false;
   }
 
-  // Iterate at most `budget` steps.  Returns true when done, with the result in r.
+  // Iterate at most `budget` steps.  Returns true when done, with the result in r.  As in Orbit::run, squares
+  // are carried between steps and the rare checks (Newton, Brent, checkpoint) run at steps divisible by 8.
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget) {
     double zx = this->zx, zy = this->zy, dx = this->dx, dy = this->dy, min_r2 = this->min_r2;
+    double zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
     int64_t n = this->n, dexp = this->dexp, candidate = this->candidate;
+    double unit = std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000)));  // The +1 in dz/dc, rescaled
     const int64_t end = n + budget < max_iter + 1 ? n + budget : max_iter + 1;
     bool done = true;
-    for (; n < end; n++) {
-      const double r2 = zx * zx + zy * zy;
-      if (r2 > 18446744073709551616.0) {
-        const double lz = 0.5 * std::log(r2);
-        r.e = {n, std::log2(lz) - double(n - 1), 0, n};
-        // Koebe: dist(c, M) ≥ (1 - e^-g) / (4 |∇g|), with g = log|z_n| / 2^(n-1) and
-        // |∇g| = |dz_n/dc| / (|z_n| 2^(n-1)).  So dist ≥ (1 - e^-g) 2^(n-1) |z_n| / (4 |dz_n/dc|), where
-        // (1 - e^-g) 2^(n-1) = lz for small g.
-        const double g = std::exp2(std::log2(lz) - double(n - 1));
-        const double scale = g > 1e-8 ? -std::expm1(-g) / g : 1 - g / 2;  // (1 - e^-g) / g
-        r.dist = std::ldexp(scale * std::sqrt(r2) * lz / (4 * std::hypot(dx, dy)),
-                            int(-(dexp < 100000 ? dexp : 100000)));
-        goto finish;
+    while (n < end) {
+      const int64_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
+      for (; n < block; n++) {
+        if (r2 > 18446744073709551616.0) {
+          const double lz = 0.5 * std::log(r2);
+          r.e = {n, std::log2(lz) - double(n - 1), 0, n, r2};
+          // Koebe: dist(c, M) ≥ (1 - e^-g) / (4 |∇g|), with g = log|z_n| / 2^(n-1) and
+          // |∇g| = |dz_n/dc| / (|z_n| 2^(n-1)).  So dist ≥ (1 - e^-g) 2^(n-1) |z_n| / (4 |dz_n/dc|), where
+          // (1 - e^-g) 2^(n-1) = lz for small g.
+          const double g = std::exp2(std::log2(lz) - double(n - 1));
+          const double scale = g > 1e-8 ? -std::expm1(-g) / g : 1 - g / 2;  // (1 - e^-g) / g
+          r.dist = std::ldexp(scale * std::sqrt(r2) * lz / (4 * std::hypot(dx, dy)),
+                              int(-(dexp < 100000 ? dexp : 100000)));
+          goto finish;
+        }
+        {
+          // dz/dc ← 2 z dz/dc + 1, rescaled by 2^-dexp to avoid overflow
+          const double ndx = 2 * (zx * dx - zy * dy) + unit, ndy = 2 * (zx * dy + zy * dx);
+          dx = ndx; dy = ndy;
+          if (dx * dx + dy * dy > 1e200) [[unlikely]] {
+            dx = std::ldexp(dx, -256); dy = std::ldexp(dy, -256); dexp += 256;
+            unit = std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000)));
+          }
+        }
+        {
+          const double xy = zx * zy;
+          zx = zx2 - zy2 + x;
+          zy = xy + xy + y;
+          zx2 = zx * zx; zy2 = zy * zy; r2 = zx2 + zy2;
+          if (r2 < min_r2) { min_r2 = r2; candidate = n + 1; }  // (zx, zy) is now z_{n+1}
+        }
       }
-      {
-        const double ndx = 2 * (zx * dx - zy * dy) + std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000))),
-                     ndy = 2 * (zx * dy + zy * dx);
-        dx = ndx; dy = ndy;
-      }
-      if (dx * dx + dy * dy > 1e200) { dx = std::ldexp(dx, -256); dy = std::ldexp(dy, -256); dexp += 256; }
-      {
-        const double t = zx * zx - zy * zy + x;
-        zy = 2 * zx * zy + y;
-        zx = t;
-      }
-      {
-        const double r2n = zx * zx + zy * zy;
-        if (r2n < min_r2) { min_r2 = r2n; candidate = n + 1; }
-      }
-      if (n == next_newton) [[unlikely]] {
-        next_newton *= 2;
+      if (n & 7) continue;  // Partial block at the end of the burst
+      // (zx, zy) is z_n, n a multiple of 8
+      if (n > next_newton) [[unlikely]] {
+        while (next_newton < n) next_newton *= 2;
         if (candidate <= 4096) {
           const double b = interior_distance(x, y, zx, zy, int(candidate));
           if (b > 0) { r.e = {-1, -INFINITY, 0, n}; r.dist = b; goto finish; }
@@ -336,7 +344,7 @@ struct OrbitDE {
           goto finish;
         }
       }
-      if (n == next_check) { cx = zx; cy = zy; check_n = n; next_check *= 2; }
+      if (n > next_check) { cx = zx; cy = zy; check_n = n; next_check *= 2; }
     }
     if (n > max_iter) r.e = {-1, -INFINITY, 0, max_iter};
     else done = false;
