@@ -4,6 +4,7 @@
 #include "debug.h"
 #include "engine.h"
 #include "orbit.h"
+#include "rounded.h"
 #include <cmath>
 namespace mandelbrot {
 namespace {
@@ -263,12 +264,13 @@ double TreeResult::variance(const vector<GroupSums>& sums, const int k) const {
 TreeResult run_tree(const TreeParams& p) {
   const int K = p.ks.size();
   slow_assert(0 < K && K <= 31, "need 1 to 31 thresholds, got %d", K);
-  slow_assert(p.prec == "double" || p.prec == "float" || p.prec == "compare", "bad prec %s", p.prec);
+  slow_assert(p.prec == "double" || p.prec == "float" || p.prec == "compare" || p.prec == "compare30" ||
+              p.prec == "compare36" || p.prec == "compare42" || p.prec == "compare48", "bad prec %s", p.prec);
   const int ss = p.strata * p.strata;
   slow_assert(p.strata >= 1 && p.m % ss == 0 && p.m / ss >= 2,
               "need m a multiple of strata^2 with at least 2 groups for variance estimates");
   slow_assert((p.base << p.depth) < (int64_t(1) << 31), "grid too fine for 32-bit cell coordinates");
-  const bool compare = p.prec == "compare", single = p.prec == "float";
+  const bool compare = p.prec.starts_with("compare"), single = p.prec == "float";
 
   TreeResult R;
   R.p = p;
@@ -343,7 +345,15 @@ TreeResult run_tree(const TreeParams& p) {
       Mem<uint32_t> bits(nl * p.m, p.cuda), fbits(compare ? nl * p.m : 0, p.cuda);
       R.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, R.overflow)
                              : sample<double>(leaves.p + l0, nl, p, w, h, bits, R.overflow);
-      if (compare) R.leaf_iters += sample<float>(leaves.p + l0, nl, p, w, h, fbits, R.overflow);
+      if (compare) {
+        // The alternative precision: float, or double rounded to fewer bits
+        const Cell* lp = leaves.p + l0;
+        R.leaf_iters += p.prec == "compare30" ? sample<Rounded<30>>(lp, nl, p, w, h, fbits, R.overflow)
+                      : p.prec == "compare36" ? sample<Rounded<36>>(lp, nl, p, w, h, fbits, R.overflow)
+                      : p.prec == "compare42" ? sample<Rounded<42>>(lp, nl, p, w, h, fbits, R.overflow)
+                      : p.prec == "compare48" ? sample<Rounded<48>>(lp, nl, p, w, h, fbits, R.overflow)
+                                              : sample<float>(lp, nl, p, w, h, fbits, R.overflow);
+      }
       R.sample_secs += secs_since(t2);
 
       const auto t3 = std::chrono::steady_clock::now();

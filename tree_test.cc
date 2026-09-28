@@ -1,12 +1,14 @@
 // Tree pipeline tests
 
 #include "tree.h"
+#include "rounded.h"
 #include "engine.h"
 #include "escape.h"
 #include "tests.h"
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <random>
 #include <tuple>
 namespace mandelbrot {
 namespace {
@@ -208,6 +210,34 @@ TEST(compare_float) {
     const double d = R.estimate(R.delta, k, false), f = R.estimate(R.float_area, k, true);
     ASSERT_TRUE(std::abs(f - R.area_estimate(k) - d) <= 1e-13) << tfm::format("k %d", k);
     ASSERT_TRUE(std::abs(d) <= 6 * std::sqrt(R.variance(R.delta, k)) + 1e-12) << tfm::format("k %d: delta %g", k, d);
+  }
+}
+
+TEST(rounded) {
+  std::mt19937_64 rng(3);
+  std::uniform_real_distribution<double> u(-10, 10);
+  for (int i = 0; i < 100000; i++) {
+    const double a = u(rng), r = Rounded<30>::round(a);
+    // At most 30 significant bits, within half an ulp
+    int e;
+    const double m = std::frexp(r, &e);
+    ASSERT_EQ(std::ldexp(m, 30), std::round(std::ldexp(m, 30))) << tfm::format("%.17g -> %.17g", a, r);
+    ASSERT_LE(std::abs(r - a), std::ldexp(std::abs(a), -30)) << tfm::format("%.17g -> %.17g", a, r);
+    // 24 bits agrees with float rounding
+    ASSERT_EQ(Rounded<24>::round(a), double(float(a))) << tfm::format("%.17g", a);
+  }
+}
+
+TEST(compare_rounded) {
+  // Fewer bits flip more samples; 48 bits flips few
+  auto p = small_params();
+  int64_t last = -1;
+  for (const string prec : {"compare48", "compare36", "compare30"}) {
+    p.prec = prec;
+    const auto R = run_tree(p);
+    print("  %s: %d flips of %d samples", prec, R.flips, R.leaves * p.m);
+    ASSERT_LE(last, R.flips);
+    last = R.flips;
   }
 }
 

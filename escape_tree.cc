@@ -24,7 +24,7 @@ void report(const TreeResult& R) {
   string es = "  certified cells by depth:";
   for (const auto n : R.exact) es += tfm::format(" %.3g", double(n));
   print(es);
-  const bool compare = p.prec == "compare";
+  const bool compare = p.prec.starts_with("compare");
   print("  %s:", compare ? "double" : p.prec);
   print("       k      area{g < 2^-k}      std err");
   for (int k = 0; k < K; k++)
@@ -33,11 +33,12 @@ void report(const TreeResult& R) {
   for (int k = 0; k + 1 < K; k++)
     print("    %8d → %-8d  %.6e   %.2e", p.ks[k], p.ks[k + 1], R.diff_estimate(k), std::sqrt(R.variance(R.diff, k)));
   if (compare) {
-    print("  float:");
+    print("  %s:", p.prec == "compare" ? "float" : "rounded to " + p.prec.substr(7) + " bits");
     for (int k = 0; k < K; k++)
       print("    %8d   %.10f   %.2e", p.ks[k], R.estimate(R.float_area, k, true),
             std::sqrt(R.variance(R.float_area, k)));
-    print("  float - double (%d flipped samples of %d):", R.flips, R.leaves * p.m);
+    print("  %s - double (%d flipped samples of %d):", p.prec == "compare" ? "float" : "rounded", R.flips,
+          R.leaves * p.m);
     for (int k = 0; k < K; k++)
       print("    %8d   %+.3e   %.2e", p.ks[k], R.estimate(R.delta, k, false), std::sqrt(R.variance(R.delta, k)));
   }
@@ -60,7 +61,8 @@ int main(const int argc, const char** argv) {
     program.add_argument("--strata").help("jitter groups of strata^2 samples").scan<'i', int>().default_value(2);
     program.add_argument("--max-iter").scan<'i', int64_t>().default_value(int64_t(1) << 20);
     program.add_argument("--seed").scan<'i', int64_t>().default_value(int64_t(1));
-    program.add_argument("--prec").help("leaf orbit precision: double, float, or compare")
+    program.add_argument("--prec").help("leaf orbit precision: double, float, compare (float vs double), or "
+                                        "compareNN (double rounded to NN ∈ {30, 36, 42, 48} bits vs double)")
         .default_value(string("double"));
     program.add_argument("--cuda").help("run on the GPU").default_value(false).implicit_value(true);
     program.add_argument("--batch").help("target leaves per batch (0: 2^26 on the GPU, 2^22 on the CPU)")
