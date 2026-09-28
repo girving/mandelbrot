@@ -160,16 +160,18 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 
 #ifdef __CUDACC__
 
-// Persistent threads.  counters: [next claim, iterations, overflow count, max iterations of one thread].
-// An orbit that has run `budget` bursts is parked in overflow (if room) and finished by overflow_kernel.
+// Persistent threads.  counters: [next claim, iterations, overflow count, max iterations of one thread, and
+// with timing: cycles inside run, total cycles, active lanes at run calls, warp lanes at run calls].  An orbit
+// that has run `budget` bursts is parked in overflow (if room) and finished by overflow_kernel.
 template<class Task> __global__ void orbit_kernel(const Task task, const int64_t n, const int64_t stride,
                                                   const int64_t budget, typename Task::State* overflow,
                                                   int64_t* overflow_items, const int64_t overflow_cap,
-                                                  unsigned long long* counters) {
+                                                  unsigned long long* counters, const bool timing) {
   const int64_t chunk = 16;
   typename Task::State o;
   int64_t j = -1, end = -1, i = -1, bursts = 0;
-  unsigned long long it = 0;
+  unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0;
+  const long long t0 = timing ? clock64() : 0;
   bool done = true;
   for (;;) {
     if (done) {
@@ -184,7 +186,15 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
       done = task.start(o, i);
       if (done) continue;
     }
-    done = task.run(o);
+    if (timing) {
+      const unsigned mask = __activemask();
+      if ((threadIdx.x & 31) == __ffs(mask) - 1) { active += __popc(mask); slots += 32; }
+      const long long r0 = clock64();
+      done = task.run(o);
+      run_cycles += clock64() - r0;
+    } else {
+      done = task.run(o);
+    }
     if (!done && ++bursts == budget) {
       const int64_t k = int64_t(atomicAdd(counters + 2, 1ull));
       if (k < overflow_cap) {
@@ -198,6 +208,12 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
   }
   atomicAdd(counters + 1, it);
   atomicMax(counters + 3, it);
+  if (timing) {
+    atomicAdd(counters + 4, run_cycles);
+    atomicAdd(counters + 5, (unsigned long long)(clock64() - t0));
+    atomicAdd(counters + 6, active);
+    atomicAdd(counters + 7, slots);
+  }
 }
 
 // One thread per parked orbit, run to completion
@@ -245,14 +261,15 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 256));
     Mem<O> overflow(cap, true);
     Mem<int64_t> items(cap, true);
-    Mem<unsigned long long> counters(4, true);
+    Mem<unsigned long long> counters(8, true);
     counters.zero();
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
     cuda_check(cudaEventRecord(e0, stream()));
     const int threads = blocks_per_sm * num_sms() * block;
     engine_detail::orbit_kernel<Task><<<blocks_per_sm * num_sms(), block, 0, stream()>>>(
-        task, n, stride, std::max<int64_t>(1, budget_steps / task.burst), overflow.p, items.p, cap, counters.p);
+        task, n, stride, std::max<int64_t>(1, budget_steps / task.burst), overflow.p, items.p, cap, counters.p,
+        timing != 0);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
     const int64_t parked = std::min<int64_t>(cap, int64_t(counters.get(2)));
@@ -261,8 +278,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
           task, overflow.p, items.p, parked, counters.p);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e2, stream()));
-    unsigned long long h[4];
-    counters.to_host(h, 4);
+    unsigned long long h[8];
+    counters.to_host(h, 8);
     stats.iters = int64_t(h[1]);
     stats.overflow = parked;
     if (timing) {
@@ -272,6 +289,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       print("    cuda run: %d items, %d threads, main %.1f ms, overflow %d orbits %.1f ms, %.3g it/s; "
             "iterations per thread mean %.3g, max %.3g", n, threads, main_ms, parked, over_ms,
             double(h[1]) / ((main_ms + over_ms) * 1e-3), double(h[1]) / threads, double(h[3]));
+      print("      main pass: %.1f%% of thread cycles in run, SIMT efficiency at run %.1f%%",
+            100.0 * double(h[4]) / double(h[5]), 100.0 * double(h[6]) / double(h[7]));
     }
     cuda_check(cudaEventDestroy(e0)); cuda_check(cudaEventDestroy(e1)); cuda_check(cudaEventDestroy(e2));
 #else

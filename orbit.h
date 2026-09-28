@@ -59,9 +59,10 @@ template<> struct OrbitTol<float> {
 
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
 // periodic point whose multiplier |(f^p)'(w)| < 1, which certifies that c is in a hyperbolic component.
-template<class T> __host__ __device__ bool attracting_cycle(const T x, const T y, T wx, T wy, const int p) {
+template<class T> __host__ __device__ bool attracting_cycle(const T x, const T y, T wx, T wy, const int p,
+                                                         const int iters = 30) {
   typedef OrbitTol<T> Tol;
-  for (int it = 0; it < 30; it++) {
+  for (int it = 0; it < iters; it++) {
     // F(w) = f^p(w) - w, F'(w) = (f^p)'(w) - 1
     T zx = wx, zy = wy, dx = 1, dy = 0;
     for (int k = 0; k < p; k++) {
@@ -99,14 +100,16 @@ template<class T> struct Orbit {
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
   int64_t n, next_check, candidate, next_newton;
   int max_period;  // Largest atom-domain period candidate that Newton tries
+  int newton_iters;  // Newton iterations per certificate attempt
   bool logs;       // Compute e.log2g on escape (otherwise only e.steps and e.r2, for escaped_below)
   Escape e;        // Result, once done
 
   // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling, for
   // period candidates up to max_period.  Returns true if already decided (the cardioid or period 2 disk).
   __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64,
-                                 const int max_period = 4096, const bool logs = true) {
+                                 const int max_period = 4096, const bool logs = true, const int newton_iters = 30) {
     this->max_period = max_period;
+    this->newton_iters = newton_iters;
     this->logs = logs;
     x = T(x_); y = T(y_);
     zx = x; zy = y; cx = x; cy = y;
@@ -151,7 +154,7 @@ template<class T> struct Orbit {
       // (zx, zy) is z_n, n a multiple of 8
       if (n > next_newton) [[unlikely]] {
         while (next_newton < n) next_newton *= 2;
-        if (candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate))) {
+        if (candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), newton_iters)) {
           // Report the minimal period if it is small
           int period = 0;
           if (candidate <= 32)
