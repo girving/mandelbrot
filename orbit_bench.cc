@@ -16,8 +16,17 @@ namespace {
 const int64_t kSteps = 1 << 14;
 
 // Variant 0: bare loop.  1: + escape test.  2: + atom-domain minimum.  3: + Brent check.  4: Orbit::run.
+// 5: OrbitDE::run without Newton.  6: OrbitDE::run with Newton attempts from step 64.
 template<int variant> __host__ __device__ double orbit(const double x, const double y) {
-  if constexpr (variant == 4) {
+  if constexpr (variant == 5 || variant == 6) {
+    // OrbitDE::start stops early inside the cardioid, so set up the iteration state by hand
+    OrbitDE o;
+    o.x = x; o.y = y; o.zx = x; o.zy = y; o.dx = 1; o.dy = 0; o.dexp = 0;
+    o.min_r2 = x * x + y * y; o.candidate = 1; o.next_newton = variant == 6 ? 64 : int64_t(1) << 40;
+    o.cx = x; o.cy = y; o.check_n = 1; o.next_check = 16; o.n = 1;
+    o.run(kSteps, kSteps);
+    return double(o.n) + o.zx + o.r.dist;
+  } else if constexpr (variant == 4) {
     Orbit<double> o;
     o.start(x, y, int64_t(1) << 40);  // No Newton.  Reports the cardioid, but initializes the state first.
     o.run(kSteps, kSteps);
@@ -81,5 +90,7 @@ int main(const int argc, const char** argv) {
   run<2>(n, cuda, "+ atom-domain minimum");
   run<3>(n, cuda, "+ Brent check");
   run<4>(n, cuda, "Orbit::run (no Newton)");
+  run<5>(n, cuda, "OrbitDE::run (no Newton)");
+  run<6>(n, cuda, "OrbitDE::run (Newton from 64)");
   return 0;
 }

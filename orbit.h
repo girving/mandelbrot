@@ -248,9 +248,9 @@ struct OrbitDE {
   int64_t n, dexp, candidate, next_newton, check_n, next_check;
   EscapeDE r;  // Result, once done
 
-  // Start at c = x + iy.  Returns true if already decided (the cardioid or period 2 disk, whose interior
-  // distance is computed here).
-  __host__ __device__ bool start(const double x_, const double y_) {
+  // Start at c = x + iy, with Newton interior certificates attempted at step first_newton and each doubling.
+  // Returns true if already decided (the cardioid or period 2 disk, whose interior distance is computed here).
+  __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64) {
     x = x_; y = y_;
     r = EscapeDE();
     if (in_cardioid_or_disk(x, y)) {
@@ -271,7 +271,7 @@ struct OrbitDE {
     // binary exponent to avoid overflow.
     zx = x; zy = y; dx = 1; dy = 0; dexp = 0;
     min_r2 = zx * zx + zy * zy;
-    candidate = 1; next_newton = 64;
+    candidate = 1; next_newton = first_newton;
     cx = zx; cy = zy; check_n = 1; next_check = 16;  // Brent checkpoint
     n = 1;
     return false;
