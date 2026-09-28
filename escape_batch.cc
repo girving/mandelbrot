@@ -9,6 +9,8 @@
 #include <vector>
 #ifdef __CUDACC__
 #include "array.h"
+#include "print.h"
+#include <chrono>
 #endif
 #ifndef BATCH_LANES
 #define BATCH_LANES 4   // Orbits in flight per CPU thread
@@ -86,8 +88,8 @@ namespace {
 // Persistent threads: each thread claims chunks of samples from a global counter and refills its orbit as
 // soon as it finishes, so a slow orbit only delays its own thread, not its warp's next samples
 template<class T> __global__ void sample_kernel(const Leaf* leaves, const SampleParams p, const int64_t n,
-                                                uint32_t* bits, unsigned long long* next,
-                                                unsigned long long* iters) {
+                                                uint32_t* bits, unsigned long long* counters) {
+  // counters: [next sample, total iterations, max iterations of one thread]
   const int64_t chunk = 16, burst = 16;
   Orbit<T> o;
   int64_t i = -1, end = -1;
@@ -97,7 +99,7 @@ template<class T> __global__ void sample_kernel(const Leaf* leaves, const Sample
     if (done) {
       if (i >= 0) { bits[i] = below_bits(o.e, p); it += o.e.iters; }
       if (++i >= end) {
-        i = int64_t(atomicAdd(next, (unsigned long long)chunk));
+        i = int64_t(atomicAdd(counters, (unsigned long long)chunk));
         if (i >= n) break;
         end = min(i + chunk, n);
       }
@@ -108,7 +110,13 @@ template<class T> __global__ void sample_kernel(const Leaf* leaves, const Sample
     }
     done = o.run(p.max_iter, burst);
   }
-  atomicAdd(iters, it);
+  atomicAdd(counters + 1, it);
+  atomicMax(counters + 2, it);
+}
+
+int env_int(const char* name, const int fallback) {
+  const char* s = getenv(name);
+  return s ? atoi(s) : fallback;
 }
 
 }  // namespace
@@ -118,17 +126,37 @@ template<class T> int64_t sample_leaves_cuda(span<const Leaf> leaves, const Samp
   slow_assert(0 < p.K && p.K <= 32);
   const int64_t n = int64_t(bits.size());
   if (!n) return 0;
+  // Launch shape and per-batch timing are tunable from the environment, for benchmarking
+  static const int blocks_per_sm = env_int("MANDELBROT_CUDA_BLOCKS_PER_SM", 8),
+                   block = env_int("MANDELBROT_CUDA_BLOCK", 256), timing = env_int("MANDELBROT_CUDA_TIMING", 0);
+  const auto t0 = std::chrono::steady_clock::now();
   Array<Device<Leaf>> dleaves(leaves.size());
   Array<Device<uint32_t>> dbits(n);
-  Array<Device<unsigned long long>> counters(2);
+  Array<Device<unsigned long long>> counters(3);
   host_to_device<Leaf>(dleaves, leaves);
-  cuda_check(cudaMemsetAsync(device_get(counters), 0, 2 * sizeof(unsigned long long), stream()));
-  sample_kernel<T><<<8 * num_sms(), 256, 0, stream()>>>(device_get(dleaves), p, n, device_get(dbits),
-                                                        device_get(counters), device_get(counters) + 1);
+  cuda_check(cudaMemsetAsync(device_get(counters), 0, 3 * sizeof(unsigned long long), stream()));
+  cudaEvent_t e0, e1;
+  cuda_check(cudaEventCreate(&e0));
+  cuda_check(cudaEventCreate(&e1));
+  cuda_check(cudaEventRecord(e0, stream()));
+  sample_kernel<T><<<blocks_per_sm * num_sms(), block, 0, stream()>>>(device_get(dleaves), p, n, device_get(dbits),
+                                                                     device_get(counters));
   cuda_check(cudaGetLastError());
+  cuda_check(cudaEventRecord(e1, stream()));
   device_to_host<uint32_t>(bits, dbits);
-  unsigned long long h[2];
-  device_to_host<unsigned long long>(span<unsigned long long>(h, 2), counters);
+  unsigned long long h[3];
+  device_to_host<unsigned long long>(span<unsigned long long>(h, 3), counters);
+  if (timing) {
+    float kernel_ms;
+    cuda_check(cudaEventElapsedTime(&kernel_ms, e0, e1));
+    const double total_ms = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() * 1e3;
+    const int threads = blocks_per_sm * num_sms() * block;
+    print("    cuda batch: %d samples, %d x %d threads, kernel %.1f ms of %.1f ms, %.3g it/s in kernel; "
+          "iterations per thread mean %.3g, max %.3g", n, blocks_per_sm * num_sms(), block, kernel_ms, total_ms,
+          double(h[1]) / (kernel_ms * 1e-3), double(h[1]) / threads, double(h[2]));
+  }
+  cuda_check(cudaEventDestroy(e0));
+  cuda_check(cudaEventDestroy(e1));
   return int64_t(h[1]);
 }
 

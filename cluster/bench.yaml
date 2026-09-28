@@ -71,7 +71,7 @@ spec:
               value: hybrid-area
             - name: MANDELBROT_THREADS
               value: "22"
-            - name: RUNS  # escape_tree argument lists, one per line (empty: the default benchmark)
+            - name: RUNS  # Commands, one per line, optionally prefixed by VAR=value (empty: the default benchmark)
               value: ""
             - name: HOME
               value: /tmp

@@ -50,9 +50,9 @@ run() { step "$*"; timeout 1800 "$@" 2>&1 | tee -a "$OUT"; }
 
 run ./build/release/escape_batch_test
 if [ -n "${RUNS:-}" ]; then
-  # Custom escape_tree runs: RUNS holds one argument list per line
-  while IFS= read -r args; do
-    [ -n "$args" ] && run ./build/release/escape_tree $args
+  # Custom runs: RUNS holds one command per line, optionally prefixed by VAR=value settings
+  while IFS= read -r cmd; do
+    [ -n "$cmd" ] && run env $cmd
   done <<< "$RUNS"
 else
   run ./build/release/escape_tree --cuda 16384 1048568                 # Laptop config: 3.4e-7 in 44 s on M5 Pro
