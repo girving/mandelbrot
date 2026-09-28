@@ -357,8 +357,9 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                      // Steps before parking.  At the first leaf Newton step, so that Newton runs in the overflow
                      // pass, with all lanes of a warp at once, instead of one lane stalling the rest.
                      budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 14),
-                     timing = env_int("MANDELBROT_CUDA_TIMING", 0);
-    const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 32));
+                     timing = env_int("MANDELBROT_CUDA_TIMING", 0),
+                     park = env_int("MANDELBROT_CUDA_PARK", 8);  // Room to park n / park orbits
+    const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / park));
     Mem<O> parked(cap, true), next(cap, true);
     Mem<int64_t> items(cap, true), next_items(cap, true);
     Mem<unsigned long long> counters(13, true);

@@ -40,6 +40,7 @@ struct TreeParams {
   int64_t first_newton = 16384;  // First Newton certificate attempt for leaf samples (later diverges less)
   int64_t center_max_iter = 1 << 14;  // Iteration cap for cell centers (long orbits rarely certify a cell)
   int64_t center_first_newton = 8192; // First Newton interior certificate attempt for cell centers
+  int center_max_period = 4096;       // Largest period Newton tries for cell centers
   int newton_max_period = 256;        // Largest period Newton tries for leaf samples
   int newton_iters = 30;             // Newton iterations per certificate attempt for leaf samples
   double newton_close2 = INFINITY;   // Leaf Newton gives up unless |f^p(w) - w|^2 < this after one iteration

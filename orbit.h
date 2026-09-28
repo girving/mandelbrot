@@ -338,7 +338,7 @@ struct OrbitDE {
   // The rare checks at a step n divisible by 8, after the Newton step (if due) and Brent (if it fired) were
   // detected by run: Newton, then Brent's period recovery, then the checkpoint.  Also the cardioid/disk start.
   // Returns true if done.
-  __host__ __device__ bool settle(const int64_t max_iter) {
+  __host__ __device__ bool settle(const int64_t max_iter, const int max_period = 4096) {
     if (status == 6) {
       const bool disk = (x + 1) * (x + 1) + y * y <= 1.0 / 16;
       r.e = {-1, -INFINITY, disk ? 2 : 1, 0};
@@ -354,7 +354,7 @@ struct OrbitDE {
       status = 1;
       return true;
     }
-    if (status == 4 && candidate <= 4096) {
+    if (status == 4 && candidate <= max_period) {
       const double b = interior_distance(x, y, zx, zy, int(candidate));
       if (b > 0) { r.e = {-1, -INFINITY, 0, n}; r.dist = b; status = 1; return true; }
     }
@@ -385,7 +385,8 @@ struct OrbitDE {
   // Iterate at most `budget` steps.  Returns true when done, with the result in r, or, with defer, when stopped
   // for settle (status 4 or 5).  As in Orbit::run, squares are carried between steps and the rare checks
   // (Newton, Brent, checkpoint) run at steps divisible by 8.
-  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const bool defer = false) {
+  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const bool defer = false,
+                               const int max_period = 4096) {
     if (status == 6) return true;  // Deferred cardioid/disk start
     double zx = this->zx, zy = this->zy, dx = this->dx, dy = this->dy, min_r2 = this->min_r2;
     double zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
@@ -428,7 +429,7 @@ struct OrbitDE {
           status = newton ? 4 : 5;
           if (defer) goto finish;
           this->zx = zx; this->zy = zy; this->n = n; this->candidate = candidate;
-          if (settle(max_iter)) goto finish;
+          if (settle(max_iter, max_period)) goto finish;
           continue;  // settle did the checkpoint
         }
       }
