@@ -42,6 +42,10 @@ __host__ __device__ static inline bool escaped_below(const int64_t steps, const 
   return d >= 6 || (d == 5 && r2 < 6.235149080811617e27);
 }
 
+// Rare, heavy paths (Newton certificates, distance bounds) stay out of line, so that the hot iteration loops
+// that call them keep few registers on GPUs
+#define ORBIT_COLD __attribute__((noinline))
+
 // Tolerances by precision (squared distances, relative where noted)
 template<class T> struct OrbitTol;
 template<> struct OrbitTol<double> {
@@ -59,7 +63,7 @@ template<> struct OrbitTol<float> {
 
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
 // periodic point whose multiplier |(f^p)'(w)| < 1, which certifies that c is in a hyperbolic component.
-template<class T> __host__ __device__ bool attracting_cycle(const T x, const T y, T wx, T wy, const int p,
+template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x, const T y, T wx, T wy, const int p,
                                                          const int iters = 30) {
   typedef OrbitTol<T> Tol;
   for (int it = 0; it < iters; it++) {
@@ -198,7 +202,7 @@ template<class T> struct Orbit {
 
 // Interior distance lower bound at an attracting p-cycle near w (p must be the minimal period, since the
 // Koebe bound needs the multiplier map to be univalent), or 0 if Newton does not certify one
-__host__ __device__ static inline double interior_distance_exact(const double x, const double y, const double wx,
+ORBIT_COLD __host__ __device__ static double interior_distance_exact(const double x, const double y, const double wx,
                                                                  const double wy, const int p) {
   typedef Complex<double> C;
   const C c(x, y), one(1);
@@ -226,7 +230,7 @@ __host__ __device__ static inline double interior_distance_exact(const double x,
 }
 
 // Interior distance at the minimal period dividing p for which Newton finds an attracting cycle
-__host__ __device__ static inline double interior_distance(const double x, const double y, const double wx,
+ORBIT_COLD __host__ __device__ static double interior_distance(const double x, const double y, const double wx,
                                                            const double wy, const int p) {
   if (!attracting_cycle(x, y, wx, wy, p)) return 0;
   for (int q = 1; q <= p; q++)
@@ -243,6 +247,21 @@ struct EscapeDE {
   Escape e;
   double dist = 0;  // Exterior: lower bound on dist(c, M).  Interior: lower bound on distance to ∂(component).
 };
+
+// Result for an orbit escaping at step n with |z|^2 = r2 and dz/dc = 2^dexp (dx + i dy)
+ORBIT_COLD __host__ __device__ static EscapeDE escaped(const int32_t n, const double r2, const double dx,
+                                                       const double dy, const int32_t dexp) {
+  EscapeDE r;
+  const double lz = 0.5 * std::log(r2);
+  r.e = {n, std::log2(lz) - double(n - 1), 0, n, r2};
+  // Koebe: dist(c, M) ≥ (1 - e^-g) / (4 |∇g|), with g = log|z_n| / 2^(n-1) and
+  // |∇g| = |dz_n/dc| / (|z_n| 2^(n-1)).  So dist ≥ (1 - e^-g) 2^(n-1) |z_n| / (4 |dz_n/dc|), where
+  // (1 - e^-g) 2^(n-1) = lz for small g.
+  const double g = std::exp2(std::log2(lz) - double(n - 1));
+  const double scale = g > 1e-8 ? -std::expm1(-g) / g : 1 - g / 2;  // (1 - e^-g) / g
+  r.dist = std::ldexp(scale * std::sqrt(r2) * lz / (4 * std::hypot(dx, dy)), int(-(dexp < 100000 ? dexp : 100000)));
+  return r;
+}
 
 // escape_de as a resumable state machine, like Orbit
 struct OrbitDE {
@@ -293,15 +312,7 @@ struct OrbitDE {
       const int32_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       for (; n < block; n++) {
         if (r2 > 18446744073709551616.0) {
-          const double lz = 0.5 * std::log(r2);
-          r.e = {n, std::log2(lz) - double(n - 1), 0, n, r2};
-          // Koebe: dist(c, M) ≥ (1 - e^-g) / (4 |∇g|), with g = log|z_n| / 2^(n-1) and
-          // |∇g| = |dz_n/dc| / (|z_n| 2^(n-1)).  So dist ≥ (1 - e^-g) 2^(n-1) |z_n| / (4 |dz_n/dc|), where
-          // (1 - e^-g) 2^(n-1) = lz for small g.
-          const double g = std::exp2(std::log2(lz) - double(n - 1));
-          const double scale = g > 1e-8 ? -std::expm1(-g) / g : 1 - g / 2;  // (1 - e^-g) / g
-          r.dist = std::ldexp(scale * std::sqrt(r2) * lz / (4 * std::hypot(dx, dy)),
-                              int(-(dexp < 100000 ? dexp : 100000)));
+          r = escaped(n, r2, dx, dy, dexp);
           goto finish;
         }
         {
