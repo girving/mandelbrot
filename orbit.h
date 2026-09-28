@@ -94,11 +94,12 @@ template<class T> __host__ __device__ bool attracting_cycle(const T x, const T y
   return false;
 }
 
+// Orbit and OrbitDE keep step counts in 32 bits to save GPU registers, so max_iter must be below 2^30
 template<class T> struct Orbit {
   T x, y, zx, zy;
   T cx, cy;        // Brent checkpoint, refreshed at powers of two
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
-  int64_t n, next_check, candidate, next_newton;
+  int32_t n, next_check, candidate, next_newton;  // 32 bits to save registers: max_iter < 2^31
   int max_period;  // Largest atom-domain period candidate that Newton tries
   int newton_iters;  // Newton iterations per certificate attempt
   bool logs;       // Compute e.log2g on escape (otherwise only e.steps and e.r2, for escaped_below)
@@ -114,7 +115,8 @@ template<class T> struct Orbit {
     x = T(x_); y = T(y_);
     zx = x; zy = y; cx = x; cy = y;
     min_r2 = zx * zx + zy * zy;
-    n = 1; next_check = 16; candidate = 1; next_newton = first_newton;
+    n = 1; next_check = 16; candidate = 1;
+    next_newton = int32_t(first_newton < (int64_t(1) << 30) ? first_newton : int64_t(1) << 30);  // ≥ 2^30: never
     if (in_cardioid_or_disk(x_, y_)) {
       const bool disk = (x_ + 1) * (x_ + 1) + y_ * y_ <= 1.0 / 16;
       e = {-1, -INFINITY, disk ? 2 : 1, 0};
@@ -133,11 +135,11 @@ template<class T> struct Orbit {
     typedef OrbitTol<T> Tol;
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
     T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
-    int64_t n = this->n, next_check = this->next_check, candidate = this->candidate;
-    const int64_t end = n + budget < max_iter + 1 ? n + budget : max_iter + 1;
+    int32_t n = this->n, next_check = this->next_check, candidate = this->candidate;
+    const int32_t end = int32_t(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
     bool done = true;
     while (n < end) {
-      const int64_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
+      const int32_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       for (; n < block; n++) {
         // Escape at |z| > 2^32 so that log|z| is accurate
         if (r2 > T(18446744073709551616.0)) {
@@ -245,7 +247,7 @@ struct EscapeDE {
 // escape_de as a resumable state machine, like Orbit
 struct OrbitDE {
   double x, y, zx, zy, dx, dy, min_r2, cx, cy;
-  int64_t n, dexp, candidate, next_newton, check_n, next_check;
+  int32_t n, dexp, candidate, next_newton, check_n, next_check;  // 32 bits to save registers: max_iter < 2^31
   EscapeDE r;  // Result, once done
 
   // Start at c = x + iy, with Newton interior certificates attempted at step first_newton and each doubling.
@@ -271,7 +273,8 @@ struct OrbitDE {
     // binary exponent to avoid overflow.
     zx = x; zy = y; dx = 1; dy = 0; dexp = 0;
     min_r2 = zx * zx + zy * zy;
-    candidate = 1; next_newton = first_newton;
+    candidate = 1;
+    next_newton = int32_t(first_newton < (int64_t(1) << 30) ? first_newton : int64_t(1) << 30);  // ≥ 2^30: never
     cx = zx; cy = zy; check_n = 1; next_check = 16;  // Brent checkpoint
     n = 1;
     return false;
@@ -282,12 +285,12 @@ struct OrbitDE {
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget) {
     double zx = this->zx, zy = this->zy, dx = this->dx, dy = this->dy, min_r2 = this->min_r2;
     double zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
-    int64_t n = this->n, dexp = this->dexp, candidate = this->candidate;
+    int32_t n = this->n, dexp = this->dexp, candidate = this->candidate;
     double unit = std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000)));  // The +1 in dz/dc, rescaled
-    const int64_t end = n + budget < max_iter + 1 ? n + budget : max_iter + 1;
+    const int32_t end = int32_t(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
     bool done = true;
     while (n < end) {
-      const int64_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
+      const int32_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       for (; n < block; n++) {
         if (r2 > 18446744073709551616.0) {
           const double lz = 0.5 * std::log(r2);
@@ -331,10 +334,10 @@ struct OrbitDE {
         // Brent fallback: converged to a cycle; recover its period by iterating until the orbit returns
         const double ex = zx - cx, ey = zy - cy;
         if (ex * ex + ey * ey < 1e-26) [[unlikely]] {
-          const int64_t lag = n - check_n;
+          const int32_t lag = n - check_n;
           double wx = zx, wy = zy;
           r.e = {-1, -INFINITY, 0, n};
-          for (int64_t q = 1; q <= (lag < 65536 ? lag : 65536); q++) {
+          for (int32_t q = 1; q <= (lag < 65536 ? lag : 65536); q++) {
             const double t2 = wx * wx - wy * wy + x;
             wy = 2 * wx * wy + y;
             wx = t2;

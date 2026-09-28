@@ -163,15 +163,17 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 // Persistent threads.  counters: [next claim, iterations, overflow count, max iterations of one thread, and
 // with timing: cycles inside run, total cycles, active lanes at run calls, warp lanes at run calls].  An orbit
 // that has run `budget` bursts is parked in overflow (if room) and finished by overflow_kernel.
-template<class Task> __global__ void orbit_kernel(const Task task, const int64_t n, const int64_t stride,
-                                                  const int64_t budget, typename Task::State* overflow,
-                                                  int64_t* overflow_items, const int64_t overflow_cap,
-                                                  unsigned long long* counters, const bool timing) {
+template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
+orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32_t budget,
+             typename Task::State* overflow, int64_t* overflow_items, const int64_t overflow_cap,
+             unsigned long long* counters) {
   // Lanes stay in the loop until their whole warp is out of work, and reconverge before each burst, so that
-  // lanes refilling at different times do not split the warp into groups that each step half empty
-  const int64_t chunk = 16;
+  // lanes refilling at different times do not split the warp into groups that each step half empty.
+  // Item indices fit in 32 bits (n < 2^31), which saves registers.
+  const int32_t chunk = 16;
   typename Task::State o;
-  int64_t j = 0, end = 0, pos = 0, i = -1, bursts = 0;  // pos = scramble(j - 1); i = current item or -1
+  int32_t end = 0, pos = 0, i = -1, bursts = 0;  // pos = scramble(j - 1); i = current item or -1
+  int64_t j = 0;
   unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0;
   const long long t0 = timing ? clock64() : 0;
   bool done = true, out = false;
@@ -182,11 +184,11 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
       if (j == end) {
         j = int64_t(atomicAdd(counters, (unsigned long long)chunk));
         if (j >= n) { out = true; i = -1; break; }
-        end = min(j + chunk, n);
-        pos = scramble(j, stride, n);
+        end = int32_t(min(j + chunk, n));
+        pos = int32_t(scramble(j, stride, n));
       } else {
-        pos += stride;  // scramble(j) from scramble(j - 1), without a 64-bit modulus
-        if (pos >= n) pos -= n;
+        pos += int32_t(stride);  // scramble(j) from scramble(j - 1), without a 64-bit modulus
+        if (pos >= n) pos -= int32_t(n);
       }
       i = pos;
       j++;
@@ -196,7 +198,7 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
     if (__all_sync(0xffffffff, out)) break;
     __syncwarp();
     if (!out) {
-      if (timing) {
+      if constexpr (timing) {
         const unsigned mask = __activemask();
         if ((threadIdx.x & 31) == __ffs(mask) - 1) { active += __popc(mask); slots += 32; }
         const long long r0 = clock64();
@@ -219,12 +221,29 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
   }
   atomicAdd(counters + 1, it);
   atomicMax(counters + 3, it);
-  if (timing) {
+  if constexpr (timing) {
     atomicAdd(counters + 4, run_cycles);
     atomicAdd(counters + 5, (unsigned long long)(clock64() - t0));
     atomicAdd(counters + 6, active);
     atomicAdd(counters + 7, slots);
   }
+}
+
+// Launch orbit_kernel with register pressure chosen at run time: min_blocks resident 256-thread blocks per SM
+template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks, const int blocks, const Task& task,
+                                                           const int64_t n, const int64_t stride, const int32_t budget,
+                                                           typename Task::State* overflow, int64_t* items,
+                                                           const int64_t cap, unsigned long long* counters) {
+#define LAUNCH(b) orbit_kernel<Task, timing, b><<<blocks, 256, 0, stream()>>>(task, n, stride, budget, overflow, \
+                                                                             items, cap, counters)
+  switch (min_blocks) {
+    case 1: LAUNCH(1); break;
+    case 2: LAUNCH(2); break;
+    case 3: LAUNCH(3); break;
+    case 4: LAUNCH(4); break;
+    default: die("MANDELBROT_CUDA_MIN_BLOCKS must be 1 to 4, got %d", min_blocks);
+  }
+#undef LAUNCH
 }
 
 // Parked orbits, run to completion by persistent warp-synchronous threads like orbit_kernel's.
@@ -279,7 +298,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
 #ifdef __CUDACC__
     typedef typename Task::State O;
     static const int blocks_per_sm = env_int("MANDELBROT_CUDA_BLOCKS_PER_SM", 8),
-                     block = env_int("MANDELBROT_CUDA_BLOCK", 256),
+                     min_blocks = env_int("MANDELBROT_CUDA_MIN_BLOCKS", 2),  // Register budget: 65536 / (256 · this)
+                     block = 256,
                      budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 15),  // Steps before parking
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0);
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 256));
@@ -290,11 +310,14 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
     cuda_check(cudaEventRecord(e0, stream()));
-    slow_assert(block % 32 == 0, "MANDELBROT_CUDA_BLOCK must be a multiple of 32");
     const int threads = blocks_per_sm * num_sms() * block;
-    engine_detail::orbit_kernel<Task><<<blocks_per_sm * num_sms(), block, 0, stream()>>>(
-        task, n, stride, std::max<int64_t>(1, budget_steps / task.burst), overflow.p, items.p, cap, counters.p,
-        timing != 0);
+    const int32_t budget = int32_t(std::max<int64_t>(1, budget_steps / task.burst));
+    if (timing)
+      engine_detail::launch_orbit_kernel<Task, true>(min_blocks, blocks_per_sm * num_sms(), task, n, stride, budget,
+                                                     overflow.p, items.p, cap, counters.p);
+    else
+      engine_detail::launch_orbit_kernel<Task, false>(min_blocks, blocks_per_sm * num_sms(), task, n, stride, budget,
+                                                      overflow.p, items.p, cap, counters.p);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
     const int64_t parked = std::min<int64_t>(cap, int64_t(counters.get(2)));
