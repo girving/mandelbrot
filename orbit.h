@@ -140,7 +140,7 @@ template<class T> struct Orbit {
   }
 
   // Iterations performed, once done
-  __host__ __device__ int64_t iters() const { return status == 3 ? n - 1 : n; }
+  __host__ __device__ int64_t iters() const { return status == 3 && n > 1 ? n - 1 : n; }
 
   // The result as an Escape, once done.  period is the minimal period if found and at most 32, else 0.
   __host__ __device__ Escape result() const {
@@ -154,13 +154,16 @@ template<class T> struct Orbit {
   // Brent: z has returned to the checkpoint.  That alone does not certify an attracting cycle, since slowly
   // escaping orbits near nearly neutral repelling cycles can also return within the tolerance, so Newton must
   // confirm one at the return period (at most 32 by direct return, else the best return up to max_period).
-  // Sets the minimal period (or 33 if above 32) and returns true if confirmed.
-  __host__ __device__ bool converged(const T zx, const T zy, const T cx, const T cy, int32_t& candidate,
-                                     const int max_period, const NewtonOptions& nw) const {
+  // Returns 2 if confirmed (setting the minimal period, or 33 if above 32).  An unconfirmed exact return means
+  // the computed orbit is periodic, so it will never escape: return 3, exactly what iterating to max_iter would
+  // give.  Otherwise 0.
+  __host__ __device__ int converged(const T zx, const T zy, const T cx, const T cy, int32_t& candidate,
+                                    const int max_period, const NewtonOptions& nw) const {
     typedef OrbitTol<T> Tol;
     const T dx = zx - cx, dy = zy - cy;
-    if (!(dx * dx + dy * dy < T(Tol::cycle))) [[likely]] return false;
-    return confirm(zx, zy, candidate, max_period, nw);
+    if (!(dx * dx + dy * dy < T(Tol::cycle))) [[likely]] return 0;
+    if (confirm(zx, zy, candidate, max_period, nw)) return 2;
+    return zx == cx && zy == cy ? 3 : 0;
   }
   ORBIT_COLD __host__ __device__ bool confirm(const T zx, const T zy, int32_t& candidate, const int max_period,
                                               const NewtonOptions& nw) const {
@@ -216,10 +219,8 @@ template<class T> struct Orbit {
   // checkpoint.  Returns true if the orbit is done; otherwise it can run again.
   __host__ __device__ bool settle(const int64_t max_iter, const int max_period, const NewtonOptions& nw) {
     status = 0;
-    if (newton(max_period, nw) || converged(zx, zy, cx, cy, candidate, max_period, nw)) {
-      status = 2;
-      return true;
-    }
+    if (newton(max_period, nw)) { status = 2; return true; }
+    if (const int s = converged(zx, zy, cx, cy, candidate, max_period, nw)) { status = s; return true; }
     if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     if (n > max_iter) status = 3;
     return status != 0;
@@ -262,7 +263,7 @@ template<class T> struct Orbit {
         this->candidate = candidate;
         if (newton(max_period, nw)) { candidate = this->candidate; status = 2; goto finish; }
       }
-      if (converged(zx, zy, cx, cy, candidate, max_period, nw)) [[unlikely]] { status = 2; goto finish; }
+      if (const int s = converged(zx, zy, cx, cy, candidate, max_period, nw)) [[unlikely]] { status = s; goto finish; }
       if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     }
     if (n > max_iter) status = 3;
