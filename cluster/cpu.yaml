@@ -1,0 +1,99 @@
+# CPU-only runs of cluster/bench.sh on the cpu queue (no GPU), e.g. long experiments that would
+# otherwise heat up a laptop.  Same usage as bench.yaml; set RUNS.  Uses its own PVC (cluster/pvc-cpu.yaml),
+# since crusoe-ssd disks mount on one node at a time.
+#   kubectl apply -f cluster/pvc-cpu.yaml -f cluster/cpu.yaml
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: irving-mandelbrot-cpu
+  namespace: research
+  labels:
+    kueue.x-k8s.io/queue-name: cpu
+spec:
+  activeDeadlineSeconds: 21600
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: irving-mandelbrot-cpu
+      - name: work
+        emptyDir:
+          sizeLimit: 1Gi
+      initContainers:
+      - name: fetch
+        image: curlimages/curl:8.16.0
+        env:
+        - name: COMMIT
+          value: hybrid-area
+        command:
+        - sh
+        - "-c"
+        - |
+          set -e
+          mkdir -p /data/bin
+          [ -x /data/bin/micromamba ] || {
+            curl -fsSL -o /data/bin/micromamba \
+              https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-linux-64
+            chmod +x /data/bin/micromamba; }
+          # The contents API, not raw.githubusercontent.com, which serves stale files for minutes
+          curl -fsSL -H "Accept: application/vnd.github.raw" -o /work/bench.sh \
+            "https://api.github.com/repos/girving/mandelbrot/contents/cluster/bench.sh?ref=$COMMIT"
+          grep -m1 "^ENV=" /work/bench.sh
+        volumeMounts:
+        - name: data
+          mountPath: "/data"
+        - name: work
+          mountPath: "/work"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: '1'
+            memory: 1Gi
+      containers:
+      - name: main
+        image: nvcr.io/nvidia/cuda:12.8.1-base-ubuntu24.04
+        env:
+        - name: COMMIT
+          value: hybrid-area
+        - name: MANDELBROT_THREADS
+          value: '60'
+        - name: RUNS
+          value: ''
+        - name: HOME
+          value: "/tmp"
+        command:
+        - bash
+        - "/work/bench.sh"
+        volumeMounts:
+        - name: data
+          mountPath: "/data"
+        - name: work
+          mountPath: "/work"
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: '60'
+            memory: 120Gi
+          limits:
+            memory: 120Gi

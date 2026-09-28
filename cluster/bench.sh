@@ -13,12 +13,12 @@ step() { echo; echo "=== $* [$(( $(date +%s) - T0 )) s]"; }
 
 # Build environment
 export MAMBA_ROOT_PREFIX=/data/mamba
-ENV=/data/env-v2
+ENV=/data/env-v3
 if [ ! -x $ENV/bin/clang++ ]; then
   step "Creating conda environment $ENV"
   timeout 1800 /data/bin/micromamba create -y -q -p $ENV -c conda-forge --override-channels \
     clangxx=22 libcxx=22 libcxx-devel=22 llvm-openmp=22 lld=22 meson ninja pkg-config \
-    "libflint>=3" gmp libpng zlib "openssl>=3" git curl
+    "libflint>=3" gmp libpng zlib "openssl>=3" git curl ca-certificates
 fi
 export PATH=$ENV/bin:/usr/local/cuda/bin:$PATH
 export PKG_CONFIG_PATH=$ENV/lib/pkgconfig
@@ -28,7 +28,7 @@ export LD_LIBRARY_PATH=$ENV/lib:/usr/local/cuda/lib64
 export CXX=clang++ CUDA_PATH=/usr/local/cuda
 
 step "Machine"
-nvidia-smi --query-gpu=name,memory.total,driver_version,clocks.max.sm --format=csv
+nvidia-smi --query-gpu=name,memory.total,driver_version,clocks.max.sm --format=csv 2>/dev/null || echo "no GPU"
 echo "CPUs: $(nproc) visible, using $MANDELBROT_THREADS threads"
 clang++ --version | head -1
 
@@ -42,7 +42,7 @@ step "Configuring and building"
 CXXFLAGS="-O3 -march=native" timeout 600 meson setup build/release --buildtype=release > /tmp/setup.log \
   || { cat /tmp/setup.log; exit 1; }
 grep -i -E "cuda|openmp" /tmp/setup.log || true
-timeout 1800 meson compile -C build/release tree_test escape_tree orbit_bench
+timeout 1800 meson compile -C build/release tree_test escape_tree orbit_bench orbit_census
 
 mkdir -p /data/results
 OUT=/data/results/bench-$(date +%Y%m%d-%H%M%S).txt
