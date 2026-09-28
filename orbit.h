@@ -69,6 +69,7 @@ struct NewtonOptions {
   double margin = -1;         // Attracting when |λ|^2 < 1 - margin
   bool best_return = false;   // If the atom-domain candidate fails, also try the best return period (costly on
                               // GPUs, where most Newton attempts are on exterior orbits and fail)
+  bool confirm_brent = true;  // Brent's cycles need Newton's confirmation (false: the old behavior, for timing)
 };
 
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
@@ -164,6 +165,19 @@ template<class T> struct Orbit {
     typedef OrbitTol<T> Tol;
     const T dx = zx - cx, dy = zy - cy;
     if (!(dx * dx + dy * dy < T(Tol::cycle))) [[likely]] return 0;
+    if (!nw.confirm_brent) {
+      // Unconfirmed: the minimal period if at most 32, else 33
+      T wx = zx, wy = zy;
+      candidate = 33;
+      for (int p = 1; p <= 32; p++) {
+        const T t2 = wx * wx - wy * wy + x;
+        wy = 2 * wx * wy + y;
+        wx = t2;
+        const T ex = wx - zx, ey = wy - zy;
+        if (ex * ex + ey * ey < T(Tol::period)) { candidate = p; break; }
+      }
+      return 2;
+    }
     if (confirm(zx, zy, candidate, max_period, nw)) return 2;
     return zx == cx && zy == cy ? 3 : 0;
   }
