@@ -47,7 +47,7 @@ struct TreeParams {
   int64_t burst = 64;                // Orbit steps per run call (finished lanes refill between bursts)
   int center_min_blocks = 2, sample_min_blocks = 3;  // GPU register budgets (H200: centers spill beyond 2)
   string prec = "double";    // Leaf orbits: double, float, or compare (float), compareNN (double rounded to NN
-                             // bits, NN ∈ {30, 36, 42, 48}), each paired with double
+                             // bits, NN ∈ {30, 36, 42, 48}), comparedd (double-double), each paired with double
   bool cuda = false;
   int64_t batch = 1 << 22;   // Target leaves per batch
   int64_t rows = -1;         // Only the first `rows` base rows (for tests), or -1 for all
