@@ -52,6 +52,14 @@ __host__ __device__ static inline uint32_t below_bits(const Escape& e, const Sam
   return b;
 }
 
+// Workers claim samples in scrambled order j → j * stride mod n, so that consecutive claims land in far-apart
+// leaves.  Slow orbits cluster spatially, and without this one thread can get a whole leaf of them.
+// scramble_stride returns a stride near n / φ coprime to n (requires n < 2^31, so products fit in 64 bits).
+int64_t scramble_stride(int64_t n);
+__host__ __device__ static inline int64_t scramble(const int64_t j, const int64_t stride, const int64_t n) {
+  return int64_t(uint64_t(j) * uint64_t(stride) % uint64_t(n));
+}
+
 // CPU threads to use: $MANDELBROT_THREADS if set (say, a container's CPU request), else all hardware threads
 int cpu_threads();
 
