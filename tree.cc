@@ -216,9 +216,9 @@ GroupSums reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const Kind kind
   return g;
 }
 
-template<class T> int64_t sample(const Mem<Cell>& leaves, const int64_t n_leaves, const TreeParams& p,
+template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, const TreeParams& p,
                                  const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow) {
-  SampleTask<T> task{p.burst, p.sample_min_blocks, leaves.p, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
+  SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      p.newton_iters, p.newton_close2, int(p.ks.size()), {}, bits.p};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
@@ -281,7 +281,7 @@ TreeResult run_tree(const TreeParams& p) {
   // Batches are runs of base cells in row-major order, sized adaptively for about p.batch leaves (and fewer
   // than 2^31 samples)
   const int64_t total = rows * p.base, max_leaves = std::min<int64_t>(p.batch, ((int64_t(1) << 31) - 1) / p.m);
-  int64_t cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(total, 16 * p.base));
+  int64_t cells_per_batch = std::min<int64_t>(total, 64);  // A small first batch, to estimate leaves per cell
   for (int64_t cell0 = 0; cell0 < total;) {
     const int64_t cell1 = std::min(total, cell0 + cells_per_batch);
     R.batches++;
@@ -335,27 +335,29 @@ TreeResult run_tree(const TreeParams& p) {
     }
     R.tree_secs += secs_since(t1);
 
-    // Leaf samples
-    const auto t2 = std::chrono::steady_clock::now();
+    // Leaf samples and reductions, in sub-batches of fewer than 2^31 samples
     const double w = (X1 - X0) / double(p.base << p.depth), h = (Y1 - Y0) / double(p.base << p.depth);
-    Mem<uint32_t> bits(n_leaves * p.m, p.cuda), fbits(compare ? n_leaves * p.m : 0, p.cuda);
-    R.leaf_iters += single ? sample<float>(leaves, n_leaves, p, w, h, bits, R.overflow)
-                           : sample<double>(leaves, n_leaves, p, w, h, bits, R.overflow);
-    if (compare) R.leaf_iters += sample<float>(leaves, n_leaves, p, w, h, fbits, R.overflow);
-    R.sample_secs += secs_since(t2);
+    for (int64_t l0 = 0; l0 < n_leaves; l0 += max_leaves) {
+      const int64_t nl = std::min(max_leaves, n_leaves - l0);
+      const auto t2 = std::chrono::steady_clock::now();
+      Mem<uint32_t> bits(nl * p.m, p.cuda), fbits(compare ? nl * p.m : 0, p.cuda);
+      R.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, R.overflow)
+                             : sample<double>(leaves.p + l0, nl, p, w, h, bits, R.overflow);
+      if (compare) R.leaf_iters += sample<float>(leaves.p + l0, nl, p, w, h, fbits, R.overflow);
+      R.sample_secs += secs_since(t2);
 
-    // Reductions
-    const auto t3 = std::chrono::steady_clock::now();
-    for (int k = 0; k < K; k++) {
-      R.area[k] += reduce(bits, nullptr, kArea, k, p, n_leaves);
-      if (k + 1 < K) R.diff[k] += reduce(bits, nullptr, kDiff, k, p, n_leaves);
-      if (compare) {
-        R.float_area[k] += reduce(fbits, nullptr, kArea, k, p, n_leaves);
-        R.delta[k] += reduce(bits, &fbits, kDelta, k, p, n_leaves);
+      const auto t3 = std::chrono::steady_clock::now();
+      for (int k = 0; k < K; k++) {
+        R.area[k] += reduce(bits, nullptr, kArea, k, p, nl);
+        if (k + 1 < K) R.diff[k] += reduce(bits, nullptr, kDiff, k, p, nl);
+        if (compare) {
+          R.float_area[k] += reduce(fbits, nullptr, kArea, k, p, nl);
+          R.delta[k] += reduce(bits, &fbits, kDelta, k, p, nl);
+        }
       }
+      if (compare) R.flips += reduce(bits, &fbits, kFlips, 0, p, nl).s;
+      R.reduce_secs += secs_since(t3);
     }
-    if (compare) R.flips += reduce(bits, &fbits, kFlips, 0, p, n_leaves).s;
-    R.reduce_secs += secs_since(t3);
     R.leaves += n_leaves;
 
     // Aim for about p.batch leaves per batch
