@@ -49,11 +49,12 @@ if cuda.found()
   add_global_arguments('-Wno-unknown-cuda-version', language: 'cpp')
   # CUDA ≥ 12 rejects libc++ on x86 unless asked; clang's CUDA support works with it
   add_global_arguments('-D_ALLOW_UNSUPPORTED_LIBCPP', language: 'cpp')
-
-  # Clang defaults to -ffp-contract=fast with CUDA, which breaks expansion arithmetic
-  #   https://llvm.org/docs/CompileCudaWithLLVM.html#flags-that-control-numerical-code
-  add_global_arguments('-ffp-contract=off', language: 'cpp')
 endif
+
+# No implicit FMA contraction anywhere: it breaks expansion arithmetic, and without it CPU and GPU builds
+# (and Mac and Linux) do identical arithmetic.  Clang defaults to -ffp-contract=fast with CUDA, and to on.
+#   https://llvm.org/docs/CompileCudaWithLLVM.html#flags-that-control-numerical-code
+add_global_arguments('-ffp-contract=off', language: 'cpp')
 
 # Download tinyformat.h
 tinyformat = custom_target('tinyformat', output: 'tinyformat.h',
