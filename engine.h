@@ -167,42 +167,52 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
                                                   const int64_t budget, typename Task::State* overflow,
                                                   int64_t* overflow_items, const int64_t overflow_cap,
                                                   unsigned long long* counters, const bool timing) {
+  // Lanes stay in the loop until their whole warp is out of work, and reconverge before each burst, so that
+  // lanes refilling at different times do not split the warp into groups that each step half empty
   const int64_t chunk = 16;
   typename Task::State o;
-  int64_t j = -1, end = -1, i = -1, bursts = 0;
+  int64_t j = 0, end = 0, i = -1, bursts = 0;
   unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0;
   const long long t0 = timing ? clock64() : 0;
-  bool done = true;
+  bool done = true, out = false;
   for (;;) {
-    if (done) {
+    // Finish and refill until this lane has a running orbit or runs out of work
+    while (done && !out) {
       if (i >= 0) { task.finish(o, i); it += task.iters(o); }
-      if (++j >= end) {
+      if (j == end) {
         j = int64_t(atomicAdd(counters, (unsigned long long)chunk));
-        if (j >= n) break;
+        if (j >= n) { out = true; i = -1; break; }
         end = min(j + chunk, n);
+        i = scramble(j, stride, n);
+      } else {
+        i += stride;  // scramble(j + 1) without a 64-bit modulus
+        if (i >= n) i -= n;
       }
-      i = scramble(j, stride, n);
+      j++;
       bursts = 0;
       done = task.start(o, i);
-      if (done) continue;
     }
-    if (timing) {
-      const unsigned mask = __activemask();
-      if ((threadIdx.x & 31) == __ffs(mask) - 1) { active += __popc(mask); slots += 32; }
-      const long long r0 = clock64();
-      done = task.run(o);
-      run_cycles += clock64() - r0;
-    } else {
-      done = task.run(o);
-    }
-    if (!done && ++bursts == budget) {
-      const int64_t k = int64_t(atomicAdd(counters + 2, 1ull));
-      if (k < overflow_cap) {
-        overflow[k] = o;
-        overflow_items[k] = i;
-        it += task.iters(o);  // Iterations so far; overflow_kernel counts the rest
-        i = -1;
-        done = true;
+    if (__all_sync(0xffffffff, out)) break;
+    __syncwarp();
+    if (!out) {
+      if (timing) {
+        const unsigned mask = __activemask();
+        if ((threadIdx.x & 31) == __ffs(mask) - 1) { active += __popc(mask); slots += 32; }
+        const long long r0 = clock64();
+        done = task.run(o);
+        run_cycles += clock64() - r0;
+      } else {
+        done = task.run(o);
+      }
+      if (!done && ++bursts == budget) {
+        const int64_t k = int64_t(atomicAdd(counters + 2, 1ull));
+        if (k < overflow_cap) {
+          overflow[k] = o;
+          overflow_items[k] = i;
+          it += task.iters(o);  // Iterations so far; overflow_kernel counts the rest
+          i = -1;
+          done = true;
+        }
       }
     }
   }
@@ -266,6 +276,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
     cuda_check(cudaEventRecord(e0, stream()));
+    slow_assert(block % 32 == 0, "MANDELBROT_CUDA_BLOCK must be a multiple of 32");
     const int threads = blocks_per_sm * num_sms() * block;
     engine_detail::orbit_kernel<Task><<<blocks_per_sm * num_sms(), block, 0, stream()>>>(
         task, n, stride, std::max<int64_t>(1, budget_steps / task.burst), overflow.p, items.p, cap, counters.p,
