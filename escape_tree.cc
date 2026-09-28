@@ -9,6 +9,9 @@
 namespace mandelbrot {
 namespace {
 
+// Areas in fixed point, or with 11 significant digits for small boxes, whose areas %.10f would truncate
+string area_str(const double a) { return std::abs(a) >= 0.01 ? tfm::format("%.10f", a) : tfm::format("%.10e", a); }
+
 void report(const TreeResult& R) {
   const auto& p = R.p;
   const int K = p.ks.size();
@@ -30,7 +33,7 @@ void report(const TreeResult& R) {
   print("  %s:", compare ? "double" : p.prec);
   print("       k      area{g < 2^-k}      std err");
   for (int k = 0; k < K; k++)
-    print("    %8d   %.10f   %.2e", p.ks[k], R.area_estimate(k), std::sqrt(R.variance(R.area, k)));
+    print("    %8d   %s   %.2e", p.ks[k], area_str(R.area_estimate(k)), std::sqrt(R.variance(R.area, k)));
   print("       k → k'           A(k) - A(k')     std err");
   for (int k = 0; k + 1 < K; k++)
     print("    %8d → %-8d  %.6e   %.2e", p.ks[k], p.ks[k + 1], R.diff_estimate(k), std::sqrt(R.variance(R.diff, k)));
@@ -38,7 +41,7 @@ void report(const TreeResult& R) {
     print("  %s:", p.prec == "compare" ? "float" : p.prec == "comparedd" ? string("double-double")
                                                  : "rounded to " + p.prec.substr(7) + " bits");
     for (int k = 0; k < K; k++)
-      print("    %8d   %.10f   %.2e", p.ks[k], R.estimate(R.float_area, k, true),
+      print("    %8d   %s   %.2e", p.ks[k], area_str(R.estimate(R.float_area, k, true)),
             std::sqrt(R.variance(R.float_area, k)));
     print("  %s - double (%d flipped samples of %d):", p.prec == "compare" ? "float" : "rounded", R.flips,
           R.leaves * p.m);
