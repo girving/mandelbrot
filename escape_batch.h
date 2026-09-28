@@ -20,6 +20,7 @@ struct SampleParams {
   int64_t max_iter;
   int K;             // Thresholds 2^-ks[k] for k < K ≤ 32
   int ks[32];
+  int64_t first_newton = 64;  // First Newton certificate attempt (later is cheaper on GPUs: less divergence)
 };
 
 // splitmix64 finalizer

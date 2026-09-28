@@ -40,7 +40,7 @@ template<class T, int L> int64_t cpu_worker(span<const Leaf> leaves, const Sampl
       const int64_t i = lo++;
       double x, y;
       sample_point(leaves[i / p.m], p, i, x, y);
-      if (!o[l].start(x, y)) { idx[l] = i; return true; }
+      if (!o[l].start(x, y, p.first_newton)) { idx[l] = i; return true; }
       bits[i] = below_bits(o[l].e, p);
     }
   };
@@ -103,7 +103,7 @@ template<class T> __global__ void sample_kernel(const Leaf* leaves, const Sample
       }
       double x, y;
       sample_point(leaves[i / p.m], p, i, x, y);
-      done = o.start(x, y);
+      done = o.start(x, y, p.first_newton);
       if (done) continue;
     }
     done = o.run(p.max_iter, burst);

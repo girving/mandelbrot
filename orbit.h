@@ -89,12 +89,13 @@ template<class T> struct Orbit {
   int64_t n, next_check, candidate, next_newton;
   Escape e;        // Result, once done
 
-  // Start at c = x + iy.  Returns true if already decided (the cardioid or period 2 disk).
-  __host__ __device__ bool start(const double x_, const double y_) {
+  // Start at c = x + iy, with the first Newton certificate attempt at step first_newton (then doubling).
+  // Returns true if already decided (the cardioid or period 2 disk).
+  __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64) {
     x = T(x_); y = T(y_);
     zx = x; zy = y; cx = x; cy = y;
     min_r2 = zx * zx + zy * zy;
-    n = 1; next_check = 16; candidate = 1; next_newton = 64;
+    n = 1; next_check = 16; candidate = 1; next_newton = first_newton;
     if (in_cardioid_or_disk(x_, y_)) {
       const bool disk = (x_ + 1) * (x_ + 1) + y_ * y_ <= 1.0 / 16;
       e = {-1, -INFINITY, disk ? 2 : 1, 0};

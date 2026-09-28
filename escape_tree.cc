@@ -42,6 +42,7 @@ struct Params {
   string prec;       // double, float, or compare
   bool cuda;
   int64_t batch;     // Leaves per sampling batch
+  int64_t first_newton;  // First Newton certificate attempt for leaf samples
   vector<int> ks;    // Thresholds 2^-k, increasing
 };
 
@@ -133,6 +134,7 @@ void run(const Params& p) {
   const bool compare = p.prec == "compare", single = p.prec == "float";
   SampleParams sp{p.m, p.strata, p.seed, p.max_iter, K, {}};
   for (int k = 0; k < K; k++) sp.ks[k] = p.ks[k];
+  sp.first_newton = p.first_newton;
 
   // Double (or float) results, and with compare, float results and float - double differences
   Sums main, fl, delta;
@@ -201,8 +203,8 @@ void run(const Params& p) {
 
   const double secs = (wall_time() - t0).seconds();
   print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, max_iter %d, seed %d, "
-        "prec %s, %s, %d threads: %.1f s (tree %.1f s, sampling %.1f s)", p.base, p.depth, p.base << p.depth,
-        p.safety, p.m, p.strata, p.max_iter, p.seed, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), secs, tree_secs,
+        "first Newton %d, prec %s, %s, %d threads: %.1f s (tree %.1f s, sampling %.1f s)", p.base, p.depth, p.base << p.depth,
+        p.safety, p.m, p.strata, p.max_iter, p.seed, p.first_newton, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), secs, tree_secs,
         sample_secs);
   print("  sampling throughput: %.3g iterations/s", double(leaf_iters + leaf_iters_f) / sample_secs);
   print("  centers: %.3g samples, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations",
@@ -241,14 +243,17 @@ int main(const int argc, const char** argv) {
     program.add_argument("--cuda").help("sample leaves on the GPU").default_value(false).implicit_value(true);
     program.add_argument("--batch").help("leaves per sampling batch").scan<'i', int64_t>()
         .default_value(int64_t(1) << 22);
+    program.add_argument("--first-newton").help("first Newton certificate attempt for leaf samples")
+        .scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 
     Params p{program.get<int64_t>("--base"), program.get<int>("--depth"), program.get<double>("--safety"),
              program.get<int>("--m"), program.get<int>("--strata"), program.get<int64_t>("--max-iter"),
              uint64_t(program.get<int64_t>("--seed")), program.get<string>("--prec"), program.get<bool>("--cuda"),
-             program.get<int64_t>("--batch"), program.get<vector<int>>("ks")};
+             program.get<int64_t>("--batch"), program.get<int64_t>("--first-newton"), program.get<vector<int>>("ks")};
     slow_assert(p.prec == "double" || p.prec == "float" || p.prec == "compare", "bad --prec %s", p.prec);
     slow_assert(p.ks.size() <= 32, "at most 32 thresholds");
+    slow_assert(p.first_newton >= 1, "need --first-newton ≥ 1");
     for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
     for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");
     slow_assert(p.strata >= 1 && p.m % (p.strata * p.strata) == 0 && p.m / (p.strata * p.strata) >= 2,
