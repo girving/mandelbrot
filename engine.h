@@ -311,9 +311,11 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     static const int blocks_per_sm = env_int("MANDELBROT_CUDA_BLOCKS_PER_SM", 8),
                      min_blocks_env = env_int("MANDELBROT_CUDA_MIN_BLOCKS", 0),  // Override task.min_blocks
                      block = 256,
-                     budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 15),  // Steps before parking
+                     // Steps before parking.  At the first leaf Newton step, so that Newton runs in the overflow
+                     // pass, with all lanes of a warp at once, instead of one lane stalling the rest.
+                     budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 14),
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0);
-    const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 256));
+    const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 32));
     Mem<O> overflow(cap, true);
     Mem<int64_t> items(cap, true);
     Mem<unsigned long long> counters(12, true);
