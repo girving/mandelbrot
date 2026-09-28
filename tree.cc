@@ -19,7 +19,9 @@ struct Level {
   const Cell* cells;
   int64_t base, row0;
   __host__ __device__ Cell at(const int64_t i) const {
-    return cells ? cells[i] : Cell{int32_t(i % base), int32_t(row0 + i / base)};
+    // Level sizes are below 2^31, so 32-bit division suffices
+    const uint32_t i32 = uint32_t(i), b = uint32_t(base);
+    return cells ? cells[i] : Cell{int32_t(i32 % b), int32_t(row0 + i32 / b)};
   }
 };
 
@@ -132,8 +134,10 @@ template<class T> struct SampleTask {
   uint32_t* bits;
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
-    const Cell l = leaves[i / m];
-    const int s = int(i % m), j = s % (strata * strata), jx = j % strata, jy = j / strata;
+    // Item counts are below 2^31 (scramble_stride checks), so 32-bit division suffices
+    const uint32_t i32 = uint32_t(i), m32 = uint32_t(m);
+    const Cell l = leaves[i32 / m32];
+    const int s = int(i32 % m32), j = s % (strata * strata), jx = j % strata, jy = j / strata;
     const uint64_t key = mix64(uint64_t(uint32_t(l.ix)) | uint64_t(uint32_t(l.iy)) << 32) + uint64_t(s);
     const double x = X0 + (l.ix + (jx + uniform(seed, key, 0)) / strata) * w,
                  y = Y0 + (l.iy + (jy + uniform(seed, key, 1)) / strata) * h;
