@@ -279,7 +279,7 @@ Target: error ~3·10^-11, two digits beyond the published 1.5065918849.
 - *Certified adaptive tree* (`escape_tree`).  Cells whose center carries a Koebe distance certificate are
   decided exactly; the rest split, down to leaves sampled with m points.  Leaf samples are jittered in
   2 × 2 strata (1.64× in error² × time over iid points).  Error ∝ cost^-0.69.  Leaves are collected and
-  sampled in batches (`escape_batch`), on CPU threads or a persistent-thread CUDA kernel (`--cuda`).
+  sampled in batches.  The whole pipeline (`tree`, on `engine`) runs on CPU threads or the GPU (`--cuda`).
 - *Failed ideas*: control variates from known components, smoothing, roulette, multilevel over thresholds,
   linearization jumps and BLA (orbits leave the linear regime at once), and sampling only the exterior
   shell {2^-K ≤ g < 2^-19} against the exact Grönwall F(2^-19).  The last one fails because at leaf scale

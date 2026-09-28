@@ -7,6 +7,7 @@
 // scale with the precision.
 #pragma once
 
+#include "complex.h"
 #include "cutil.h"
 #include <cmath>
 #include <cstdint>
@@ -158,6 +159,161 @@ template<class T> struct Orbit {
   finish:
     this->zx = zx; this->zy = zy; this->cx = cx; this->cy = cy; this->min_r2 = min_r2;
     this->n = n; this->next_check = next_check; this->candidate = candidate;
+    return done;
+  }
+};
+
+// Distance-estimating orbits (escape_de): z and dz/dc, with Koebe distance bounds on exit
+
+// Interior distance lower bound at an attracting p-cycle near w (p must be the minimal period, since the
+// Koebe bound needs the multiplier map to be univalent), or 0 if Newton does not certify one
+__host__ __device__ static inline double interior_distance_exact(const double x, const double y, const double wx,
+                                                                 const double wy, const int p) {
+  typedef Complex<double> C;
+  const C c(x, y), one(1);
+  C w(wx, wy);
+  for (int it = 0; it < 30; it++) {
+    C z = w, dz = one;
+    for (int k = 0; k < p; k++) { dz = 2.0 * (z * dz); z = z * z + c; }
+    const C step = (z - w) * inv(dz - one);
+    w -= step;
+    if (sqr_abs(step) < 1e-28 * (1 + sqr_abs(w))) {
+      // Derivatives of F = f^p at the periodic point w: A = F_z, B = F_c, Cz = F_zz, D = F_zc
+      C z2 = w, A = one, B, Cz, D;
+      for (int k = 0; k < p; k++) {
+        const C nA = 2.0 * (z2 * A), nB = 2.0 * (z2 * B) + one;
+        const C nC = 2.0 * (A * A + z2 * Cz), nD = 2.0 * (A * B + z2 * D);
+        A = nA; B = nB; Cz = nC; D = nD;
+        z2 = z2 * z2 + c;
+      }
+      const double a2 = sqr_abs(A);
+      if (!(a2 < 1 - 1e-9)) return 0;
+      return (1 - a2) / (4 * abs(D + Cz * B * inv(one - A)));
+    }
+  }
+  return 0;
+}
+
+// Interior distance at the minimal period dividing p for which Newton finds an attracting cycle
+__host__ __device__ static inline double interior_distance(const double x, const double y, const double wx,
+                                                           const double wy, const int p) {
+  if (!attracting_cycle(x, y, wx, wy, p)) return 0;
+  for (int q = 1; q <= p; q++)
+    if (p % q == 0 && attracting_cycle(x, y, wx, wy, q)) return interior_distance_exact(x, y, wx, wy, q);
+  return 0;
+}
+
+// Classification with distance estimates, for certifying whole cells.  Exterior: log2 of the Green's function
+// and the Koebe lower bound on dist(c, M), (1 - e^-g) / (4 |∇g|) ≈ |z_n| log|z_n| / (4 |dz_n/dc|).  Interior
+// (attracting cycle found by Newton): the Koebe lower bound (1 - |A|^2) / (4 |D + C B / (1 - A)|) on the
+// distance to the component's boundary, where A, B, C, D are derivatives of f^p at the periodic point.
+// Zero if unknown.
+struct EscapeDE {
+  Escape e;
+  double dist = 0;  // Exterior: lower bound on dist(c, M).  Interior: lower bound on distance to ∂(component).
+};
+
+// escape_de as a resumable state machine, like Orbit
+struct OrbitDE {
+  double x, y, zx, zy, dx, dy, min_r2, cx, cy;
+  int64_t n, dexp, candidate, next_newton, check_n, next_check;
+  EscapeDE r;  // Result, once done
+
+  // Start at c = x + iy.  Returns true if already decided (the cardioid or period 2 disk, whose interior
+  // distance is computed here).
+  __host__ __device__ bool start(const double x_, const double y_) {
+    x = x_; y = y_;
+    r = EscapeDE();
+    if (in_cardioid_or_disk(x, y)) {
+      const bool disk = (x + 1) * (x + 1) + y * y <= 1.0 / 16;
+      r.e = {-1, -INFINITY, disk ? 2 : 1, 0};
+      // Start Newton from an orbit point near the attracting cycle (not a fixed guess, which can converge to
+      // a repelling cycle instead)
+      double wx = x, wy = y;
+      for (int k = 0; k < 256; k++) {
+        const double t = wx * wx - wy * wy + x;
+        wy = 2 * wx * wy + y;
+        wx = t;
+      }
+      r.dist = interior_distance(x, y, wx, wy, disk ? 2 : 1);
+      return true;
+    }
+    // Iterate z and dz/dc together.  dz/dc grows like 2^n on escaping orbits, so rescale it and carry a
+    // binary exponent to avoid overflow.
+    zx = x; zy = y; dx = 1; dy = 0; dexp = 0;
+    min_r2 = zx * zx + zy * zy;
+    candidate = 1; next_newton = 64;
+    cx = zx; cy = zy; check_n = 1; next_check = 16;  // Brent checkpoint
+    n = 1;
+    return false;
+  }
+
+  // Iterate at most `budget` steps.  Returns true when done, with the result in r.
+  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget) {
+    double zx = this->zx, zy = this->zy, dx = this->dx, dy = this->dy, min_r2 = this->min_r2;
+    int64_t n = this->n, dexp = this->dexp, candidate = this->candidate;
+    const int64_t end = n + budget < max_iter + 1 ? n + budget : max_iter + 1;
+    bool done = true;
+    for (; n < end; n++) {
+      const double r2 = zx * zx + zy * zy;
+      if (r2 > 18446744073709551616.0) {
+        const double lz = 0.5 * std::log(r2);
+        r.e = {n, std::log2(lz) - double(n - 1), 0, n};
+        // Koebe: dist(c, M) ≥ (1 - e^-g) / (4 |∇g|), with g = log|z_n| / 2^(n-1) and
+        // |∇g| = |dz_n/dc| / (|z_n| 2^(n-1)).  So dist ≥ (1 - e^-g) 2^(n-1) |z_n| / (4 |dz_n/dc|), where
+        // (1 - e^-g) 2^(n-1) = lz for small g.
+        const double g = std::exp2(std::log2(lz) - double(n - 1));
+        const double scale = g > 1e-8 ? -std::expm1(-g) / g : 1 - g / 2;  // (1 - e^-g) / g
+        r.dist = std::ldexp(scale * std::sqrt(r2) * lz / (4 * std::hypot(dx, dy)),
+                            int(-(dexp < 100000 ? dexp : 100000)));
+        goto finish;
+      }
+      {
+        const double ndx = 2 * (zx * dx - zy * dy) + std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000))),
+                     ndy = 2 * (zx * dy + zy * dx);
+        dx = ndx; dy = ndy;
+      }
+      if (dx * dx + dy * dy > 1e200) { dx = std::ldexp(dx, -256); dy = std::ldexp(dy, -256); dexp += 256; }
+      {
+        const double t = zx * zx - zy * zy + x;
+        zy = 2 * zx * zy + y;
+        zx = t;
+      }
+      {
+        const double r2n = zx * zx + zy * zy;
+        if (r2n < min_r2) { min_r2 = r2n; candidate = n + 1; }
+      }
+      if (n == next_newton) [[unlikely]] {
+        next_newton *= 2;
+        if (candidate <= 4096) {
+          const double b = interior_distance(x, y, zx, zy, int(candidate));
+          if (b > 0) { r.e = {-1, -INFINITY, 0, n}; r.dist = b; goto finish; }
+        }
+      }
+      {
+        // Brent fallback: converged to a cycle; recover its period by iterating until the orbit returns
+        const double ex = zx - cx, ey = zy - cy;
+        if (ex * ex + ey * ey < 1e-26) [[unlikely]] {
+          const int64_t lag = n - check_n;
+          double wx = zx, wy = zy;
+          r.e = {-1, -INFINITY, 0, n};
+          for (int64_t q = 1; q <= (lag < 65536 ? lag : 65536); q++) {
+            const double t2 = wx * wx - wy * wy + x;
+            wy = 2 * wx * wy + y;
+            wx = t2;
+            const double fx = wx - zx, fy = wy - zy;
+            if (fx * fx + fy * fy < 1e-20) { r.dist = interior_distance(x, y, zx, zy, int(q)); break; }
+          }
+          goto finish;
+        }
+      }
+      if (n == next_check) { cx = zx; cy = zy; check_n = n; next_check *= 2; }
+    }
+    if (n > max_iter) r.e = {-1, -INFINITY, 0, max_iter};
+    else done = false;
+  finish:
+    this->zx = zx; this->zy = zy; this->dx = dx; this->dy = dy; this->min_r2 = min_r2;
+    this->n = n; this->dexp = dexp; this->candidate = candidate;
     return done;
   }
 };

@@ -11,14 +11,7 @@ namespace mandelbrot {
 // since 2^(m-1) overflows for long orbits.
 Escape escape(const double x, const double y, const int64_t max_iter);
 
-// Classification with distance estimates, for certifying whole cells.  Exterior: log2 of the Green's function
-// and the Koebe lower bound on dist(c, M), (1 - e^-g) / (4 |∇g|) ≈ |z_n| log|z_n| / (4 |dz_n/dc|).  Interior (attracting cycle
-// found by Newton): the Koebe lower bound (1 - |A|^2) / (4 |D + C B / (1 - A)|) on the distance to the
-// component's boundary, where A, B, C, D are derivatives of f^p at the periodic point.  Zero if unknown.
-struct EscapeDE {
-  Escape e;
-  double dist = 0;  // Exterior: lower bound on dist(c, M).  Interior: lower bound on distance to ∂(component).
-};
+// Classification with distance estimates (see EscapeDE in orbit.h)
 EscapeDE escape_de(const double x, const double y, const int64_t max_iter);
 
 // Whether g_M(c) < 2^-k, decided from an Escape computed with max_iter ≥ k + 8
