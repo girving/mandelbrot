@@ -14,14 +14,14 @@ const double X0 = -2, X1 = 0.5, Y0 = 0, Y1 = 1.2;
 // Cell (ix, iy) at depth d is [X0 + ix w_d, X0 + (ix + 1) w_d] × [Y0 + iy h_d, ...]
 struct Cell { int32_t ix, iy; };
 
-// Cells of one level: explicit, or implicitly the base grid rows [row0, row0 + n / base)
+// Cells of one level: explicit, or implicitly base grid cells [cell0, cell0 + n) in row-major order
 struct Level {
   const Cell* cells;
-  int64_t base, row0;
+  int64_t base, cell0;
   __host__ __device__ Cell at(const int64_t i) const {
-    // Level sizes are below 2^31, so 32-bit division suffices
-    const uint32_t i32 = uint32_t(i), b = uint32_t(base);
-    return cells ? cells[i] : Cell{int32_t(i32 % b), int32_t(row0 + i32 / b)};
+    if (cells) return cells[i];
+    const int64_t j = cell0 + i;
+    return Cell{int32_t(j % base), int32_t(j / base)};
   }
 };
 
@@ -278,18 +278,22 @@ TreeResult run_tree(const TreeParams& p) {
   const auto t0 = std::chrono::steady_clock::now();
   const int64_t rows = p.rows < 0 ? p.base : std::min(p.rows, p.base);
 
-  int64_t rows_per_batch = std::max<int64_t>(1, std::min<int64_t>(rows, 16));
-  for (int64_t row0 = 0; row0 < rows;) {
-    const int64_t row1 = std::min(rows, row0 + rows_per_batch);
+  // Batches are runs of base cells in row-major order, sized adaptively for about p.batch leaves (and fewer
+  // than 2^31 samples)
+  const int64_t total = rows * p.base, max_leaves = std::min<int64_t>(p.batch, ((int64_t(1) << 31) - 1) / p.m);
+  int64_t cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(total, 16 * p.base));
+  for (int64_t cell0 = 0; cell0 < total;) {
+    const int64_t cell1 = std::min(total, cell0 + cells_per_batch);
     R.batches++;
 
     // Tree levels
     const auto t1 = std::chrono::steady_clock::now();
-    int64_t n = (row1 - row0) * p.base;
+    int64_t n = cell1 - cell0;
     Mem<Cell> cells(0, p.cuda), leaves(0, p.cuda);
     int64_t n_leaves = 0;
     for (int d = 0; d <= p.depth; d++) {
-      const Level level{d ? cells.p : nullptr, p.base, row0};
+      slow_assert(n < (int64_t(1) << 31), "level %d of a batch has %d cells; lower --batch", d, n);
+      const Level level{d ? cells.p : nullptr, p.base, cell0};
       const double w = (X1 - X0) / double(p.base << d), h = (Y1 - Y0) / double(p.base << d);
       Mem<uint32_t> status(n, p.cuda);
       CenterTask task{p.burst, p.center_min_blocks, level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
@@ -355,9 +359,10 @@ TreeResult run_tree(const TreeParams& p) {
     R.leaves += n_leaves;
 
     // Aim for about p.batch leaves per batch
-    const double per_row = double(n_leaves) / double(row1 - row0);
-    rows_per_batch = std::max<int64_t>(1, int64_t(double(p.batch) / std::max(1.0, per_row)));
-    row0 = row1;
+    // Leaves per base cell so far (a running average, since single batches can be tiny)
+    const double per_cell = double(R.leaves) / double(cell1);
+    cells_per_batch = std::max<int64_t>(1, int64_t(double(max_leaves) / std::max(1e-3, per_cell)));
+    cell0 = cell1;
   }
   R.secs = secs_since(t0);
   return R;
