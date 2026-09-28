@@ -42,6 +42,7 @@ struct TreeParams {
   int newton_max_period = 256;        // Largest period Newton tries for leaf samples
   int newton_iters = 30;             // Newton iterations per certificate attempt for leaf samples
   int64_t burst = 64;                // Orbit steps per run call (finished lanes refill between bursts)
+  int center_min_blocks = 2, sample_min_blocks = 3;  // GPU register budgets (H200: centers spill beyond 2)
   string prec = "double";    // Leaf orbit precision: double, float, or compare
   bool cuda = false;
   int64_t batch = 1 << 22;   // Target leaves per batch
