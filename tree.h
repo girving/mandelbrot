@@ -19,6 +19,7 @@
 // samples that flip, to measure the bias of low precision.
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -41,6 +42,7 @@ struct TreeParams {
   int64_t center_first_newton = 8192; // First Newton interior certificate attempt for cell centers
   int newton_max_period = 256;        // Largest period Newton tries for leaf samples
   int newton_iters = 30;             // Newton iterations per certificate attempt for leaf samples
+  double newton_close2 = INFINITY;   // Leaf Newton gives up unless |f^p(w) - w|^2 < this after one iteration
   int64_t burst = 64;                // Orbit steps per run call (finished lanes refill between bursts)
   int center_min_blocks = 2, sample_min_blocks = 3;  // GPU register budgets (H200: centers spill beyond 2)
   string prec = "double";    // Leaf orbit precision: double, float, or compare
