@@ -305,26 +305,23 @@ ORBIT_COLD __host__ __device__ static EscapeDE escaped(const int32_t n, const do
 // escape_de as a resumable state machine, like Orbit
 struct OrbitDE {
   double x, y, zx, zy, dx, dy, min_r2, cx, cy;
-  int32_t n, dexp, candidate, next_newton, check_n, next_check;  // 32 bits to save registers: max_iter < 2^31
+  int32_t n, dexp, candidate, next_newton, check_n, next_check;  // 32 bits to save registers: max_iter < 2^30
+  // 0 running, 1 done (result in r), and with defer, stopped for settle: 4 Newton step due, 5 Brent fired,
+  // 6 cardioid or period 2 disk (whose interior distance settle computes)
+  int32_t status;
   EscapeDE r;  // Result, once done
 
   // Start at c = x + iy, with Newton interior certificates attempted at step first_newton and each doubling.
-  // Returns true if already decided (the cardioid or period 2 disk, whose interior distance is computed here).
-  __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64) {
+  // Returns true if already decided: the cardioid or period 2 disk, unless defer (then status 6, for settle).
+  __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64,
+                                 const bool defer = false) {
     x = x_; y = y_;
     r = EscapeDE();
+    status = 0;
     if (in_cardioid_or_disk(x, y)) {
-      const bool disk = (x + 1) * (x + 1) + y * y <= 1.0 / 16;
-      r.e = {-1, -INFINITY, disk ? 2 : 1, 0};
-      // Start Newton from an orbit point near the attracting cycle (not a fixed guess, which can converge to
-      // a repelling cycle instead)
-      double wx = x, wy = y;
-      for (int k = 0; k < 256; k++) {
-        const double t = wx * wx - wy * wy + x;
-        wy = 2 * wx * wy + y;
-        wx = t;
-      }
-      r.dist = interior_distance(x, y, wx, wy, disk ? 2 : 1);
+      status = 6;
+      if (defer) return false;
+      settle(0);
       return true;
     }
     // Iterate z and dz/dc together.  dz/dc grows like 2^n on escaping orbits, so rescale it and carry a
@@ -338,20 +335,69 @@ struct OrbitDE {
     return false;
   }
 
-  // Iterate at most `budget` steps.  Returns true when done, with the result in r.  As in Orbit::run, squares
-  // are carried between steps and the rare checks (Newton, Brent, checkpoint) run at steps divisible by 8.
-  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget) {
+  // The rare checks at a step n divisible by 8, after the Newton step (if due) and Brent (if it fired) were
+  // detected by run: Newton, then Brent's period recovery, then the checkpoint.  Also the cardioid/disk start.
+  // Returns true if done.
+  __host__ __device__ bool settle(const int64_t max_iter) {
+    if (status == 6) {
+      const bool disk = (x + 1) * (x + 1) + y * y <= 1.0 / 16;
+      r.e = {-1, -INFINITY, disk ? 2 : 1, 0};
+      // Start Newton from an orbit point near the attracting cycle (not a fixed guess, which can converge to
+      // a repelling cycle instead)
+      double wx = x, wy = y;
+      for (int k = 0; k < 256; k++) {
+        const double t = wx * wx - wy * wy + x;
+        wy = 2 * wx * wy + y;
+        wx = t;
+      }
+      r.dist = interior_distance(x, y, wx, wy, disk ? 2 : 1);
+      status = 1;
+      return true;
+    }
+    if (status == 4 && candidate <= 4096) {
+      const double b = interior_distance(x, y, zx, zy, int(candidate));
+      if (b > 0) { r.e = {-1, -INFINITY, 0, n}; r.dist = b; status = 1; return true; }
+    }
+    {
+      // Brent fallback: converged to a cycle; recover its period by iterating until the orbit returns
+      const double ex = zx - cx, ey = zy - cy;
+      if (ex * ex + ey * ey < 1e-26) {
+        const int32_t lag = n - check_n;
+        double wx = zx, wy = zy;
+        r.e = {-1, -INFINITY, 0, n};
+        for (int32_t q = 1; q <= (lag < 65536 ? lag : 65536); q++) {
+          const double t2 = wx * wx - wy * wy + x;
+          wy = 2 * wx * wy + y;
+          wx = t2;
+          const double fx = wx - zx, fy = wy - zy;
+          if (fx * fx + fy * fy < 1e-20) { r.dist = interior_distance(x, y, zx, zy, int(q)); break; }
+        }
+        status = 1;
+        return true;
+      }
+    }
+    if (n > next_check) { cx = zx; cy = zy; check_n = n; next_check *= 2; }
+    if (n > max_iter) { r.e = {-1, -INFINITY, 0, int64_t(max_iter)}; status = 1; return true; }
+    status = 0;
+    return false;
+  }
+
+  // Iterate at most `budget` steps.  Returns true when done, with the result in r, or, with defer, when stopped
+  // for settle (status 4 or 5).  As in Orbit::run, squares are carried between steps and the rare checks
+  // (Newton, Brent, checkpoint) run at steps divisible by 8.
+  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const bool defer = false) {
+    if (status == 6) return true;  // Deferred cardioid/disk start
     double zx = this->zx, zy = this->zy, dx = this->dx, dy = this->dy, min_r2 = this->min_r2;
     double zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
     int32_t n = this->n, dexp = this->dexp, candidate = this->candidate;
     double unit = std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000)));  // The +1 in dz/dc, rescaled
     const int32_t end = int32_t(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
-    bool done = true;
     while (n < end) {
       const int32_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       for (; n < block; n++) {
         if (r2 > 18446744073709551616.0) {
           r = escaped(n, r2, dx, dy, dexp);
+          status = 1;
           goto finish;
         }
         {
@@ -373,38 +419,26 @@ struct OrbitDE {
       }
       if (n & 7) continue;  // Partial block at the end of the burst
       // (zx, zy) is z_n, n a multiple of 8
-      if (n > next_newton) [[unlikely]] {
-        while (next_newton < n) next_newton *= 2;
-        if (candidate <= 4096) {
-          const double b = interior_distance(x, y, zx, zy, int(candidate));
-          if (b > 0) { r.e = {-1, -INFINITY, 0, n}; r.dist = b; goto finish; }
-        }
-      }
       {
-        // Brent fallback: converged to a cycle; recover its period by iterating until the orbit returns
+        const bool newton = n > next_newton;
+        if (newton) while (next_newton < n) next_newton *= 2;
         const double ex = zx - cx, ey = zy - cy;
-        if (ex * ex + ey * ey < 1e-26) [[unlikely]] {
-          const int32_t lag = n - check_n;
-          double wx = zx, wy = zy;
-          r.e = {-1, -INFINITY, 0, n};
-          for (int32_t q = 1; q <= (lag < 65536 ? lag : 65536); q++) {
-            const double t2 = wx * wx - wy * wy + x;
-            wy = 2 * wx * wy + y;
-            wx = t2;
-            const double fx = wx - zx, fy = wy - zy;
-            if (fx * fx + fy * fy < 1e-20) { r.dist = interior_distance(x, y, zx, zy, int(q)); break; }
-          }
-          goto finish;
+        const bool brent = ex * ex + ey * ey < 1e-26;
+        if (newton || brent) [[unlikely]] {
+          status = newton ? 4 : 5;
+          if (defer) goto finish;
+          this->zx = zx; this->zy = zy; this->n = n; this->candidate = candidate;
+          if (settle(max_iter)) goto finish;
+          continue;  // settle did the checkpoint
         }
       }
       if (n > next_check) { cx = zx; cy = zy; check_n = n; next_check *= 2; }
     }
-    if (n > max_iter) r.e = {-1, -INFINITY, 0, max_iter};
-    else done = false;
+    if (n > max_iter) { r.e = {-1, -INFINITY, 0, int64_t(max_iter)}; status = 1; }
   finish:
     this->zx = zx; this->zy = zy; this->dx = dx; this->dy = dy; this->min_r2 = min_r2;
     this->n = n; this->dexp = dexp; this->candidate = candidate;
-    return done;
+    return status != 0;
   }
 };
 

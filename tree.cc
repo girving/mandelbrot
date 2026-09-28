@@ -42,13 +42,14 @@ struct CenterTask {
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
     const Cell c = level.at(i);
-    return o.start(X0 + (c.ix + 0.5) * w, Y0 + (c.iy + 0.5) * h, first_newton);
+    return o.start(X0 + (c.ix + 0.5) * w, Y0 + (c.iy + 0.5) * h, first_newton, true);
   }
-  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
+  // Newton, Brent's period recovery, and cardioid/disk distances are deferred, like SampleTask's Newton
+  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, true); }
   __host__ __device__ int64_t iters(const State& o) const { return o.r.e.iters; }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
-  __host__ __device__ bool pending(const State&) const { return false; }
-  __host__ __device__ bool settle(State&) const { return true; }
+  __host__ __device__ bool pending(const State& o) const { return o.status >= 4; }
+  __host__ __device__ bool settle(State& o) const { return o.settle(max_iter); }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     const EscapeDE& e = o.r;
     uint32_t s = kUncertified;
