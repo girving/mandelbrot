@@ -88,11 +88,14 @@ template<class T> struct Orbit {
   T cx, cy;        // Brent checkpoint, refreshed at powers of two
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
   int64_t n, next_check, candidate, next_newton;
+  int max_period;  // Largest atom-domain period candidate that Newton tries
   Escape e;        // Result, once done
 
-  // Start at c = x + iy, with the first Newton certificate attempt at step first_newton (then doubling).
-  // Returns true if already decided (the cardioid or period 2 disk).
-  __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64) {
+  // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling, for
+  // period candidates up to max_period.  Returns true if already decided (the cardioid or period 2 disk).
+  __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64,
+                                 const int max_period = 4096) {
+    this->max_period = max_period;
     x = T(x_); y = T(y_);
     zx = x; zy = y; cx = x; cy = y;
     min_r2 = zx * zx + zy * zy;
@@ -127,7 +130,7 @@ template<class T> struct Orbit {
       if (r2n < min_r2) { min_r2 = r2n; candidate = n + 1; }  // (zx, zy) is now z_{n+1}
       if (n == next_newton) [[unlikely]] {
         next_newton *= 2;
-        if (candidate <= 4096 && attracting_cycle(x, y, zx, zy, int(candidate))) {
+        if (candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate))) {
           // Report the minimal period if it is small
           int period = 0;
           if (candidate <= 32)

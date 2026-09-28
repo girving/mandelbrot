@@ -37,6 +37,8 @@ struct TreeParams {
   uint64_t seed = 1;
   vector<int> ks;            // Thresholds 2^-k, increasing, at most 32
   int64_t first_newton = 64; // First Newton certificate attempt for leaf samples
+  int64_t center_max_iter = 1 << 14;  // Iteration cap for cell centers (long orbits rarely certify a cell)
+  int newton_max_period = 4096;       // Largest period Newton tries for leaf samples
   string prec = "double";    // Leaf orbit precision: double, float, or compare
   bool cuda = false;
   int64_t batch = 1 << 22;   // Target leaves per batch

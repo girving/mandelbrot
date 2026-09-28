@@ -124,6 +124,7 @@ template<class T> struct SampleTask {
   uint64_t seed;
   double w, h;  // Leaf size
   int64_t max_iter, first_newton;
+  int max_period;
   int K;
   int ks[32];
   uint32_t* bits;
@@ -134,7 +135,7 @@ template<class T> struct SampleTask {
     const uint64_t key = mix64(uint64_t(uint32_t(l.ix)) | uint64_t(uint32_t(l.iy)) << 32) + uint64_t(s);
     const double x = X0 + (l.ix + (jx + uniform(seed, key, 0)) / strata) * w,
                  y = Y0 + (l.iy + (jy + uniform(seed, key, 1)) / strata) * h;
-    return o.start(x, y, first_newton);
+    return o.start(x, y, first_newton, max_period);
   }
   __host__ __device__ bool run(State& o) const { return o.run(max_iter, 16); }
   __host__ __device__ int64_t iters(const State& o) const { return o.e.iters; }
@@ -197,8 +198,8 @@ GroupSums reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const Kind kind
 
 template<class T> int64_t sample(const Mem<Cell>& leaves, const int64_t n_leaves, const TreeParams& p,
                                  const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow) {
-  SampleTask<T> task{leaves.p, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, int(p.ks.size()), {},
-                     bits.p};
+  SampleTask<T> task{leaves.p, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
+                     int(p.ks.size()), {}, bits.p};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;
@@ -271,7 +272,8 @@ TreeResult run_tree(const TreeParams& p) {
       const Level level{d ? cells.p : nullptr, p.base, row0};
       const double w = (X1 - X0) / double(p.base << d), h = (Y1 - Y0) / double(p.base << d);
       Mem<uint32_t> status(n, p.cuda);
-      CenterTask task{level, w, h, 0.5 * std::hypot(w, h), p.safety, p.max_iter, K, {}, status.p};
+      CenterTask task{level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter), K, {},
+                      status.p};
       for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
       const auto stats = run_orbits(task, n, p.cuda);
       R.centers += n;
