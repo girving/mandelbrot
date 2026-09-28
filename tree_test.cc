@@ -113,6 +113,50 @@ TEST(scramble) {
   }
 }
 
+// Visits each item once: engine claims must cover [0, n) exactly, including n > 2^30 on the GPU
+struct VisitTask {
+  struct State { int64_t unused; };
+  int64_t burst = 1;
+  int min_blocks = 3;
+  uint8_t* visits;
+  __host__ __device__ bool start(State&, const int64_t) const { return true; }
+  __host__ __device__ bool run(State&) const { return true; }
+  __host__ __device__ int64_t iters(const State&) const { return 1; }
+  __host__ __device__ void finish(const State&, const int64_t i) const { visits[i]++; }
+};
+
+struct CountBad {
+  const uint8_t* visits;
+  int64_t n, chunk;
+  int64_t* out;
+  __host__ __device__ void operator()(const int64_t c) const {
+    int64_t bad = 0;
+    for (int64_t i = c * chunk; i < n && i < (c + 1) * chunk; i++) bad += visits[i] != 1;
+    out[c] = bad;
+  }
+};
+
+void check_claims(const int64_t n, const bool cuda) {
+  Mem<uint8_t> visits(n, cuda);
+  visits.zero();
+  const auto stats = run_orbits(VisitTask{1, 3, visits.p}, n, cuda);
+  ASSERT_EQ(stats.iters, n);
+  const int64_t chunk = 1 << 20, chunks = (n + chunk - 1) / chunk;
+  Mem<int64_t> out(chunks, cuda);
+  for_each(chunks, CountBad{visits.p, n, chunk, out.p}, cuda);
+  vector<int64_t> h(chunks);
+  out.to_host(h.data(), chunks);
+  int64_t bad = 0;
+  for (const auto b : h) bad += b;
+  ASSERT_EQ(bad, 0) << tfm::format("n %d, %s", n, cuda ? "cuda" : "cpu");
+}
+
+TEST(engine_claims) {
+  for (const int64_t n : {1, 17, 1000, 1 << 20}) check_claims(n, false);
+  IF_CUDA(for (const int64_t n : {int64_t(1), int64_t(17), int64_t(1000), int64_t(1) << 20, int64_t(1200) << 20})
+            check_claims(n, true);)
+}
+
 TEST(tree_matches_reference) {
   const auto p = small_params();
   const auto R = run_tree(p);
