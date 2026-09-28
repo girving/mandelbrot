@@ -171,7 +171,7 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
   // lanes refilling at different times do not split the warp into groups that each step half empty
   const int64_t chunk = 16;
   typename Task::State o;
-  int64_t j = 0, end = 0, i = -1, bursts = 0;
+  int64_t j = 0, end = 0, pos = 0, i = -1, bursts = 0;  // pos = scramble(j - 1); i = current item or -1
   unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0;
   const long long t0 = timing ? clock64() : 0;
   bool done = true, out = false;
@@ -183,11 +183,12 @@ template<class Task> __global__ void orbit_kernel(const Task task, const int64_t
         j = int64_t(atomicAdd(counters, (unsigned long long)chunk));
         if (j >= n) { out = true; i = -1; break; }
         end = min(j + chunk, n);
-        i = scramble(j, stride, n);
+        pos = scramble(j, stride, n);
       } else {
-        i += stride;  // scramble(j + 1) without a 64-bit modulus
-        if (i >= n) i -= n;
+        pos += stride;  // scramble(j) from scramble(j - 1), without a 64-bit modulus
+        if (pos >= n) pos -= n;
       }
+      i = pos;
       j++;
       bursts = 0;
       done = task.start(o, i);
