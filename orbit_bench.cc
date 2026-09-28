@@ -65,6 +65,32 @@ template<int variant> struct Bench {
   }
 };
 
+// The same fixed-length orbits through run_orbits (persistent threads, claims, bursts), for engine overhead
+struct SiegelTask {
+  typedef Orbit<double> State;
+  int64_t burst;
+  double* out;
+  __host__ __device__ bool start(State& o, const int64_t i) const {
+    const double theta = 2 * M_PI * 0.6180339887498949, r = 1 - 1e-9 * (1 + double(i % 1024) / 1024);
+    const double mx = r * std::cos(theta), my = r * std::sin(theta);
+    o.start(mx / 2 - (mx * mx - my * my) / 4, my / 2 - mx * my / 2, int64_t(1) << 40, 256, false);
+    return false;  // Iterate even though start() reports the cardioid
+  }
+  __host__ __device__ bool run(State& o) const { return o.run(kSteps, burst); }
+  __host__ __device__ int64_t iters(const State& o) const { return o.e.iters; }
+  __host__ __device__ void finish(const State& o, const int64_t i) const { out[i] = o.zx; }
+};
+
+void run_engine(const int64_t n, const bool cuda, const int64_t burst) {
+  Mem<double> out(n, cuda);
+  run_orbits(SiegelTask{burst, out.p}, n, cuda);  // Warm up
+  const auto t0 = std::chrono::steady_clock::now();
+  const auto stats = run_orbits(SiegelTask{burst, out.p}, n, cuda);
+  const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+  print("  run_orbits, burst %-4d        %.3g iterations/s  (%.3g s, %d overflowed)", burst,
+        double(n) * kSteps / secs, secs, stats.overflow);
+}
+
 template<int variant> void run(const int64_t n, const bool cuda, const char* name) {
   Mem<double> out(n, cuda);
   for_each(n, Bench<variant>{out.p}, cuda);  // Warm up
@@ -92,5 +118,6 @@ int main(const int argc, const char** argv) {
   run<4>(n, cuda, "Orbit::run (no Newton)");
   run<5>(n, cuda, "OrbitDE::run (no Newton)");
   run<6>(n, cuda, "OrbitDE::run (Newton from 64)");
+  for (const int64_t burst : {64, 1024}) run_engine(n, cuda, burst);
   return 0;
 }
