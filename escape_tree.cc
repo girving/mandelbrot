@@ -45,6 +45,59 @@ void report(const TreeResult& R) {
   }
 }
 
+// Two-phase allocation: a pilot of P samples classes each leaf, and the second phase gives class c n_c ≥ 1
+// fresh samples per leaf, estimating each leaf from its second-phase samples only (so unbiased).  With class
+// variance σ_c^2 and per-sample cost κ_c measured on samples 8..15, minimize Σ N_c n_c κ_c + pilot cost
+// subject to Σ N_c σ_c^2 / n_c equal to the variance of uniform sampling with m = 16: the unconstrained
+// optimum is n_c = λ σ_c / sqrt(κ_c) (Neyman), clamped below at 1.  Reports sampling cost relative to uniform.
+void allocation_report(const TreeResult& R) {
+  const int K = R.p.ks.size();
+  print("  two-phase allocation (leaf sampling cost at equal variance, relative to uniform m = 16):");
+  print("       k    pilot 2   pilot 4   pilot 8   (pilot 8, without pilot cost)");
+  for (int k = 0; k < K; k++) {
+    string line = tfm::format("    %8d", R.p.ks[k]);
+    double free8 = 0;
+    for (int pi = 0; pi < 3; pi++) {
+      const int P = kPilots[pi];
+      double Vu = 0, Bu = 0, Bp = 0;
+      vector<double> N, s2, kappa;
+      for (int c = 0; c <= P; c++) {
+        const auto a = [&](int f) { return double(R.alloc[alloc_index(k, pi, c, f)]); };
+        if (!a(0)) continue;
+        Vu += a(1) / 56 / 16; Bu += 2 * a(2); Bp += a(3);
+        N.push_back(a(0)); s2.push_back(a(1) / (56 * a(0))); kappa.push_back(std::max(1.0, a(2) / (8 * a(0))));
+      }
+      const auto solve = [&](const double lambda, double& V, double& B) {
+        V = 0; B = 0;
+        for (size_t c = 0; c < N.size(); c++) {
+          const double n = std::max(1.0, lambda * std::sqrt(s2[c] / kappa[c]));
+          V += N[c] * s2[c] / n; B += N[c] * n * kappa[c];
+        }
+      };
+      double lo = 1e-12, hi = 1e12, V, B;
+      for (int it = 0; it < 200; it++) {
+        const double mid = std::sqrt(lo * hi);
+        solve(mid, V, B);
+        (V > Vu ? lo : hi) = mid;
+      }
+      solve(hi, V, B);
+      line += tfm::format("   %7.3f", (B + Bp) / Bu);
+      if (P == 8) free8 = B / Bu;
+    }
+    print("%s   (%.3f)", line, free8);
+  }
+  // Class table for the last threshold with an 8-sample pilot
+  const int k = K - 1;
+  double tN = 0, tS = 0, tW = 0;
+  for (int c = 0; c <= 8; c++) {
+    tN += R.alloc[alloc_index(k, 2, c, 0)]; tS += R.alloc[alloc_index(k, 2, c, 1)]; tW += R.alloc[alloc_index(k, 2, c, 2)];
+  }
+  print("    k = %d, pilot 8: class (pilot count below), share of leaves, of variance, of cost", R.p.ks[k]);
+  for (int c = 0; c <= 8; c++)
+    print("      %d   %6.2f%%   %6.2f%%   %6.2f%%", c, 100 * R.alloc[alloc_index(k, 2, c, 0)] / tN,
+          100 * R.alloc[alloc_index(k, 2, c, 1)] / tS, 100 * R.alloc[alloc_index(k, 2, c, 2)] / tW);
+}
+
 }  // namespace
 }  // namespace mandelbrot
 
@@ -86,6 +139,8 @@ int main(const int argc, const char** argv) {
         .scan<'g', double>().default_value(1e-10);
     program.add_argument("--newton-margin").help("leaf Newton certifies when |λ|^2 < 1 - this; -1: 1e-9")
         .scan<'g', double>().default_value(1e-6);
+    program.add_argument("--leaf-stats").help("report two-phase allocation gains (needs --m 16)")
+        .default_value(false).implicit_value(true);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 
@@ -115,7 +170,10 @@ int main(const int argc, const char** argv) {
     for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
     for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");
     slow_assert(p.first_newton >= 1, "need --first-newton ≥ 1");
-    report(run_tree(p));
+    p.leaf_stats = program.get<bool>("--leaf-stats");
+    const auto R = run_tree(p);
+    report(R);
+    if (p.leaf_stats) allocation_report(R);
     return 0;
   } catch (const std::exception& e) {
     die(e.what());

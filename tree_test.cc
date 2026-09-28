@@ -217,6 +217,31 @@ TEST(batching_invariant) {
   }
 }
 
+TEST(leaf_stats) {
+  // Allocation statistics partition the leaves, and their costs add up to the leaf iterations
+  auto p = small_params();
+  p.m = 16;
+  p.leaf_stats = true;
+  const auto R = run_tree(p);
+  ASSERT_TRUE(p.m == 16 && R.leaves > 100);
+  for (int k = 0; k < int(p.ks.size()); k++) {
+    // Samples 8..15 below k, from the area sums: Σ_l c2 over classes must match the area count minus pilot
+    for (int pi = 0; pi < 3; pi++) {
+      int64_t N = 0, W = 0, below = 0;
+      for (int c = 0; c <= kPilots[pi]; c++) {
+        N += R.alloc[alloc_index(k, pi, c, 0)];
+        W += R.alloc[alloc_index(k, pi, c, 2)] + R.alloc[alloc_index(k, pi, c, 3)];
+        below += c * R.alloc[alloc_index(k, pi, c, 0)];
+      }
+      ASSERT_EQ(N, R.leaves);
+      if (pi == 2) {
+        ASSERT_EQ(W, R.leaf_iters);
+        ASSERT_TRUE(below <= R.area[k].s && 2 * below > R.area[k].s / 2) << tfm::format("%d of %d", below, R.area[k].s);
+      }
+    }
+  }
+}
+
 TEST(compare_float) {
   auto p = small_params();
   p.prec = "compare";
