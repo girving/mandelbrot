@@ -53,7 +53,18 @@ struct TreeParams {
   bool cuda = false;
   int64_t batch = 1 << 22;   // Target leaves per batch
   int64_t rows = -1;         // Only the first `rows` base rows (for tests), or -1 for all
+  bool leaf_stats = false;   // Collect pilot-allocation statistics (TreeResult::alloc; needs m = 16)
 };
+
+// Pilot-allocation statistics: leaves are classed by c1, the count below threshold k among their first P
+// samples (P = kPilots[pi]), and each class accumulates, over its leaves, N (leaves), S = Σ c2 (8 - c2) with
+// c2 the count among samples 8..15 (S / 56 is unbiased for Σ p (1 - p) for iid samples), W2 = iterations
+// of samples 8..15, and Wp = iterations of the first P samples.  Measuring on samples the class did not
+// select makes these unbiased for what a second phase would see.
+const int kPilots[3] = {2, 4, 8};
+constexpr int64_t alloc_index(const int k, const int pi, const int c1, const int field) {
+  return ((int64_t(k) * 3 + pi) * 9 + c1) * 4 + field;
+}
 
 // Exact sums over leaves l and sample groups g of the group sums c_g of a per-sample value: Σ c_g, Σ c_g^2,
 // and Σ_l (Σ_g c_g)^2.  The leaf estimate and its variance follow from these (see TreeResult).
@@ -68,6 +79,7 @@ struct TreeResult {
   vector<int64_t> exact;              // Certified cells per depth
   vector<GroupSums> area, diff;       // Leaf sums per threshold for areas, and for consecutive differences
   vector<GroupSums> float_area, delta;  // With compare: float areas, and float - double
+  vector<int64_t> alloc;              // With leaf_stats: [alloc_index(k, pi, c1, {N, S, W2, Wp})]
   int64_t leaves = 0, centers = 0, center_iters = 0, leaf_iters = 0, overflow = 0, flips = 0, batches = 0;
   double tree_secs = 0, center_kernel_secs = 0, sample_secs = 0, reduce_secs = 0, secs = 0;
 

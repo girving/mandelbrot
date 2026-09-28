@@ -142,6 +142,7 @@ template<class T> struct SampleTask {
   int K;
   int ks[32];
   uint32_t* bits;
+  uint32_t* iters_out;  // Per-sample iterations, or null
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
     // Item counts are below 2^31 (scramble_stride checks), so 32-bit division suffices
@@ -163,6 +164,10 @@ template<class T> struct SampleTask {
     uint32_t b = 0;
     for (int k = 0; k < K; k++) b |= uint32_t(o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;
     bits[i] = b;
+    if (iters_out) {
+      const int64_t n = o.iters();
+      iters_out[i] = n < int64_t(0xffffffff) ? uint32_t(n) : 0xffffffffu;
+    }
   }
 };
 
@@ -204,6 +209,40 @@ struct ReduceChunk {
   }
 };
 
+// Pilot-allocation statistics over chunks of leaves (see alloc_index in tree.h), with m = 16
+const int64_t kStatsChunk = 16384;
+
+struct LeafStatsChunk {
+  const uint32_t* bits;
+  const uint32_t* iters;
+  int K;
+  int64_t leaves;
+  int64_t* out;  // [chunk * K * 108 + alloc_index(...)]
+  __host__ __device__ void operator()(const int64_t c) const {
+    int64_t* o = out + c * K * 108;
+    for (int j = 0; j < K * 108; j++) o[j] = 0;
+    const int64_t hi = (c + 1) * kStatsChunk < leaves ? (c + 1) * kStatsChunk : leaves;
+    for (int64_t l = c * kStatsChunk; l < hi; l++) {
+      const uint32_t* b = bits + 16 * l;
+      const uint32_t* it = iters + 16 * l;
+      int64_t w2 = 0;
+      for (int t = 8; t < 16; t++) w2 += it[t];
+      for (int k = 0; k < K; k++) {
+        int c2 = 0;
+        for (int t = 8; t < 16; t++) c2 += (b[t] >> k) & 1;
+        for (int pi = 0; pi < 3; pi++) {
+          const int P = 2 << pi;
+          int c1 = 0;
+          int64_t wp = 0;
+          for (int t = 0; t < P; t++) { c1 += (b[t] >> k) & 1; wp += it[t]; }
+          int64_t* q = o + alloc_index(k, pi, c1, 0);
+          q[0]++; q[1] += c2 * (8 - c2); q[2] += w2; q[3] += wp;
+        }
+      }
+    }
+  }
+};
+
 GroupSums reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const Kind kind, const int k,
                  const TreeParams& p, const int64_t leaves) {
   const int64_t chunks = (leaves + kLeafChunk - 1) / kLeafChunk;
@@ -217,11 +256,12 @@ GroupSums reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const Kind kind
 }
 
 template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, const TreeParams& p,
-                                 const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow) {
+                                 const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow,
+                                 uint32_t* iters = nullptr) {
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
                                    p.newton_margin, false},
-                     int(p.ks.size()), {}, bits.p};
+                     int(p.ks.size()), {}, bits.p, iters};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;
@@ -279,6 +319,8 @@ TreeResult run_tree(const TreeParams& p) {
   R.certified.assign((p.depth + 1) * K, 0);
   R.exact.assign(p.depth + 1, 0);
   R.area.resize(K); R.diff.resize(K); R.float_area.resize(K); R.delta.resize(K);
+  slow_assert(!p.leaf_stats || (p.m == 16 && !p.prec.starts_with("compare")), "leaf_stats needs m = 16, no compare");
+  if (p.leaf_stats) R.alloc.assign(int64_t(K) * 108, 0);
   const auto t0 = std::chrono::steady_clock::now();
   const int64_t rows = p.rows < 0 ? p.base : std::min(p.rows, p.base);
 
@@ -344,9 +386,11 @@ TreeResult run_tree(const TreeParams& p) {
     for (int64_t l0 = 0; l0 < n_leaves; l0 += max_leaves) {
       const int64_t nl = std::min(max_leaves, n_leaves - l0);
       const auto t2 = std::chrono::steady_clock::now();
-      Mem<uint32_t> bits(nl * p.m, p.cuda), fbits(compare ? nl * p.m : 0, p.cuda);
-      R.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, R.overflow)
-                             : sample<double>(leaves.p + l0, nl, p, w, h, bits, R.overflow);
+      Mem<uint32_t> bits(nl * p.m, p.cuda), fbits(compare ? nl * p.m : 0, p.cuda),
+                    iters(p.leaf_stats ? nl * p.m : 0, p.cuda);
+      uint32_t* ip = p.leaf_stats ? iters.p : nullptr;
+      R.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, R.overflow, ip)
+                             : sample<double>(leaves.p + l0, nl, p, w, h, bits, R.overflow, ip);
       if (compare) {
         // The alternative precision: float, or double rounded to fewer bits
         const Cell* lp = leaves.p + l0;
@@ -369,6 +413,15 @@ TreeResult run_tree(const TreeParams& p) {
         }
       }
       if (compare) R.flips += reduce(bits, &fbits, kFlips, 0, p, nl).s;
+      if (p.leaf_stats) {
+        const int64_t chunks = (nl + kStatsChunk - 1) / kStatsChunk, size = int64_t(K) * 108;
+        Mem<int64_t> out(chunks * size, p.cuda);
+        for_each(chunks, LeafStatsChunk{bits.p, iters.p, K, nl, out.p}, p.cuda);
+        vector<int64_t> h(chunks * size);
+        out.to_host(h.data(), h.size());
+        for (int64_t c = 0; c < chunks; c++)
+          for (int64_t j = 0; j < size; j++) R.alloc[j] += h[c * size + j];
+      }
       R.reduce_secs += secs_since(t3);
     }
     R.leaves += n_leaves;
