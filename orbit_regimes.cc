@@ -7,7 +7,8 @@
 //   repelling:  the orbit is within --near of a repelling cycle (candidates for Koenigs linearization jumps)
 //   parabolic:  ... of a nearly neutral cycle with multiplier close to a root of unity (Fatou-coordinate gates)
 //   attracting: ... of an attracting cycle (slow interior convergence)
-//   critical:   the orbit passes within --near of the critical point 0 during the window (baby-copy regimes)
+//   renormal:   close approaches to 0 recur only at multiples of a period p ≥ 2 (baby-copy dynamics under f^p)
+//   critical:   otherwise, the orbit passes within --near of the critical point 0 during the window
 //   other:      none of these (chaotic wandering)
 // It also reports runs of consecutive windows near the same cycle: steps inside long runs are what a jump
 // through that cycle's dynamics could replace.
@@ -22,6 +23,7 @@
 #include <chrono>
 #include <complex>
 #include <mutex>
+#include <numeric>
 #include <random>
 #include <thread>
 #include <vector>
@@ -32,8 +34,8 @@ typedef std::complex<double> C;
 
 namespace {
 
-enum Regime { kRepelling, kParabolic, kAttracting, kCritical, kOther, kRegimes };
-const char* names[kRegimes] = {"repelling", "parabolic", "attracting", "critical", "other"};
+enum Regime { kRepelling, kParabolic, kAttracting, kRenormal, kCritical, kOther, kRegimes };
+const char* names[kRegimes] = {"repelling", "parabolic", "attracting", "renormal", "critical", "other"};
 
 // Newton for a q-cycle point near z; returns false if it does not converge
 bool cycle(const C c, const C z, const int q, C& w, C& lambda) {
@@ -100,13 +102,14 @@ int main(const int argc, const char** argv) {
     vector<double> lam_hist(40);  // log10(| |λ| - 1 |) for repelling/parabolic windows, weighted by steps
     const int qb = 12, eb = 31;  // Period buckets 1, 2, 3-4, ..., > 1024; length octaves
     vector<double> by_q(eb * qb);  // Escaped long orbits longer than 2^e by bucket of the last hugged period
+    vector<double> renorm_p(12);  // Renormalizable steps by bucket of the renormalization period
     vector<int64_t> nsteps(samples);  // Per-sample orbit length, for box clustering
     vector<std::thread> pool;
     for (int t = 0; t < cpu_threads(); t++)
       pool.emplace_back([&]() {
         double st[kRegimes] = {}, tot = 0, all = 0, rs[5] = {};
         int64_t nl = 0;
-        vector<double> lh(40), bq(eb * qb);
+        vector<double> lh(40), bq(eb * qb), rp(12);
         for (int64_t i; (i = next.fetch_add(1)) < samples;) {
           const double x = pts[i].first, y = pts[i].second;
           Orbit<double> o;
@@ -152,9 +155,27 @@ int main(const int argc, const char** argv) {
             }
             // Iterate the window, noting close approaches to 0
             double min_abs = INFINITY;
+            const C z0 = z;
             for (int64_t k = 0; k < len; k++) { z = z * z + c; min_abs = std::min(min_abs, std::abs(z)); }
             n += len;
-            if (r == kOther && min_abs < near) r = kCritical;
+            if (r == kOther && min_abs < near) {
+              // Renormalizable if the approaches within 16 min_abs of 0 all fall at times ≡ const mod some p ≥ 2,
+              // with at least len / (4p) of them: the orbit then follows a baby copy's dynamics under f^p
+              r = kCritical;
+              C w = z0;
+              int64_t first = -1, g = 0, hits = 0;
+              for (int64_t k = 0; k < len; k++) {
+                w = w * w + c;
+                if (std::abs(w) < 16 * min_abs) {
+                  hits++;
+                  if (first < 0) first = k; else g = std::gcd(g, k - first);
+                }
+              }
+              if (g >= 2 && hits >= len / (4 * g)) {
+                r = kRenormal;
+                rp[std::min(11, int(std::ceil(std::log2(double(g)))))] += double(len);
+              }
+            }
             st[r] += double(len);
             tot += double(len);
             // Runs near the same cycle
@@ -176,6 +197,7 @@ int main(const int argc, const char** argv) {
         for (int k = 0; k < 5; k++) run_steps[k] += rs[k];
         for (int k = 0; k < 40; k++) lam_hist[k] += lh[k];
         for (int k = 0; k < eb * qb; k++) by_q[k] += bq[k];
+        for (int k = 0; k < 12; k++) renorm_p[k] += rp[k];
         total += tot; all_work += all; n_long += nl;
       });
     for (auto& t : pool) t.join();
@@ -184,6 +206,9 @@ int main(const int argc, const char** argv) {
           "near %g, ret %g, %d threads: %.1f s", samples, max_iter, n_long, long_steps, 100 * total / all_work, window, near, ret,
           cpu_threads(), secs);
     for (int k = 0; k < kRegimes; k++) print("  %-10s %5.1f%% of long-orbit steps", names[k], 100 * steps[k] / total);
+    string rline = "  renormal steps by period  (2, 3-4, 5-8, ...):";
+    for (int k = 1; k < 12; k++) rline += tfm::format(" %.1f%%", 100 * renorm_p[k] / total);
+    print(rline);
     const int thresholds[5] = {1, 4, 16, 64, 256};
     for (int k = 0; k < 5; k++)
       print("  in runs of ≥ %3d windows near one cycle: %5.1f%%", thresholds[k], 100 * run_steps[k] / total);
@@ -207,6 +232,29 @@ int main(const int argc, const char** argv) {
             surv ? double(surv) / (samples / 16) * 16 / (1 - std::pow(1 - double(surv) / samples, 16)) / 16 : 0.0,
             100 * work_in / work_all);
     }
+    // Two-phase gain: flag boxes by their first 8 samples at T1, and count how many of the last 8 samples'
+    // T2 survivors fall in flagged boxes.  With flagged fraction φ holding a fraction ψ of the survivors,
+    // Neyman allocation of the second phase cuts variance per sample (for rare survivors) by
+    // (sqrt(φ ψ) + sqrt((1 - φ)(1 - ψ)))^2.
+    print("  two-phase gain (flag at T1 by 8 samples, measure T2 survivors on the other 8):");
+    for (int e1 = 12; (int64_t(4) << e1) < max_iter; e1 += 2)
+      for (int e2 = e1 + 2; e2 <= e1 + 8 && (int64_t(1) << e2) < max_iter; e2 += 2) {
+        const int64_t T1 = int64_t(1) << e1, T2 = int64_t(1) << e2;
+        int64_t flagged = 0, boxes = 0, s_in = 0, s_all = 0;
+        for (int64_t b = 0; b + 16 <= samples; b += 16) {
+          bool f = false;
+          for (int k = 0; k < 8; k++) f |= nsteps[b + k] > T1;
+          int s2 = 0;
+          for (int k = 8; k < 16; k++) s2 += nsteps[b + k] > T2;
+          boxes++; flagged += f; s_all += s2; if (f) s_in += s2;
+        }
+        if (s_all < 20) continue;
+        const double phi = double(flagged) / boxes, psi = double(s_in) / s_all;
+        const double g = std::pow(std::sqrt(phi * psi) + std::sqrt((1 - phi) * (1 - psi)), 2);
+        print("    T1 2^%-2d T2 2^%-2d: flagged %6.3f%% of boxes, holding %5.1f%% of %6d survivors: variance x %.3f",
+              e1, e2, 100 * phi, 100 * psi, s_all, g);
+      }
+
     // Per-component tails: which periods do deep escaping survivors hug?
     print("  escaped survivors by last hugged period (%% per row):\n    %-8s %8s  1     2     3-4   5-8   9-16  -32   -64   -128  -256  -512  -1024 >1024", "length", "count");
     for (int e = 12; e < eb; e += 2) {
