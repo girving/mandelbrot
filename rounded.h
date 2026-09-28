@@ -34,6 +34,7 @@ template<int bits> struct Rounded {
   __host__ __device__ friend bool operator>(const Rounded a, const Rounded b) { return a.v > b.v; }
   __host__ __device__ friend bool operator<=(const Rounded a, const Rounded b) { return a.v <= b.v; }
   __host__ __device__ friend bool operator>=(const Rounded a, const Rounded b) { return a.v >= b.v; }
+  __host__ __device__ friend bool operator==(const Rounded a, const Rounded b) { return a.v == b.v; }
   // Mixed with doubles (literals like 2 * z or 1 + w): the double is rounded first
   __host__ __device__ friend Rounded operator+(const double a, const Rounded b) { return Rounded(a) + b; }
   __host__ __device__ friend Rounded operator-(const double a, const Rounded b) { return Rounded(a) - b; }

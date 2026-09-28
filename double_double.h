@@ -62,6 +62,9 @@ struct DoubleDouble {
   __host__ __device__ friend bool operator>(const DoubleDouble a, const DoubleDouble b) { return b < a; }
   __host__ __device__ friend bool operator<=(const DoubleDouble a, const DoubleDouble b) { return !(b < a); }
   __host__ __device__ friend bool operator>=(const DoubleDouble a, const DoubleDouble b) { return !(a < b); }
+  __host__ __device__ friend bool operator==(const DoubleDouble a, const DoubleDouble b) {
+    return a.hi == b.hi && a.lo == b.lo;
+  }
   __host__ __device__ friend DoubleDouble operator+(const double a, const DoubleDouble b) { return DoubleDouble(a) + b; }
   __host__ __device__ friend DoubleDouble operator-(const double a, const DoubleDouble b) { return DoubleDouble(a) - b; }
   __host__ __device__ friend DoubleDouble operator*(const double a, const DoubleDouble b) { return DoubleDouble(a) * b; }
