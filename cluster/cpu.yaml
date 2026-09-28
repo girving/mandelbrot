@@ -1,4 +1,5 @@
-# CPU-only runs of cluster/bench.sh on the cpu queue (no GPU), e.g. long experiments that would
+# CPU-only runs of cluster/bench.sh on the cpu queue (no GPU; 30 of the 32-core node's cores, since the
+# 160-core node is not always present), e.g. long experiments that would
 # otherwise heat up a laptop.  Same usage as bench.yaml; set RUNS.  Uses its own PVC (cluster/pvc-cpu.yaml),
 # since crusoe-ssd disks mount on one node at a time.
 #   kubectl apply -f cluster/pvc-cpu.yaml -f cluster/cpu.yaml
@@ -73,7 +74,7 @@ spec:
         - name: COMMIT
           value: hybrid-area
         - name: MANDELBROT_THREADS
-          value: '60'
+          value: '30'
         - name: RUNS
           value: ''
         - name: HOME
@@ -93,7 +94,7 @@ spec:
             - ALL
         resources:
           requests:
-            cpu: '60'
-            memory: 120Gi
+            cpu: '30'
+            memory: 64Gi
           limits:
-            memory: 120Gi
+            memory: 64Gi
