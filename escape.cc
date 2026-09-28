@@ -14,7 +14,7 @@ Escape escape(const double x, const double y, const int64_t max_iter) {
   Orbit<double> o;
   if (!o.start(x, y))
     o.run(max_iter, max_iter);
-  return o.e;
+  return o.result();
 }
 
 }  // namespace mandelbrot
