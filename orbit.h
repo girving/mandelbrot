@@ -67,6 +67,8 @@ struct NewtonOptions {
   double close2 = INFINITY;   // Give up after one step unless |f^p(w) - w|^2 < close2
   double tol2 = -1;           // Converged when |step|^2 < tol2 (1 + |w|^2)
   double margin = -1;         // Attracting when |λ|^2 < 1 - margin
+  bool best_return = false;   // If the atom-domain candidate fails, also try the best return period (costly on
+                              // GPUs, where most Newton attempts are on exterior orbits and fail)
 };
 
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
@@ -198,11 +200,12 @@ template<class T> struct Orbit {
     return q;
   }
 
-  // Newton at the current point, on the atom-domain candidate and, if that fails, on the best return (atom
-  // domains need not match components near their boundaries).  If it certifies an attracting cycle, set the
+  // Newton at the current point, on the atom-domain candidate and, with nw.best_return, if that fails, on the
+  // best return (atom domains need not match components near their boundaries).  If it certifies an attracting cycle, set the
   // minimal period (or 33).
   __host__ __device__ bool newton(const int max_period, const NewtonOptions& nw) {
     if (!(candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), nw))) {
+      if (!nw.best_return) return false;
       const int q = best_return(max_period);
       if (!(q && q != candidate && attracting_cycle(x, y, zx, zy, q, nw))) return false;
       candidate = q;
