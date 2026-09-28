@@ -137,8 +137,8 @@ template<class T> struct SampleTask {
   uint64_t seed;
   double w, h;  // Leaf size
   int64_t max_iter, first_newton;
-  int max_period, newton_iters;
-  double newton_close2;
+  int max_period;
+  NewtonOptions newton;
   int K;
   int ks[32];
   uint32_t* bits;
@@ -154,13 +154,11 @@ template<class T> struct SampleTask {
     return o.start(x, y, first_newton);
   }
   // Newton is deferred (the GPU engine settles pending orbits together; the CPU settles them at once)
-  __host__ __device__ bool run(State& o) const {
-    return o.run(max_iter, burst, max_period, newton_iters, newton_close2, true);
-  }
+  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, max_period, newton, true); }
   __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ bool pending(const State& o) const { return o.status == 4; }
-  __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton_iters, newton_close2); }
+  __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton); }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
     for (int k = 0; k < K; k++) b |= uint32_t(o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;
@@ -221,7 +219,8 @@ GroupSums reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const Kind kind
 template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, const TreeParams& p,
                                  const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow) {
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, w, h, p.max_iter, p.first_newton, p.newton_max_period,
-                     p.newton_iters, p.newton_close2, int(p.ks.size()), {}, bits.p};
+                     NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol * p.newton_tol, p.newton_margin},
+                     int(p.ks.size()), {}, bits.p};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;

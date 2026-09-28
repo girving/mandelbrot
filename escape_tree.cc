@@ -82,6 +82,10 @@ int main(const int argc, const char** argv) {
         .scan<'g', double>().default_value(double(INFINITY));
     program.add_argument("--center-max-period").help("largest period Newton tries for cell centers")
         .scan<'i', int>().default_value(256);
+    program.add_argument("--newton-tol").help("leaf Newton converged when |step| < this (relative); -1: 1e-14")
+        .scan<'g', double>().default_value(-1.0);
+    program.add_argument("--newton-margin").help("leaf Newton certifies when |λ|^2 < 1 - this; -1: 1e-9")
+        .scan<'g', double>().default_value(-1.0);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 
@@ -104,6 +108,8 @@ int main(const int argc, const char** argv) {
     p.center_first_newton = program.get<int64_t>("--center-first-newton");
     p.center_max_period = program.get<int>("--center-max-period");
     p.newton_iters = program.get<int>("--newton-iters");
+    p.newton_tol = program.get<double>("--newton-tol");
+    p.newton_margin = program.get<double>("--newton-margin");
     p.newton_close2 = program.get<double>("--newton-close") * program.get<double>("--newton-close");
     p.ks = program.get<vector<int>>("ks");
     for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
