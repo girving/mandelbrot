@@ -63,8 +63,11 @@ template<> struct OrbitTol<float> {
 
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
 // periodic point whose multiplier |(f^p)'(w)| < 1, which certifies that c is in a hyperbolic component.
+//
+// If close2 is finite, give up after the first iteration unless |f^p(w) - w|^2 < close2: orbit points that
+// have not nearly closed up rarely converge, and failures otherwise cost the full iteration count.
 template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x, const T y, T wx, T wy, const int p,
-                                                         const int iters = 30) {
+                                                         const int iters = 30, const double close2 = INFINITY) {
   typedef OrbitTol<T> Tol;
   for (int it = 0; it < iters; it++) {
     // F(w) = f^p(w) - w, F'(w) = (f^p)'(w) - 1
@@ -78,6 +81,7 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x
       if (zx * zx + zy * zy > 16) return false;
     }
     const T fx = zx - wx, fy = zy - wy, gx = dx - 1, gy = dy;
+    if (it == 0 && !(double(fx * fx + fy * fy) < close2)) return false;
     const T den = gx * gx + gy * gy;
     if (!(den > 0)) return false;
     const T sx = (fx * gx + fy * gy) / den, sy = (fy * gx - fx * gy) / den;
@@ -143,7 +147,7 @@ template<class T> struct Orbit {
   // Brent, checkpoint) run at steps that are multiples of 8: they cost as much as the iteration itself on GPUs,
   // and tying them to absolute step numbers keeps results independent of how the orbit is split into bursts.
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096,
-                               const int newton_iters = 30) {
+                               const int newton_iters = 30, const double newton_close2 = INFINITY) {
     typedef OrbitTol<T> Tol;
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
     T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
@@ -168,7 +172,7 @@ template<class T> struct Orbit {
       // (zx, zy) is z_n, n a multiple of 8
       if (n > next_newton) [[unlikely]] {
         while (next_newton < n) next_newton *= 2;
-        if (candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), newton_iters)) {
+        if (candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), newton_iters, newton_close2)) {
           // Report the minimal period if it is small
           int period = 0;
           if (candidate <= 32)
