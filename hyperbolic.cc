@@ -5,7 +5,8 @@
 //   f_c^p(z) = z,  (f_c^p)'(z) = λ
 // from λ = 0 to |λ| = 1 in double, polish the boundary points in Expansion<2>, and integrate
 //   area = 1/2 ∮ Im(c̄ dc) = 1/2 ∫ Re(c̄ λ c'(λ)) dθ
-// with the trapezoid rule, which is spectrally accurate since c(λ) is analytic.
+// with the trapezoid rule, which is spectrally accurate since c(λ) is analytic.  Optionally dumps each
+// component's center and area.
 
 #include "complex.h"
 #include "debug.h"
@@ -235,7 +236,7 @@ vector<Complex<E>> lambdas(const int N) {
   return lams;
 }
 
-void run(const int min_p, const int max_p, const int N) {
+void run(const int min_p, const int max_p, const int N, FILE* dump) {
   const auto pi = nearest_pi<E>();
   auto t0 = wall_time();
   const auto lams = lambdas(N), lams2 = lambdas(2*N);
@@ -267,6 +268,10 @@ void run(const int min_p, const int max_p, const int N) {
       }
       sum_d += A.area_d;
       sum_e += A.area_e;
+      if (dump) {
+        const auto c = to_double(C.c[i]);
+        fprintf(dump, "%d %.17g %.17g %.17g\n", p, c.r, c.i, double(A.area_e));
+      }
       dc2 += A.dc2;
       perimeter += A.perimeter;
       res_d = max(res_d, A.res_d);
@@ -308,9 +313,13 @@ int main(const int argc, const char** argv) {
     const int N = argc > 2 ? atoi(argv[2]) : 1024;
     const int min_p = argc > 3 ? atoi(argv[3]) : 1;
     slow_assert(1 <= min_p && min_p <= max_p && max_p <= 16 && N >= 16,
-                "usage: %s [max_p <= 16] [N] [min_p]", argv[0]);
+                "usage: %s [max_p <= 16] [N] [min_p] [dump.txt]", argv[0]);
+    // Optional per-component dump: lines "period center.re center.im area"
+    FILE* dump = argc > 4 ? fopen(argv[4], "w") : nullptr;
+    slow_assert(argc <= 4 || dump, "can't open %s", argv[4]);
     const auto t0 = wall_time();
-    run(min_p, max_p, N);
+    run(min_p, max_p, N, dump);
+    if (dump) fclose(dump);
     print("total %.3f s", (wall_time() - t0).seconds());
     return 0;
   } catch (const std::exception& e) {

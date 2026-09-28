@@ -474,6 +474,29 @@ distorts the boundary region differently from the bulk).  So the renewal equatio
 T(k) = T_0(k) + Σ_W r_W T((k − c_W)/p_W) over maximal copies is quantitatively right, and D(s) = Σ_W r_W p_W^s
 governs the tail's form.
 
+*D(s) from the tuning structure (`tuning`).*  `hyperbolic 16 1024 1 components.txt` dumps every component's
+center and area; `tuning` classifies each Lavaurs root as non-renormalizable or tuned (`maximal_tuning` in
+angles.h: both angles are concatenations of a smaller component's two words), matches roots to centers by
+tracing the lower ray to near the root (a bijection over all 65242 roots, second-nearest center ≥ 2.9× farther;
+0.6 s), and sums D(s) = Σ_{non-renormalizable W} (area(W)/area(cardioid)) p_W^s.  Through period 16:
+
+| p | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| p³ a_nr_p | 1.57 | 1.53 | 0.79 | 1.64 | 0.28 | 1.73 | 0.89 | 1.19 | 0.55 | 1.84 | 0.63 | 1.87 | 0.68 | 0.87 | 0.96 |
+
+(primes are all non-renormalizable; composites lose most of their area to copies).  D(1) = 0.676 and the real
+root of D(s) = 1 is s* = 1.33 at P' = 16, still falling with P'; extending with p³ a_nr_p = 0.7–1.6 beyond 16
+gives D(1) = 0.71–0.76 and s* = 1.18–1.25.  All complex roots have Re s > 2.9.  So D(1) < 1: the 1/k term
+comes from the non-copy part T_0, amplified by 1/(1 − D(1)) ≈ 4, and renormalization adds a correction
+k^−s* with non-integer s* ≈ 1.2 (complex roots only at Re s > 2.9, so no visible log-periodicity, as §5.3
+found).  Independently, fitting the tail differences with a/k + b k^−s + c/k² prefers s = 1.20–1.25 from
+k ≥ 2^16 (χ² 40.7 at s = 1.20 vs 45.1 for a/k + b/(k ln k) + c/k², 31 dof) and s ≈ 1.15 from k ≥ 2^14.  The
+extrapolated T(2^30) is 2.36–2.40e-9 at s = 1.20–1.25 against 2.27e-9 for the log model.
+
+A cheap shortcut to the tuning classification, closest returns of the center's critical orbit (renormalizable
+with period d iff d is a closest return and all later ones are multiples of d), never misses a tuned component
+but calls 13866 of 65242 non-renormalizable ones tuned (21%, mostly p ≥ 12): necessary, not sufficient.
+
 ## 6. Reproducing
 
 ```
@@ -483,6 +506,8 @@ meson compile -C build/release
 ./build/release/census f-k27.npy 26 20 4                # root census and wake ownership; ~12 s
 ./build/release/renorm angle_map.npy                    # wake periodicity and pullback tests
 ./build/release/rootsum f-k27.npy 8 26 20 4 7           # octave energy near roots, by period
+./build/release/hyperbolic 16 1024 1 components.txt     # per-component centers and areas
+./build/release/tuning components.txt 16                # tuning structure and D(s)
 ./build/release/escape_area 16000 1048576 SEED 16384 ... 1048568   # fattened areas; ~22 s per 2e9 samples
 ./build/release/escape_tree --prec compare 64 1024 16384 262144 1048568   # certified tree, float vs double; ~85 s
 ```

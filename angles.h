@@ -50,6 +50,11 @@ struct Root {
 };
 std::vector<Root> lavaurs(const int max_period);
 
+// Maximal tuning of each root: the index of the root W0 of smallest period d (1 < d < p) whose copy contains
+// it, i.e. both of its angles' p-bit words are concatenations of W0's two d-bit words, or -1 if the root is
+// non-renormalizable.  W0 is itself non-renormalizable (a smaller copy containing it would contain the root).
+std::vector<int> maximal_tuning(const std::vector<Root>& roots);
+
 // Owner of each angle i/n for i = 0..n/2: the index of the deepest (smallest) root wake containing it, or -1
 // if none does.  Wakes must be nested or disjoint, as lavaurs produces.
 std::vector<int32_t> wake_owner(const std::vector<Root>& roots, const int64_t n);
