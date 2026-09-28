@@ -13,9 +13,9 @@ void report(const TreeResult& R) {
   const auto& p = R.p;
   const int K = p.ks.size();
   print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, max_iter %d, seed %d, "
-        "first Newton %d, center max_iter %d, center first Newton %d, Newton max period %d, Newton iterations %d, Newton close %g, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s with centers %.1f s, sampling %.1f s, "
+        "first Newton %d, center max_iter %d, center first Newton %d, center max period %d, Newton max period %d, Newton iterations %d, Newton close %g, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s with centers %.1f s, sampling %.1f s, "
         "reduce %.1f s, %d batches)", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.max_iter, p.seed,
-        p.first_newton, p.center_max_iter, p.center_first_newton, p.newton_max_period, p.newton_iters, std::sqrt(p.newton_close2), p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.center_kernel_secs, R.sample_secs,
+        p.first_newton, p.center_max_iter, p.center_first_newton, p.center_max_period, p.newton_max_period, p.newton_iters, std::sqrt(p.newton_close2), p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.center_kernel_secs, R.sample_secs,
         R.reduce_secs, R.batches);
   print("  sampling throughput: %.3g iterations/s", double(R.leaf_iters) / R.sample_secs);
   print("  centers: %.3g cells, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations; "
@@ -77,6 +77,8 @@ int main(const int argc, const char** argv) {
         .scan<'i', int64_t>().default_value(int64_t(8192));
     program.add_argument("--newton-close").help("leaf Newton needs |f^p(w) - w| below this after one iteration")
         .scan<'g', double>().default_value(double(INFINITY));
+    program.add_argument("--center-max-period").help("largest period Newton tries for cell centers")
+        .scan<'i', int>().default_value(4096);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 
@@ -97,6 +99,7 @@ int main(const int argc, const char** argv) {
     p.newton_max_period = program.get<int>("--newton-max-period");
     p.burst = program.get<int64_t>("--burst");
     p.center_first_newton = program.get<int64_t>("--center-first-newton");
+    p.center_max_period = program.get<int>("--center-max-period");
     p.newton_iters = program.get<int>("--newton-iters");
     p.newton_close2 = program.get<double>("--newton-close") * program.get<double>("--newton-close");
     p.ks = program.get<vector<int>>("ks");

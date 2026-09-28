@@ -36,6 +36,7 @@ struct CenterTask {
   double w, h, r;  // Cell size and half-diagonal at this depth
   double safety;
   int64_t max_iter, first_newton;
+  int max_period;
   int K;
   int ks[32];
   uint32_t* status;
@@ -45,11 +46,11 @@ struct CenterTask {
     return o.start(X0 + (c.ix + 0.5) * w, Y0 + (c.iy + 0.5) * h, first_newton, true);
   }
   // Newton, Brent's period recovery, and cardioid/disk distances are deferred, like SampleTask's Newton
-  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, true); }
+  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, true, max_period); }
   __host__ __device__ int64_t iters(const State& o) const { return o.r.e.iters; }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ bool pending(const State& o) const { return o.status >= 4; }
-  __host__ __device__ bool settle(State& o) const { return o.settle(max_iter); }
+  __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period); }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     const EscapeDE& e = o.r;
     uint32_t s = kUncertified;
@@ -292,7 +293,7 @@ TreeResult run_tree(const TreeParams& p) {
       const double w = (X1 - X0) / double(p.base << d), h = (Y1 - Y0) / double(p.base << d);
       Mem<uint32_t> status(n, p.cuda);
       CenterTask task{p.burst, p.center_min_blocks, level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
-                      p.center_first_newton, K, {},
+                      p.center_first_newton, p.center_max_period, K, {},
                       status.p};
       for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
       const auto stats = run_orbits(task, n, p.cuda);
