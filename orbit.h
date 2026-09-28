@@ -69,7 +69,6 @@ struct NewtonOptions {
   double margin = -1;         // Attracting when |λ|^2 < 1 - margin
   bool best_return = false;   // If the atom-domain candidate fails, also try the best return period (costly on
                               // GPUs, where most Newton attempts are on exterior orbits and fail)
-  bool confirm_brent = true;  // Brent's cycles need Newton's confirmation (false: the old behavior, for timing)
 };
 
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
@@ -124,7 +123,7 @@ template<class T> struct Orbit {
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
   int32_t n, next_check, candidate, next_newton;  // 32 bits to save registers: max_iter < 2^30
   int32_t status;  // 0 running, 1 escaped at step n, 2 attracting cycle (period in candidate), 3 hit max_iter,
-                   // 4 stopped at a Newton step, 5 stopped at a Brent return (settle does the rest of the step)
+                   // 4 stopped at a Newton step, 5 stopped at an exact return (settle does the rest of the step)
 
   // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling.
   // Returns true if already decided (the cardioid or period 2 disk).
@@ -166,49 +165,21 @@ template<class T> struct Orbit {
     }
   }
 
-  // Brent: z has returned to the checkpoint.  That alone does not certify an attracting cycle, since slowly
-  // escaping orbits near nearly neutral repelling cycles can also return within the tolerance, so Newton must
-  // confirm one at the return period (at most 32 by direct return, else the best return up to max_period).
-  // Returns 2 if confirmed (setting the minimal period, or 33 if above 32).  An unconfirmed exact return means
-  // the computed orbit is periodic, so it will never escape: return 3, exactly what iterating to max_iter would
-  // give.  Otherwise 0.
-  __host__ __device__ int converged(const T zx, const T zy, const T cx, const T cy, int32_t& candidate,
-                                    const int max_period, const NewtonOptions& nw) const {
-    typedef OrbitTol<T> Tol;
-    const T dx = zx - cx, dy = zy - cy;
-    if (!(dx * dx + dy * dy < T(Tol::cycle))) [[likely]] return 0;
-    if (!nw.confirm_brent) {
-      // Unconfirmed: the minimal period if at most 32, else 33
-      T wx = zx, wy = zy;
-      candidate = 33;
-      for (int p = 1; p <= 32; p++) {
-        const T t2 = wx * wx - wy * wy + x;
-        wy = 2 * wx * wy + y;
-        wx = t2;
-        const T ex = wx - zx, ey = wy - zy;
-        if (ex * ex + ey * ey < T(Tol::period)) { candidate = p; break; }
-      }
-      return 2;
-    }
-    if (confirm(zx, zy, candidate, max_period, nw)) return 2;
-    return zx == cx && zy == cy ? 3 : 0;
-  }
-  ORBIT_COLD __host__ __device__ bool confirm(const T zx, const T zy, int32_t& candidate, const int max_period,
-                                              const NewtonOptions& nw) const {
+  // Brent: the computed orbit has returned exactly (bit for bit) to its checkpoint, so it is periodic and will
+  // never escape: below every threshold, exactly as iterating to max_iter would find.  (Near returns prove
+  // nothing: slow exterior orbits near nearly neutral repelling cycles make them too.  Converging interior
+  // orbits reach an exact floating-point cycle soon after.)  Sets the minimal period if at most 32, else 33.
+  __host__ __device__ void exact_cycle() {
     typedef OrbitTol<T> Tol;
     T wx = zx, wy = zy;
-    int period = 0;
+    candidate = 33;
     for (int p = 1; p <= 32; p++) {
       const T t2 = wx * wx - wy * wy + x;
       wy = 2 * wx * wy + y;
       wx = t2;
       const T ex = wx - zx, ey = wy - zy;
-      if (ex * ex + ey * ey < T(Tol::period)) { period = p; break; }
+      if (ex * ex + ey * ey < T(Tol::period)) { candidate = p; break; }
     }
-    const int q = period ? period : best_return(zx, zy, max_period);
-    if (!(q && attracting_cycle(x, y, zx, zy, q, nw))) return false;
-    candidate = period ? period : 33;
-    return true;
   }
 
   // The q ≤ max_period minimizing |f^q(z) - z|: the period (or a multiple) once the orbit is near a cycle
@@ -250,7 +221,7 @@ template<class T> struct Orbit {
     const bool due = status == 4;
     status = 0;
     if (due && newton(max_period, nw)) { status = 2; return true; }
-    if (const int s = converged(zx, zy, cx, cy, candidate, max_period, nw)) { status = s; return true; }
+    if (zx == cx && zy == cy) { exact_cycle(); status = 2; return true; }
     if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     if (n > max_iter) status = 3;
     return status != 0;
@@ -262,10 +233,9 @@ template<class T> struct Orbit {
   // Brent, checkpoint) run at steps that are multiples of 8: they cost as much as the iteration itself on GPUs,
   // and tying them to absolute step numbers keeps results independent of how the orbit is split into bursts.
   //
-  // run stops at Newton steps (status 4) and Brent returns (status 5) and leaves them to settle, which callers
+  // run stops at Newton steps (status 4) and exact returns (status 5) and leaves them to settle, which callers
   // run next: keeping Newton out of this loop keeps its registers down on GPUs, and lets GPU lanes settle together.
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096) {
-    typedef OrbitTol<T> Tol;
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
     T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
     int32_t n = this->n, next_check = this->next_check, candidate = this->candidate;
@@ -292,10 +262,7 @@ template<class T> struct Orbit {
         status = 4;
         goto finish;
       }
-      {
-        const T dx = zx - cx, dy = zy - cy;
-        if (dx * dx + dy * dy < T(Tol::cycle)) [[unlikely]] { status = 5; goto finish; }
-      }
+      if (zx == cx && zy == cy) [[unlikely]] { status = 5; goto finish; }  // Exact return: settle finds the period
       if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     }
     if (n > max_iter) status = 3;

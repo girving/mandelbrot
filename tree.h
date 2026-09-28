@@ -46,7 +46,6 @@ struct TreeParams {
   double newton_close2 = INFINITY;   // Leaf Newton gives up unless |f^p(w) - w|^2 < this after one iteration
   double newton_tol = 1e-10;         // Leaf Newton converges when |step| < this · |w| (-1: 1e-14)
   double newton_margin = 1e-6;       // Leaf Newton certifies when |λ|^2 < 1 - this (-1: 1e-9)
-  bool confirm_brent = true;         // Brent's cycles need Newton's confirmation (false only for timing)
   int64_t burst = 64;                // Orbit steps per run call (finished lanes refill between bursts)
   int center_min_blocks = 2, sample_min_blocks = 3;  // GPU register budgets (H200: centers spill beyond 2)
   string prec = "double";    // Leaf orbits: double, float, or compare (float), compareNN (double rounded to NN
