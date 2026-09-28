@@ -13,9 +13,9 @@ void report(const TreeResult& R) {
   const auto& p = R.p;
   const int K = p.ks.size();
   print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, max_iter %d, seed %d, "
-        "first Newton %d, center max_iter %d, center first Newton %d, Newton max period %d, Newton iterations %d, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s, sampling %.1f s, reduce %.1f s, "
-        "%d batches)", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.max_iter, p.seed,
-        p.first_newton, p.center_max_iter, p.center_first_newton, p.newton_max_period, p.newton_iters, p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.sample_secs,
+        "first Newton %d, center max_iter %d, center first Newton %d, Newton max period %d, Newton iterations %d, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s with centers %.1f s, sampling %.1f s, "
+        "reduce %.1f s, %d batches)", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.max_iter, p.seed,
+        p.first_newton, p.center_max_iter, p.center_first_newton, p.newton_max_period, p.newton_iters, p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.center_kernel_secs, R.sample_secs,
         R.reduce_secs, R.batches);
   print("  sampling throughput: %.3g iterations/s", double(R.leaf_iters) / R.sample_secs);
   print("  centers: %.3g cells, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations; "
@@ -63,18 +63,18 @@ int main(const int argc, const char** argv) {
     program.add_argument("--prec").help("leaf orbit precision: double, float, or compare")
         .default_value(string("double"));
     program.add_argument("--cuda").help("run on the GPU").default_value(false).implicit_value(true);
-    program.add_argument("--batch").help("target leaves per batch").scan<'i', int64_t>()
-        .default_value(int64_t(1) << 22);
+    program.add_argument("--batch").help("target leaves per batch (0: 2^26 on the GPU, 2^22 on the CPU)")
+        .scan<'i', int64_t>().default_value(int64_t(0));
     program.add_argument("--first-newton").help("first Newton certificate attempt for leaf samples")
-        .scan<'i', int64_t>().default_value(int64_t(64));
+        .scan<'i', int64_t>().default_value(int64_t(16384));
     program.add_argument("--center-max-iter").help("iteration cap for cell centers").scan<'i', int64_t>()
         .default_value(int64_t(1) << 14);
     program.add_argument("--newton-max-period").help("largest period Newton tries for leaf samples")
-        .scan<'i', int>().default_value(4096);
+        .scan<'i', int>().default_value(256);
     program.add_argument("--newton-iters").help("Newton iterations per certificate attempt").scan<'i', int>()
         .default_value(30);
     program.add_argument("--center-first-newton").help("first Newton attempt for cell centers")
-        .scan<'i', int64_t>().default_value(int64_t(64));
+        .scan<'i', int64_t>().default_value(int64_t(8192));
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 
@@ -89,6 +89,7 @@ int main(const int argc, const char** argv) {
     p.prec = program.get<string>("--prec");
     p.cuda = program.get<bool>("--cuda");
     p.batch = program.get<int64_t>("--batch");
+    if (!p.batch) p.batch = int64_t(1) << (p.cuda ? 26 : 22);
     p.first_newton = program.get<int64_t>("--first-newton");
     p.center_max_iter = program.get<int64_t>("--center-max-iter");
     p.newton_max_period = program.get<int>("--newton-max-period");

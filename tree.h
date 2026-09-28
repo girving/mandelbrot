@@ -36,10 +36,10 @@ struct TreeParams {
   int64_t max_iter = 1 << 20;
   uint64_t seed = 1;
   vector<int> ks;            // Thresholds 2^-k, increasing, at most 32
-  int64_t first_newton = 64; // First Newton certificate attempt for leaf samples
+  int64_t first_newton = 16384;  // First Newton certificate attempt for leaf samples (later diverges less)
   int64_t center_max_iter = 1 << 14;  // Iteration cap for cell centers (long orbits rarely certify a cell)
-  int64_t center_first_newton = 64;   // First Newton interior certificate attempt for cell centers
-  int newton_max_period = 4096;       // Largest period Newton tries for leaf samples
+  int64_t center_first_newton = 8192; // First Newton interior certificate attempt for cell centers
+  int newton_max_period = 256;        // Largest period Newton tries for leaf samples
   int newton_iters = 30;             // Newton iterations per certificate attempt for leaf samples
   int64_t burst = 64;                // Orbit steps per run call (finished lanes refill between bursts)
   string prec = "double";    // Leaf orbit precision: double, float, or compare
@@ -62,7 +62,7 @@ struct TreeResult {
   vector<GroupSums> area, diff;       // Leaf sums per threshold for areas, and for consecutive differences
   vector<GroupSums> float_area, delta;  // With compare: float areas, and float - double
   int64_t leaves = 0, centers = 0, center_iters = 0, leaf_iters = 0, overflow = 0, flips = 0, batches = 0;
-  double tree_secs = 0, sample_secs = 0, reduce_secs = 0, secs = 0;
+  double tree_secs = 0, center_kernel_secs = 0, sample_secs = 0, reduce_secs = 0, secs = 0;
 
   // Areas over the whole plane (twice the upper half), consecutive differences, float - double, and
   // variances of each
