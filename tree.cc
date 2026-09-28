@@ -283,6 +283,7 @@ TreeResult run_tree(const TreeParams& p) {
                       status.p};
       for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
       const auto stats = run_orbits(task, n, p.cuda);
+      R.center_kernel_secs += stats.secs;
       R.centers += n;
       R.center_iters += stats.iters;
       R.overflow += stats.overflow;
