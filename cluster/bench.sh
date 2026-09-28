@@ -49,7 +49,14 @@ OUT=/data/results/bench-$(date +%Y%m%d-%H%M%S).txt
 run() { step "$*"; timeout 1800 "$@" 2>&1 | tee -a "$OUT"; }
 
 run ./build/release/escape_batch_test
-run ./build/release/escape_tree --cuda 16384 1048568                 # Laptop config: 3.4e-7 in 44 s on M5 Pro
-run ./build/release/escape_tree 16384 1048568                        # Same on this pod's CPUs
-run ./build/release/escape_tree --cuda --depth 6 16384 1048568       # 4x the leaves
+if [ -n "${RUNS:-}" ]; then
+  # Custom escape_tree runs: RUNS holds one argument list per line
+  while IFS= read -r args; do
+    [ -n "$args" ] && run ./build/release/escape_tree $args
+  done <<< "$RUNS"
+else
+  run ./build/release/escape_tree --cuda 16384 1048568                 # Laptop config: 3.4e-7 in 44 s on M5 Pro
+  run ./build/release/escape_tree 16384 1048568                        # Same on this pod's CPUs
+  run ./build/release/escape_tree --cuda --depth 6 16384 1048568       # 4x the leaves
+fi
 step "Done; results in $OUT"
