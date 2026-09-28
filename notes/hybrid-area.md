@@ -314,6 +314,38 @@ Target: error ~3·10^-11, two digits beyond the published 1.5065918849.
   centers, 15% of CPU time) would then dominate and needs to move to the GPU too.  The tail extrapolation
   in k (the tail beyond 2^20 is ~2.7·10^-6, needed to ~10^-5 relative) is the other open risk.
 
+### 5.2 Science risks: the tail in k and rounding (2026-09-28)
+
+*The tail in k.*  A(k) − μ = π Σ n|b_n|² (1 − e^{−2n·2^−k}), a 1/log N tail at N ≈ 2^k.  Measured differences
+D = A(k) − A(k') at half-octaves from k = 2^10 to 2^24 (depth 8–9) and octaves to 2^28 (depth 6–7) rule out every
+pure power series in 1/k with k ≥ 2^16 (χ²/dof ≥ 26), and over k ≥ 2^16 plausible models moved μ by 1e-7 to
+3e-7.  Restricting fits to k ≥ 2^20, with data to 2^26, the well-fitting models agree:
+
+| model (k ≥ 2^20) | χ²/dof | μ from A(2^24) |
+|---|---|---|
+| a/k + b/k² + c/k³ | 0.64 | 1.5065918672 |
+| a/k + b log k/k² + c/k² | 0.75 | 1.5065918684 |
+| a/(k log k) + b/k | 1.09 | 1.5065918697 |
+| a/k | 15.5 | 1.5065918580 |
+
+(A(2^24) itself has statistical error 2e-8.)  The effective coefficient K(j) = (A − μ) j ln2/π, with the Böttcher
+bounds U_j at j ≤ 27 and escape areas at j* = k − 1 − γ/ln2, is flat at 0.865 for j = 10–27 and falls slowly with
+ln j for j = 10³–4·10⁶ (0.81 → 0.59 at μ = 1.50659188); the large-j values depend on μ (ΔK = Δμ j ln2/π), and a
+single model fit on k ≥ 2^16 does not predict the Böttcher values (off by 1.7–2.5×).  So the asymptotic form is
+not known, and the robust route is to measure D directly to k ≈ 2^30, where the remaining tail is ~2.5e-9.
+
+*Rounding.*  Paired runs (the same samples in double and in double rounded to b bits by Veltkamp splitting, same
+algorithm and tolerances), depth 8, max_iter 2^20: at k = 2^20 the rounded − double difference is +2.8e-7 ± 4.5e-9
+at 30 bits, and −0.9e-9, +1.6e-9, +3.0e-9 (± 4e-9) at 36, 42, 48 bits.  The 30-bit bias grows with k, as expected if
+slowly escaping orbits near parabolic points stall once their increments (~1/N² at cusps) drop below the rounding
+step; scaling N ~ √(C/ε) from 30 bits suggests double could stall near k ~ 2^27–2^28.  At max_iter 2^26 (depth 6),
+42 and 48 bits agree with double to ≤ 1.3σ through k = 2^25 and are 1.7σ low at 2^26.  Float's earlier bias
+(+1.2e-5) came from its looser cycle and Newton tolerances, not from rounding as such.  Double-double orbits
+(--prec comparedd) give a direct reference at large k.
+
+*Cost of large k.*  Depth 8: max_iter 2^20 → 2^24 costs 37.7 → 84.4 s.  Depth 6: 2^28 costs 19× 2^20: orbits that
+neither escape nor certify run to max_iter.
+
 ## 6. Reproducing
 
 ```
