@@ -220,6 +220,44 @@ TEST(lavaurs) {
     }
 }
 
+TEST(maximal_tuning) {
+  const int P = 16;
+  const auto roots = lavaurs(P);
+  const auto parent = maximal_tuning(roots);
+  // Known cases: the period-4 disk at -1.3107 (6/15, 9/15) is tuned by the period-2 disk (1/3, 2/3); the 1/4
+  // bulb (1/15, 2/15) and the period-3 bulbs are not
+  int tuned4 = -1, bulb4 = -1, disk2 = -1;
+  for (size_t i = 0; i < roots.size(); i++) {
+    const auto& w = roots[i].w;
+    if (w.lo == Periodic{6, 4} && w.hi == Periodic{9, 4}) tuned4 = int(i);
+    if (w.lo == Periodic{1, 4} && w.hi == Periodic{2, 4}) bulb4 = int(i);
+    if (w.lo == Periodic{1, 2} && w.hi == Periodic{2, 2}) disk2 = int(i);
+    if (w.lo.q == 3) ASSERT_EQ(parent[i], -1);
+  }
+  ASSERT_TRUE(tuned4 >= 0 && bulb4 >= 0 && disk2 >= 0);
+  ASSERT_EQ(parent[tuned4], disk2);
+  ASSERT_EQ(parent[bulb4], -1);
+  // Parents are non-renormalizable with smaller periods dividing p, and every root's copy decodes back
+  vector<int64_t> N(P + 1), nr(P + 1);
+  N[1] = 1;
+  for (size_t i = 0; i < roots.size(); i++) {
+    const int p = roots[i].w.lo.q;
+    N[p]++;
+    if (parent[i] < 0) { nr[p]++; continue; }
+    const auto& w0 = roots[parent[i]].w;
+    ASSERT_EQ(parent[parent[i]], -1);
+    ASSERT_TRUE(p % w0.lo.q == 0 && w0.lo.q < p);
+  }
+  // Counting: tuned roots of period p are τ_W0(W') for non-renormalizable W0 of period d | p, 1 < d < p, and
+  // any W' of period p / d, each in exactly one maximal copy
+  for (int p = 2; p <= P; p++) {
+    int64_t tuned = 0;
+    for (int d = 2; d < p; d++)
+      if (p % d == 0) tuned += nr[d] * N[p / d];
+    ASSERT_EQ(N[p] - nr[p], tuned) << tfm::format("p %d: %d roots, %d non-renormalizable", p, N[p], nr[p]);
+  }
+}
+
 TEST(wake_owner) {
   const auto roots = lavaurs(9);
   for (const int64_t n : {64, 1000, 4096, 12345}) {

@@ -4,6 +4,7 @@
 #include "debug.h"
 #include <algorithm>
 #include <numeric>
+#include <unordered_map>
 #include <vector>
 namespace mandelbrot {
 
@@ -72,6 +73,44 @@ struct MaxTree {
 };
 
 }  // namespace
+
+vector<int> maximal_tuning(const vector<Root>& roots) {
+  // Roots by (period, lo word, hi word)
+  std::unordered_map<uint64_t, int> index;
+  const auto key = [](const int q, const uint64_t lo, const uint64_t hi) {
+    return uint64_t(q) << 58 | lo << 29 | hi;
+  };
+  for (size_t i = 0; i < roots.size(); i++) {
+    const auto& w = roots[i].w;
+    slow_assert(w.lo.q == w.hi.q && w.lo.q <= 29, "maximal_tuning: period %d too large", w.lo.q);
+    index[key(w.lo.q, w.lo.k, w.hi.k)] = int(i);
+  }
+  vector<int> parent(roots.size(), -1);
+  for (size_t i = 0; i < roots.size(); i++) {
+    const auto& w = roots[i].w;
+    const int p = w.lo.q;
+    for (int d = 2; d < p && parent[i] < 0; d++) {
+      if (p % d) continue;
+      const uint64_t mask = (uint64_t(1) << d) - 1;
+      // Distinct d-bit words of both angles
+      uint64_t words[2];
+      int n = 0;
+      bool ok = true;
+      for (const uint64_t k : {w.lo.k, w.hi.k})
+        for (int b = 0; b < p && ok; b += d) {
+          const uint64_t u = k >> b & mask;
+          if (n > 0 && words[0] == u) continue;
+          if (n > 1 && words[1] == u) continue;
+          if (n == 2) ok = false;
+          else words[n++] = u;
+        }
+      if (!ok || n != 2) continue;
+      const auto it = index.find(key(d, std::min(words[0], words[1]), std::max(words[0], words[1])));
+      if (it != index.end()) parent[i] = it->second;
+    }
+  }
+  return parent;
+}
 
 vector<Root> lavaurs(const int max_period) {
   slow_assert(max_period <= 24, "lavaurs: max_period %d too large", max_period);
