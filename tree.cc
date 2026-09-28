@@ -47,6 +47,8 @@ struct CenterTask {
   __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.r.e.iters; }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
+  __host__ __device__ bool pending(const State&) const { return false; }
+  __host__ __device__ bool settle(State&) const { return true; }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     const EscapeDE& e = o.r;
     uint32_t s = kUncertified;
@@ -147,9 +149,14 @@ template<class T> struct SampleTask {
                  y = Y0 + (l.iy + (jy + uniform(seed, key, 1)) / strata) * h;
     return o.start(x, y, first_newton);
   }
-  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, max_period, newton_iters, newton_close2); }
+  // Newton is deferred (the GPU engine settles pending orbits together; the CPU settles them at once)
+  __host__ __device__ bool run(State& o) const {
+    return o.run(max_iter, burst, max_period, newton_iters, newton_close2, true);
+  }
   __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
+  __host__ __device__ bool pending(const State& o) const { return o.status == 4; }
+  __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton_iters, newton_close2); }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
     for (int k = 0; k < K; k++) b |= uint32_t(o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;

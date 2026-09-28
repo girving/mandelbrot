@@ -110,7 +110,8 @@ template<class T> struct Orbit {
   T cx, cy;        // Brent checkpoint, refreshed at powers of two.  After escape, cx = |z_n|^2.
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
   int32_t n, next_check, candidate, next_newton;  // 32 bits to save registers: max_iter < 2^30
-  int32_t status;  // 0 running, 1 escaped at step n, 2 attracting cycle (period in candidate), 3 hit max_iter
+  int32_t status;  // 0 running, 1 escaped at step n, 2 attracting cycle (period in candidate), 3 hit max_iter,
+                   // 4 stopped at a Newton step (run with defer; settle does the rest of that step)
 
   // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling.
   // Returns true if already decided (the cardioid or period 2 disk).
@@ -140,15 +141,63 @@ template<class T> struct Orbit {
     }
   }
 
+  // Brent: if z has returned to the checkpoint, the orbit has converged to an attracting cycle.  Sets the
+  // minimal period (or 33 if above 32) and returns true.
+  static __host__ __device__ bool converged(const T x, const T y, const T zx, const T zy, const T cx, const T cy,
+                                            int32_t& candidate) {
+    typedef OrbitTol<T> Tol;
+    const T dx = zx - cx, dy = zy - cy;
+    if (!(dx * dx + dy * dy < T(Tol::cycle))) [[likely]] return false;
+    T wx = zx, wy = zy;
+    int period = 0;
+    for (int p = 1; p <= 32; p++) {
+      const T t2 = wx * wx - wy * wy + x;
+      wy = 2 * wx * wy + y;
+      wx = t2;
+      const T ex = wx - zx, ey = wy - zy;
+      if (ex * ex + ey * ey < T(Tol::period)) { period = p; break; }
+    }
+    candidate = period ? period : 33;
+    return true;
+  }
+
+  // Newton at the current point: if it certifies an attracting cycle, set the minimal period (or 33)
+  __host__ __device__ bool newton(const int max_period, const int newton_iters, const double newton_close2) {
+    if (!(candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), newton_iters, newton_close2)))
+      return false;
+    int period = 0;
+    if (candidate <= 32)
+      for (int q = 1; q <= int(candidate); q++)
+        if (int(candidate) % q == 0 && attracting_cycle(x, y, zx, zy, q)) { period = q; break; }
+    candidate = period ? period : 33;  // 33: a period above 32, reported as 0
+    return true;
+  }
+
+  // Finish a step stopped by run with defer (status 4) exactly as run would have: Newton, then Brent and the
+  // checkpoint.  Returns true if the orbit is done; otherwise it can run again.
+  __host__ __device__ bool settle(const int64_t max_iter, const int max_period, const int newton_iters,
+                                  const double newton_close2) {
+    status = 0;
+    if (newton(max_period, newton_iters, newton_close2) || converged(x, y, zx, zy, cx, cy, candidate)) {
+      status = 2;
+      return true;
+    }
+    if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
+    if (n > max_iter) status = 3;
+    return status != 0;
+  }
+
   // Iterate at most `budget` steps, trying Newton on atom-domain candidates up to max_period with newton_iters
   // iterations.  Returns true when done (see status).  State lives in locals during the loop so that it stays
   // in registers.  Each step does the escape test and z → z^2 + c, carrying the squares, and tracks the
   // atom-domain minimum while n < max_period (later candidates are never used).  The rarer checks (Newton,
   // Brent, checkpoint) run at steps that are multiples of 8: they cost as much as the iteration itself on GPUs,
   // and tying them to absolute step numbers keeps results independent of how the orbit is split into bursts.
+  //
+  // With defer, run stops at Newton steps instead (status 4), so that GPU lanes can do Newton together.
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096,
-                               const int newton_iters = 30, const double newton_close2 = INFINITY) {
-    typedef OrbitTol<T> Tol;
+                               const int newton_iters = 30, const double newton_close2 = INFINITY,
+                               const bool defer = false) {
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
     T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
     int32_t n = this->n, next_check = this->next_check, candidate = this->candidate;
@@ -172,35 +221,12 @@ template<class T> struct Orbit {
       // (zx, zy) is z_n, n a multiple of 8
       if (n > next_newton) [[unlikely]] {
         while (next_newton < n) next_newton *= 2;
-        if (candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), newton_iters, newton_close2)) {
-          // Report the minimal period if it is small
-          int period = 0;
-          if (candidate <= 32)
-            for (int q = 1; q <= int(candidate); q++)
-              if (int(candidate) % q == 0 && attracting_cycle(x, y, zx, zy, q)) { period = q; break; }
-          candidate = period ? period : 33;  // 33: a period above 32, reported as 0
-          status = 2;
-          goto finish;
-        }
+        if (defer) { status = 4; goto finish; }
+        this->zx = zx; this->zy = zy;
+        this->candidate = candidate;
+        if (newton(max_period, newton_iters, newton_close2)) { candidate = this->candidate; status = 2; goto finish; }
       }
-      {
-        const T dx = zx - cx, dy = zy - cy;
-        if (dx * dx + dy * dy < T(Tol::cycle)) [[unlikely]] {
-          // Converged to an attracting cycle: find its minimal period, if small
-          T wx = zx, wy = zy;
-          int period = 0;
-          for (int p = 1; p <= 32; p++) {
-            const T t2 = wx * wx - wy * wy + x;
-            wy = 2 * wx * wy + y;
-            wx = t2;
-            const T ex = wx - zx, ey = wy - zy;
-            if (ex * ex + ey * ey < T(Tol::period)) { period = p; break; }
-          }
-          candidate = period ? period : 33;
-          status = 2;
-          goto finish;
-        }
-      }
+      if (converged(x, y, zx, zy, cx, cy, candidate)) [[unlikely]] { status = 2; goto finish; }
       if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     }
     if (n > max_iter) status = 3;

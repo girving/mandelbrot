@@ -14,6 +14,8 @@
 //   void finish(const State& o, int64_t i) const;
 //   int64_t iters(const State& o) const;     // Iterations performed, for accounting
 //   int64_t progress(const State& o) const;  // Steps so far of a running orbit (for timing only)
+//   bool pending(const State& o) const;      // run stopped with work to do together with other lanes
+//   bool settle(State& o) const;             // Do that work; true if the orbit is done
 //   int64_t burst;                           // Steps per run call
 //   int min_blocks;                          // GPU: resident 256-thread blocks per SM (1 to 4) to budget registers for
 #pragma once
@@ -152,6 +154,7 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
   while (active) {
     for (int l = 0; l < L; l++) {
       if (idx[l] < 0 || !task.run(o[l])) continue;
+      if (task.pending(o[l]) && !task.settle(o[l])) continue;
       task.finish(o[l], idx[l]);
       iters += task.iters(o[l]);
       if (!load(l)) active--;
@@ -162,9 +165,12 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 
 #ifdef __CUDACC__
 
-// Persistent threads.  counters: [next claim, iterations, overflow count, max iterations of one thread, and
-// with timing: cycles inside run, total cycles, active lanes at run calls, warp lanes at run calls].  An orbit
-// that has run `budget` bursts is parked in overflow (if room) and finished by overflow_kernel.
+// Counters: [0: next claim, 1: iterations, 2: parked, 3: max iterations of one thread, 4-7 with timing: cycles
+// inside run, total cycles, active lanes at run calls, warp lanes at run calls, 8: next resume claim,
+// 9: iterations in rounds, 10-11 with timing: lane steps and warp steps, 12: parked in this round].
+
+// Persistent threads.  Orbits that are pending or have run `budget` bursts are parked (if room) and finished in
+// rounds of settle_kernel and resume_kernel.
 template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
 orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32_t budget,
              typename Task::State* overflow, int64_t* overflow_items, const int64_t overflow_cap,
@@ -215,14 +221,18 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
       } else {
         done = task.run(o);
       }
-      if (!done && ++bursts == budget) {
+      // Park orbits that are pending (so that lanes settle together later) or have used their step budget.
+      // Parked orbits' iterations are counted when they finish.
+      const bool pending = done && task.pending(o);
+      if (pending || (!done && ++bursts == budget)) {
         const int64_t k = int64_t(atomicAdd(counters + 2, 1ull));
         if (k < overflow_cap) {
           overflow[k] = o;
           overflow_items[k] = i;
-          it += task.iters(o);  // Iterations so far; overflow_kernel counts the rest
           i = -1;
           done = true;
+        } else if (pending) {
+          done = task.settle(o);  // No room: settle alone
         }
       }
     }
@@ -256,28 +266,61 @@ template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks,
 #undef LAUNCH
 }
 
-// Parked orbits, run to completion by persistent warp-synchronous threads like orbit_kernel's.
-// counters[8] is the next parked orbit to claim.
-template<class Task> __global__ void overflow_kernel(const Task task, const typename Task::State* overflow,
-                                                     const int64_t* overflow_items, const int64_t count,
-                                                     unsigned long long* counters) {
+// Settle all pending parked orbits at once, finishing those that are done (marked by item -1)
+template<class Task> __global__ void settle_kernel(const Task task, typename Task::State* parked, int64_t* items,
+                                                   const int64_t count, unsigned long long* counters) {
+  unsigned long long it = 0;
+  for (int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; k < count; k += int64_t(blockDim.x) * gridDim.x) {
+    typename Task::State o = parked[k];
+    if (!task.pending(o)) continue;
+    if (task.settle(o)) {
+      task.finish(o, items[k]);
+      it += task.iters(o);
+      items[k] = -1;
+    } else {
+      parked[k] = o;
+    }
+  }
+  atomicAdd(counters + 1, it);
+  atomicAdd(counters + 9, it);
+}
+
+// Resume parked orbits (skipping finished ones) with persistent warp-synchronous threads like orbit_kernel's,
+// until done or pending again, when they park into next
+template<class Task> __global__ void resume_kernel(const Task task, const typename Task::State* parked,
+                                                   const int64_t* items, const int64_t count,
+                                                   typename Task::State* next, int64_t* next_items, const int64_t cap,
+                                                   unsigned long long* counters) {
   typename Task::State o;
-  int64_t i = -1, before = 0;
+  int64_t i = -1;
   unsigned long long it = 0;
   bool done = true, out = false;
   for (;;) {
     while (done && !out) {
-      if (i >= 0) { task.finish(o, i); it += task.iters(o) - before; }
+      if (i >= 0) { task.finish(o, i); it += task.iters(o); }
+      i = -1;
       const int64_t k = int64_t(atomicAdd(counters + 8, 1ull));
-      if (k >= count) { out = true; i = -1; break; }
-      o = overflow[k];
-      i = overflow_items[k];
-      before = task.iters(o);  // Counted by orbit_kernel
+      if (k >= count) { out = true; break; }
+      if (items[k] < 0) continue;
+      o = parked[k];
+      i = items[k];
       done = false;
     }
     if (__all_sync(0xffffffff, out)) break;
     __syncwarp();
-    if (!out) done = task.run(o);
+    if (!out) {
+      done = task.run(o);
+      if (done && task.pending(o)) {
+        const int64_t k = int64_t(atomicAdd(counters + 12, 1ull));
+        if (k < cap) {
+          next[k] = o;
+          next_items[k] = i;
+          i = -1;
+        } else {
+          done = task.settle(o);  // No room: settle alone
+        }
+      }
+    }
   }
   atomicAdd(counters + 1, it);
   atomicAdd(counters + 9, it);
@@ -316,46 +359,54 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                      budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 14),
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0);
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 32));
-    Mem<O> overflow(cap, true);
-    Mem<int64_t> items(cap, true);
-    Mem<unsigned long long> counters(12, true);
+    Mem<O> parked(cap, true), next(cap, true);
+    Mem<int64_t> items(cap, true), next_items(cap, true);
+    Mem<unsigned long long> counters(13, true);
     counters.zero();
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
     cuda_check(cudaEventRecord(e0, stream()));
     // Register budget: 65536 / (256 · min_blocks) per thread
     const int min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
-    const int threads = blocks_per_sm * num_sms() * block;
+    const int grid = blocks_per_sm * num_sms(), threads = grid * block;
     const int32_t budget = int32_t(std::max<int64_t>(1, budget_steps / task.burst));
     if (timing)
-      engine_detail::launch_orbit_kernel<Task, true>(min_blocks, blocks_per_sm * num_sms(), task, n, stride, budget,
-                                                     overflow.p, items.p, cap, counters.p);
+      engine_detail::launch_orbit_kernel<Task, true>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
+                                                     cap, counters.p);
     else
-      engine_detail::launch_orbit_kernel<Task, false>(min_blocks, blocks_per_sm * num_sms(), task, n, stride, budget,
-                                                      overflow.p, items.p, cap, counters.p);
+      engine_detail::launch_orbit_kernel<Task, false>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
+                                                      cap, counters.p);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
-    const int64_t parked = std::min<int64_t>(cap, int64_t(counters.get(2)));
-    if (parked) {
-      const int64_t blocks = std::min<int64_t>(blocks_per_sm * num_sms(), (parked + block - 1) / block);
-      engine_detail::overflow_kernel<Task><<<blocks, block, 0, stream()>>>(task, overflow.p, items.p, parked,
-                                                                          counters.p);
+    // Rounds: settle pending orbits together, then resume the rest until they are done or pending again
+    int64_t count = std::min<int64_t>(cap, int64_t(counters.get(2))), rounds = 0;
+    stats.overflow = count;
+    while (count) {
+      rounds++;
+      const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
+      engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p);
+      cuda_check(cudaMemsetAsync(counters.p + 8, 0, sizeof(unsigned long long), stream()));
+      cuda_check(cudaMemsetAsync(counters.p + 12, 0, sizeof(unsigned long long), stream()));
+      engine_detail::resume_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
+                                                                   next_items.p, cap, counters.p);
+      cuda_check(cudaGetLastError());
+      count = std::min<int64_t>(cap, int64_t(counters.get(12)));
+      std::swap(parked.p, next.p);
+      std::swap(items.p, next_items.p);
     }
-    cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e2, stream()));
-    unsigned long long h[12];
-    counters.to_host(h, 12);
+    unsigned long long h[13];
+    counters.to_host(h, 13);
     stats.iters = int64_t(h[1]);
-    stats.overflow = parked;
     if (timing) {
       float main_ms, over_ms;
       cuda_check(cudaEventElapsedTime(&main_ms, e0, e1));
       cuda_check(cudaEventElapsedTime(&over_ms, e1, e2));
-      print("    cuda run: %d items, %d threads, main %.1f ms, overflow %d orbits %.1f ms, %.3g it/s; "
-            "iterations per thread mean %.3g, max %.3g", n, threads, main_ms, parked, over_ms,
+      print("    cuda run: %d items, %d threads, main %.1f ms, %d parked, %d rounds %.1f ms, %.3g it/s; "
+            "iterations per thread mean %.3g, max %.3g", n, threads, main_ms, stats.overflow, rounds, over_ms,
             double(h[1]) / ((main_ms + over_ms) * 1e-3), double(h[1]) / threads, double(h[3]));
       print("      main pass: %.3g it/s, %.1f%% of thread cycles in run, SIMT efficiency at run %.1f%%, "
-            "lane steps / warp steps %.1f%%; overflow pass %.3g it/s", double(h[1] - h[9]) / (main_ms * 1e-3),
+            "lane steps / warp steps %.1f%%; rounds %.3g it/s", double(h[1] - h[9]) / (main_ms * 1e-3),
             100.0 * double(h[4]) / double(h[5]), 100.0 * double(h[6]) / double(h[7]),
             100.0 * double(h[10]) / double(h[11]), over_ms > 0 ? double(h[9]) / (over_ms * 1e-3) : 0.0);
     }
