@@ -420,6 +420,21 @@ about 5.4 more levels, ~1.5e5 H200-seconds (~43 GPU-hours), before the tail extr
 tail, so a per-component analytic tail would need infinitely many components with self-similar weights —
 which is the tail-fit problem again, not a shortcut.
 
+*Log-periodic test of the tail.*  If tuned copies scale the tail as T(k) ⊃ |ρ_W|² T(k/p_W) (Green's function
+g_M(c) ≈ C g_M(χ_W(c))^p near a period-p copy), the tail's Mellin transform satisfies
+T̂(s)(1 − Σ_W |ρ_W|² p_W^s) = T̂_0(s), and complex roots would give log-periodic terms k^−σ cos(ω ln k).  Fitting
+the 46 distinct differences of §5.2 with smooth bases plus (c cos ω ln k + d sin ω ln k)/k, ω ∈ [0.6, 12] (at
+least one period over ln k ∈ [6.9, 17.3]):
+- the best smooth model is a/k + b/(k ln k) + c/k², χ²/dof 1.31 from k ≥ 2^14 (35 dof) and 1.46 from 2^16;
+- adding the oscillation gains Δχ² ≤ 4 (k ≥ 2^14) or ≤ 11 (k ≥ 2^16, ω ≈ 2.4–3.6) for 3 extra parameters over
+  ~20 effective trial frequencies: not significant;
+- 2σ amplitude bounds relative to a/k: < 2% at ω = 0.6 (degenerate with smooth terms), < 0.4% at 1.2, < 0.2% for
+  ω ≥ 1.8, < 0.05% for ω ≥ 4.2.  At k = 2^30 (T ≈ 2.3e-9) that is ≤ 5e-12 for ω ≥ 1.8 but up to 5e-11 for the
+  slowest periods, which only data at larger k (or the D(s) roots from the component areas) can separate from
+  smooth drift.
+Across well-fitting models and ranges (k ≥ 2^14 … 2^20), T(2^24) = 1.567–1.608e-7 (the ±2e-9 μ spread) and the
+extrapolated T(2^30) = 2.27–2.50e-9: measuring to 2^30 leaves a model spread of ~2e-10, still ~7× the goal.
+
 ## 6. Reproducing
 
 ```
