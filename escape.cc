@@ -13,7 +13,7 @@ EscapeDE escape_de(const double x, const double y, const int64_t max_iter) {
 Escape escape(const double x, const double y, const int64_t max_iter) {
   Orbit<double> o;
   if (!o.start(x, y))
-    o.run(max_iter, max_iter);
+    o.finish(max_iter);
   return o.result();
 }
 

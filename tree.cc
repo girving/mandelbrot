@@ -154,10 +154,10 @@ template<class T> struct SampleTask {
     return o.start(x, y, first_newton);
   }
   // Newton is deferred (the GPU engine settles pending orbits together; the CPU settles them at once)
-  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, max_period, newton, true); }
+  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, max_period); }
   __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
-  __host__ __device__ bool pending(const State& o) const { return o.status == 4; }
+  __host__ __device__ bool pending(const State& o) const { return o.pending(); }
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton); }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
