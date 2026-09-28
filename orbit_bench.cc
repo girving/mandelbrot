@@ -79,6 +79,7 @@ struct SiegelTask {
   }
   __host__ __device__ bool run(State& o) const { return o.run(kSteps, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.e.iters; }
+  __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ void finish(const State& o, const int64_t i) const { out[i] = o.zx; }
 };
 

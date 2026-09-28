@@ -122,6 +122,7 @@ struct VisitTask {
   __host__ __device__ bool start(State&, const int64_t) const { return true; }
   __host__ __device__ bool run(State&) const { return true; }
   __host__ __device__ int64_t iters(const State&) const { return 1; }
+  __host__ __device__ int64_t progress(const State&) const { return 0; }
   __host__ __device__ void finish(const State&, const int64_t i) const { visits[i]++; }
 };
 
