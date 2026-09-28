@@ -13,9 +13,9 @@ void report(const TreeResult& R) {
   const auto& p = R.p;
   const int K = p.ks.size();
   print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, max_iter %d, seed %d, "
-        "first Newton %d, prec %s, %s, %d threads: %.1f s (tree %.1f s, sampling %.1f s, reduce %.1f s, "
+        "first Newton %d, center max_iter %d, Newton max period %d, prec %s, %s, %d threads: %.1f s (tree %.1f s, sampling %.1f s, reduce %.1f s, "
         "%d batches)", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.max_iter, p.seed,
-        p.first_newton, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.sample_secs,
+        p.first_newton, p.center_max_iter, p.newton_max_period, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.sample_secs,
         R.reduce_secs, R.batches);
   print("  sampling throughput: %.3g iterations/s", double(R.leaf_iters) / R.sample_secs);
   print("  centers: %.3g cells, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations; "
@@ -67,6 +67,10 @@ int main(const int argc, const char** argv) {
         .default_value(int64_t(1) << 22);
     program.add_argument("--first-newton").help("first Newton certificate attempt for leaf samples")
         .scan<'i', int64_t>().default_value(int64_t(64));
+    program.add_argument("--center-max-iter").help("iteration cap for cell centers").scan<'i', int64_t>()
+        .default_value(int64_t(1) << 14);
+    program.add_argument("--newton-max-period").help("largest period Newton tries for leaf samples")
+        .scan<'i', int>().default_value(4096);
     program.parse_args(argc, argv);
 
     TreeParams p;
@@ -81,6 +85,8 @@ int main(const int argc, const char** argv) {
     p.cuda = program.get<bool>("--cuda");
     p.batch = program.get<int64_t>("--batch");
     p.first_newton = program.get<int64_t>("--first-newton");
+    p.center_max_iter = program.get<int64_t>("--center-max-iter");
+    p.newton_max_period = program.get<int>("--newton-max-period");
     p.ks = program.get<vector<int>>("ks");
     for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
     for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");
