@@ -13,6 +13,7 @@
 //   bool run(State& o) const;                // Advance a burst; true when done
 //   void finish(const State& o, int64_t i) const;
 //   int64_t iters(const State& o) const;     // Iterations performed, for accounting
+//   int64_t burst;                           // Steps per run call
 #pragma once
 
 #include "cutil.h"
@@ -239,7 +240,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     typedef typename Task::State O;
     static const int blocks_per_sm = env_int("MANDELBROT_CUDA_BLOCKS_PER_SM", 8),
                      block = env_int("MANDELBROT_CUDA_BLOCK", 256),
-                     budget = env_int("MANDELBROT_CUDA_BUDGET", 1 << 11),  // Bursts before parking
+                     budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 15),  // Steps before parking
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0);
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / 256));
     Mem<O> overflow(cap, true);
@@ -251,7 +252,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     cuda_check(cudaEventRecord(e0, stream()));
     const int threads = blocks_per_sm * num_sms() * block;
     engine_detail::orbit_kernel<Task><<<blocks_per_sm * num_sms(), block, 0, stream()>>>(
-        task, n, stride, budget, overflow.p, items.p, cap, counters.p);
+        task, n, stride, std::max<int64_t>(1, budget_steps / task.burst), overflow.p, items.p, cap, counters.p);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
     const int64_t parked = std::min<int64_t>(cap, int64_t(counters.get(2)));
