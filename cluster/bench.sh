@@ -42,7 +42,7 @@ step "Configuring and building"
 CXXFLAGS="-O3 -march=native" timeout 600 meson setup build/release --buildtype=release > /tmp/setup.log \
   || { cat /tmp/setup.log; exit 1; }
 grep -i -E "cuda|openmp" /tmp/setup.log || true
-timeout 1800 meson compile -C build/release tree_test escape_tree orbit_bench orbit_census
+timeout 1800 meson compile -C build/release tree_test escape_tree orbit_bench orbit_census orbit_regimes
 
 mkdir -p /data/results
 OUT=/data/results/bench-$(date +%Y%m%d-%H%M%S).txt
