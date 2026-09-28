@@ -61,15 +61,25 @@ template<> struct OrbitTol<float> {
   static constexpr double multiplier = 1e-5;
 };
 
+// Newton certificate settings.  Negative tol2 or margin mean the precision's defaults (OrbitTol).
+struct NewtonOptions {
+  int iters = 30;             // Newton iterations per attempt
+  double close2 = INFINITY;   // Give up after one step unless |f^p(w) - w|^2 < close2
+  double tol2 = -1;           // Converged when |step|^2 < tol2 (1 + |w|^2)
+  double margin = -1;         // Attracting when |λ|^2 < 1 - margin
+};
+
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
 // periodic point whose multiplier |(f^p)'(w)| < 1, which certifies that c is in a hyperbolic component.
 //
 // If close2 is finite, give up after the first iteration unless |f^p(w) - w|^2 < close2: orbit points that
 // have not nearly closed up rarely converge, and failures otherwise cost the full iteration count.
 template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x, const T y, T wx, T wy, const int p,
-                                                         const int iters = 30, const double close2 = INFINITY) {
+                                                         const NewtonOptions nw = NewtonOptions()) {
   typedef OrbitTol<T> Tol;
-  for (int it = 0; it < iters; it++) {
+  const double tol2 = nw.tol2 < 0 ? Tol::newton : nw.tol2, margin = nw.margin < 0 ? Tol::multiplier : nw.margin,
+               close2 = nw.close2;
+  for (int it = 0; it < nw.iters; it++) {
     // F(w) = f^p(w) - w, F'(w) = (f^p)'(w) - 1
     T zx = wx, zy = wy, dx = 1, dy = 0;
     for (int k = 0; k < p; k++) {
@@ -86,7 +96,7 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x
     if (!(den > 0)) return false;
     const T sx = (fx * gx + fy * gy) / den, sy = (fy * gx - fx * gy) / den;
     wx -= sx; wy -= sy;
-    if (sx * sx + sy * sy < T(Tol::newton) * (1 + wx * wx + wy * wy)) {
+    if (sx * sx + sy * sy < T(tol2) * (1 + wx * wx + wy * wy)) {
       // Converged: the multiplier at the periodic point decides
       T mx = 1, my = 0, zx2 = wx, zy2 = wy;
       for (int k = 0; k < p; k++) {
@@ -96,7 +106,7 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x
         zy2 = 2 * zx2 * zy2 + y;
         zx2 = t;
       }
-      return mx * mx + my * my < T(1 - Tol::multiplier);
+      return mx * mx + my * my < T(1 - margin);
     }
   }
   return false;
@@ -141,13 +151,20 @@ template<class T> struct Orbit {
     }
   }
 
-  // Brent: if z has returned to the checkpoint, the orbit has converged to an attracting cycle.  Sets the
-  // minimal period (or 33 if above 32) and returns true.
-  static __host__ __device__ bool converged(const T x, const T y, const T zx, const T zy, const T cx, const T cy,
-                                            int32_t& candidate) {
+  // Brent: z has returned to the checkpoint.  That alone does not certify an attracting cycle, since slowly
+  // escaping orbits near nearly neutral repelling cycles can also return within the tolerance, so Newton must
+  // confirm one at the return period (at most 32 by direct return, else the best return up to max_period).
+  // Sets the minimal period (or 33 if above 32) and returns true if confirmed.
+  __host__ __device__ bool converged(const T zx, const T zy, const T cx, const T cy, int32_t& candidate,
+                                     const int max_period, const NewtonOptions& nw) const {
     typedef OrbitTol<T> Tol;
     const T dx = zx - cx, dy = zy - cy;
     if (!(dx * dx + dy * dy < T(Tol::cycle))) [[likely]] return false;
+    return confirm(zx, zy, candidate, max_period, nw);
+  }
+  ORBIT_COLD __host__ __device__ bool confirm(const T zx, const T zy, int32_t& candidate, const int max_period,
+                                              const NewtonOptions& nw) const {
+    typedef OrbitTol<T> Tol;
     T wx = zx, wy = zy;
     int period = 0;
     for (int p = 1; p <= 32; p++) {
@@ -157,14 +174,36 @@ template<class T> struct Orbit {
       const T ex = wx - zx, ey = wy - zy;
       if (ex * ex + ey * ey < T(Tol::period)) { period = p; break; }
     }
+    const int q = period ? period : best_return(zx, zy, max_period);
+    if (!(q && attracting_cycle(x, y, zx, zy, q, nw))) return false;
     candidate = period ? period : 33;
     return true;
   }
 
-  // Newton at the current point: if it certifies an attracting cycle, set the minimal period (or 33)
-  __host__ __device__ bool newton(const int max_period, const int newton_iters, const double newton_close2) {
-    if (!(candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), newton_iters, newton_close2)))
-      return false;
+  // The q ≤ max_period minimizing |f^q(z) - z|: the period (or a multiple) once the orbit is near a cycle
+  __host__ __device__ int best_return(const int max_period) const { return best_return(zx, zy, max_period); }
+  __host__ __device__ int best_return(const T zx, const T zy, const int max_period) const {
+    T wx = zx, wy = zy, best = T(INFINITY);
+    int q = 0;
+    for (int k = 1; k <= max_period; k++) {
+      const T t = wx * wx - wy * wy + x;
+      wy = 2 * wx * wy + y;
+      wx = t;
+      const T dx = wx - zx, dy = wy - zy, d = dx * dx + dy * dy;
+      if (d < best) { best = d; q = k; }
+    }
+    return q;
+  }
+
+  // Newton at the current point, on the atom-domain candidate and, if that fails, on the best return (atom
+  // domains need not match components near their boundaries).  If it certifies an attracting cycle, set the
+  // minimal period (or 33).
+  __host__ __device__ bool newton(const int max_period, const NewtonOptions& nw) {
+    if (!(candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), nw))) {
+      const int q = best_return(max_period);
+      if (!(q && q != candidate && attracting_cycle(x, y, zx, zy, q, nw))) return false;
+      candidate = q;
+    }
     int period = 0;
     if (candidate <= 32)
       for (int q = 1; q <= int(candidate); q++)
@@ -175,10 +214,9 @@ template<class T> struct Orbit {
 
   // Finish a step stopped by run with defer (status 4) exactly as run would have: Newton, then Brent and the
   // checkpoint.  Returns true if the orbit is done; otherwise it can run again.
-  __host__ __device__ bool settle(const int64_t max_iter, const int max_period, const int newton_iters,
-                                  const double newton_close2) {
+  __host__ __device__ bool settle(const int64_t max_iter, const int max_period, const NewtonOptions& nw) {
     status = 0;
-    if (newton(max_period, newton_iters, newton_close2) || converged(x, y, zx, zy, cx, cy, candidate)) {
+    if (newton(max_period, nw) || converged(zx, zy, cx, cy, candidate, max_period, nw)) {
       status = 2;
       return true;
     }
@@ -187,8 +225,7 @@ template<class T> struct Orbit {
     return status != 0;
   }
 
-  // Iterate at most `budget` steps, trying Newton on atom-domain candidates up to max_period with newton_iters
-  // iterations.  Returns true when done (see status).  State lives in locals during the loop so that it stays
+  // Iterate at most `budget` steps, trying Newton (options nw) on atom-domain candidates up to max_period.  Returns true when done (see status).  State lives in locals during the loop so that it stays
   // in registers.  Each step does the escape test and z → z^2 + c, carrying the squares, and tracks the
   // atom-domain minimum while n < max_period (later candidates are never used).  The rarer checks (Newton,
   // Brent, checkpoint) run at steps that are multiples of 8: they cost as much as the iteration itself on GPUs,
@@ -196,8 +233,7 @@ template<class T> struct Orbit {
   //
   // With defer, run stops at Newton steps instead (status 4), so that GPU lanes can do Newton together.
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096,
-                               const int newton_iters = 30, const double newton_close2 = INFINITY,
-                               const bool defer = false) {
+                               const NewtonOptions& nw = NewtonOptions(), const bool defer = false) {
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
     T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
     int32_t n = this->n, next_check = this->next_check, candidate = this->candidate;
@@ -224,9 +260,9 @@ template<class T> struct Orbit {
         if (defer) { status = 4; goto finish; }
         this->zx = zx; this->zy = zy;
         this->candidate = candidate;
-        if (newton(max_period, newton_iters, newton_close2)) { candidate = this->candidate; status = 2; goto finish; }
+        if (newton(max_period, nw)) { candidate = this->candidate; status = 2; goto finish; }
       }
-      if (converged(x, y, zx, zy, cx, cy, candidate)) [[unlikely]] { status = 2; goto finish; }
+      if (converged(zx, zy, cx, cy, candidate, max_period, nw)) [[unlikely]] { status = 2; goto finish; }
       if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     }
     if (n > max_iter) status = 3;

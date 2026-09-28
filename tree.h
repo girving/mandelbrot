@@ -44,6 +44,8 @@ struct TreeParams {
   int newton_max_period = 256;        // Largest period Newton tries for leaf samples
   int newton_iters = 30;             // Newton iterations per certificate attempt for leaf samples
   double newton_close2 = INFINITY;   // Leaf Newton gives up unless |f^p(w) - w|^2 < this after one iteration
+  double newton_tol = -1;            // Leaf Newton converges when |step| < this · |w| (-1: 1e-14)
+  double newton_margin = -1;         // Leaf Newton certifies when |λ|^2 < 1 - this (-1: 1e-9)
   int64_t burst = 64;                // Orbit steps per run call (finished lanes refill between bursts)
   int center_min_blocks = 2, sample_min_blocks = 3;  // GPU register budgets (H200: centers spill beyond 2)
   string prec = "double";    // Leaf orbits: double, float, or compare (float), compareNN (double rounded to NN
