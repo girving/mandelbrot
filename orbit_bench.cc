@@ -25,7 +25,7 @@ template<int variant> __host__ __device__ double orbit(const double x, const dou
     o.min_r2 = x * x + y * y; o.candidate = 1; o.next_newton = variant == 6 ? 64 : 1 << 30;
     o.cx = x; o.cy = y; o.check_n = 1; o.next_check = 16; o.n = 1; o.status = 0;
     o.run(kSteps, kSteps);
-    return double(o.n) + o.zx + o.r.dist;
+    return double(o.n) + o.zx + o.result().dist;
   } else if constexpr (variant == 4) {
     Orbit<double> o;
     o.start(x, y, int64_t(1) << 40);  // No Newton.  Reports the cardioid, but initializes the state first.

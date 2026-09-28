@@ -306,8 +306,9 @@ ORBIT_COLD __host__ __device__ static EscapeDE escaped(const int32_t n, const do
 struct OrbitDE {
   double x, y, zx, zy, dx, dy, min_r2, cx, cy;
   int32_t n, dexp, candidate, next_newton, check_n, next_check;  // 32 bits to save registers: max_iter < 2^30
-  // 0 running, 1 done (result in r), and with defer, stopped for settle: 4 Newton step due, 5 Brent fired,
-  // 6 cardioid or period 2 disk (whose interior distance settle computes)
+  // 0 running, 1 done (result in r), 7 escaped (at step n with |z|^2 = cx; result() computes the distance), and
+  // with defer, stopped for settle: 4 Newton step due, 5 Brent fired, 6 cardioid or period 2 disk (whose
+  // interior distance settle computes)
   int32_t status;
   EscapeDE r;  // Result, once done
 
@@ -334,6 +335,10 @@ struct OrbitDE {
     n = 1;
     return false;
   }
+
+  // The result, once done (status 1 or 7)
+  __host__ __device__ EscapeDE result() const { return status == 7 ? escaped(n, cx, dx, dy, dexp) : r; }
+  __host__ __device__ int64_t iters() const { return status == 7 ? n : r.e.iters; }
 
   // The rare checks at a step n divisible by 8, after the Newton step (if due) and Brent (if it fired) were
   // detected by run: Newton, then Brent's period recovery, then the checkpoint.  Also the cardioid/disk start.
@@ -397,8 +402,10 @@ struct OrbitDE {
       const int32_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       for (; n < block; n++) {
         if (r2 > 18446744073709551616.0) {
-          r = escaped(n, r2, dx, dy, dexp);
-          status = 1;
+          // The distance bound is computed by result(), off the hot loop: GPU lanes that finish in the same burst
+          // compute it together, instead of each stalling its warp
+          cx = r2;
+          status = 7;
           goto finish;
         }
         {
