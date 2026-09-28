@@ -435,6 +435,24 @@ least one period over ln k ∈ [6.9, 17.3]):
 Across well-fitting models and ranges (k ≥ 2^14 … 2^20), T(2^24) = 1.567–1.608e-7 (the ±2e-9 μ spread) and the
 extrapolated T(2^30) = 2.27–2.50e-9: measuring to 2^30 leaves a model spread of ~2e-10, still ~7× the goal.
 
+*The tail as a sum over roots (`rootsum`).*  Prior evidence (§2, `octscan`'s inverse-tuning test) is against
+copies reproducing the whole tail at k/p, so instead of a renewal equation we tested an additive model
+S_j ≈ Σ_W w_W Ψ_type(j/p_W): each root switches on at j ~ p and then decays with its local law.  For octaves
+j = 12–26, `rootsum` sums the energy within ±4 bins of both rays of every root of period p ≤ j − 7 (low periods
+first, so each bin counts once; the windows cover 6–7% of the angles):
+- roots of period ≤ j − 7 hold ~70% of S_j on 7% of the angles: 35% at satellite roots (stable in j) and
+  10% → 38% at primitive roots (growing with j); ~28% is left for higher periods and non-root angles;
+- each period's energy E_p(j) is modulated with period p in j (the rays return under p doublings: j → j + p),
+  so envelopes are averages over p consecutive octaves;
+- satellite envelopes: Ē_p(j) = W_p j^−γ with γ = 3.93 (theory 4), rms 0.08 in log over p = 2–10; the weights
+  w_p = W_p p^−γ give p³ w_p ≈ 2.1–2.9 for p = 4–10 (6.6, 3.8 at p = 2, 3; composites a little high), i.e.
+  w_p ~ p^−3, and satellites alone would give S_j ~ j^−2, T ~ 1/k: the observed law;
+- primitive envelopes: γ ≈ 6.5 (theory 6) but rms 0.3, and extrapolated weights p³ w_p grow (3.7 → 14 over
+  p = 3–10).  Their energy sits near the frontier p ≈ j/1.4 … j where Ψ is not measured, and their share grows.
+So satellites explain the 1/k law cleanly, but the primitive frontier, which the Böttcher data (j ≤ 26) cannot
+follow to the escape-time range (j ~ 10³–10⁶), increasingly carries the tail and plausibly the drift of K_eff
+there.  A principled tail form would need the frontier behaviour of primitive roots at large period.
+
 ## 6. Reproducing
 
 ```
@@ -443,6 +461,7 @@ meson compile -C build/release
 ./build/release/octscan f-k27.npy 26                    # local exponents; ~10 s
 ./build/release/census f-k27.npy 26 20 4                # root census and wake ownership; ~12 s
 ./build/release/renorm angle_map.npy                    # wake periodicity and pullback tests
+./build/release/rootsum f-k27.npy 8 26 20 4 7           # octave energy near roots, by period
 ./build/release/escape_area 16000 1048576 SEED 16384 ... 1048568   # fattened areas; ~22 s per 2e9 samples
 ./build/release/escape_tree --prec compare 64 1024 16384 262144 1048568   # certified tree, float vs double; ~85 s
 ```
