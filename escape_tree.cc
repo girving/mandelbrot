@@ -13,9 +13,9 @@ void report(const TreeResult& R) {
   const auto& p = R.p;
   const int K = p.ks.size();
   print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, max_iter %d, seed %d, "
-        "first Newton %d, center max_iter %d, Newton max period %d, Newton iterations %d, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s, sampling %.1f s, reduce %.1f s, "
+        "first Newton %d, center max_iter %d, center first Newton %d, Newton max period %d, Newton iterations %d, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s, sampling %.1f s, reduce %.1f s, "
         "%d batches)", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.max_iter, p.seed,
-        p.first_newton, p.center_max_iter, p.newton_max_period, p.newton_iters, p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.sample_secs,
+        p.first_newton, p.center_max_iter, p.center_first_newton, p.newton_max_period, p.newton_iters, p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.sample_secs,
         R.reduce_secs, R.batches);
   print("  sampling throughput: %.3g iterations/s", double(R.leaf_iters) / R.sample_secs);
   print("  centers: %.3g cells, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations; "
@@ -73,6 +73,8 @@ int main(const int argc, const char** argv) {
         .scan<'i', int>().default_value(4096);
     program.add_argument("--newton-iters").help("Newton iterations per certificate attempt").scan<'i', int>()
         .default_value(30);
+    program.add_argument("--center-first-newton").help("first Newton attempt for cell centers")
+        .scan<'i', int64_t>().default_value(int64_t(64));
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
     program.parse_args(argc, argv);
 
@@ -91,6 +93,7 @@ int main(const int argc, const char** argv) {
     p.center_max_iter = program.get<int64_t>("--center-max-iter");
     p.newton_max_period = program.get<int>("--newton-max-period");
     p.burst = program.get<int64_t>("--burst");
+    p.center_first_newton = program.get<int64_t>("--center-first-newton");
     p.newton_iters = program.get<int>("--newton-iters");
     p.ks = program.get<vector<int>>("ks");
     for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);

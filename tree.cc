@@ -34,14 +34,14 @@ struct CenterTask {
   Level level;
   double w, h, r;  // Cell size and half-diagonal at this depth
   double safety;
-  int64_t max_iter;
+  int64_t max_iter, first_newton;
   int K;
   int ks[32];
   uint32_t* status;
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
     const Cell c = level.at(i);
-    return o.start(X0 + (c.ix + 0.5) * w, Y0 + (c.iy + 0.5) * h);
+    return o.start(X0 + (c.ix + 0.5) * w, Y0 + (c.iy + 0.5) * h, first_newton);
   }
   __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.r.e.iters; }
@@ -278,7 +278,8 @@ TreeResult run_tree(const TreeParams& p) {
       const Level level{d ? cells.p : nullptr, p.base, row0};
       const double w = (X1 - X0) / double(p.base << d), h = (Y1 - Y0) / double(p.base << d);
       Mem<uint32_t> status(n, p.cuda);
-      CenterTask task{p.burst, level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter), K, {},
+      CenterTask task{p.burst, level, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
+                      p.center_first_newton, K, {},
                       status.p};
       for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
       const auto stats = run_orbits(task, n, p.cuda);
