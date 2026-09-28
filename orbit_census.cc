@@ -67,8 +67,8 @@ int main(const int argc, const char** argv) {
           if (o.start(pts[i].first, pts[i].second, first_newton)) { b++; continue; }
           bool done = false;
           while (!done) {
-            done = o.run(max_iter, 1 << 20, max_period, nw, true);
-            if (o.status == 4) done = o.settle(max_iter, max_period, nw);
+            done = o.run(max_iter, 1 << 20, max_period);
+            if (o.pending()) done = o.settle(max_iter, max_period, nw);
           }
           w += double(o.n);
           b += o.status != 1 || escaped_below(o.n, double(o.cx), int(max_iter - 8));  // Below 2^-(max_iter - 8)

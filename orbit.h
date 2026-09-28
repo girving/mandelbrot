@@ -124,7 +124,7 @@ template<class T> struct Orbit {
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
   int32_t n, next_check, candidate, next_newton;  // 32 bits to save registers: max_iter < 2^30
   int32_t status;  // 0 running, 1 escaped at step n, 2 attracting cycle (period in candidate), 3 hit max_iter,
-                   // 4 stopped at a Newton step (run with defer; settle does the rest of that step)
+                   // 4 stopped at a Newton step, 5 stopped at a Brent return (settle does the rest of the step)
 
   // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling.
   // Returns true if already decided (the cardioid or period 2 disk).
@@ -140,6 +140,18 @@ template<class T> struct Orbit {
       return true;
     }
     return false;
+  }
+
+  // Stopped for settle
+  __host__ __device__ bool pending() const { return status == 4 || status == 5; }
+
+  // Run to completion, settling as we go
+  __host__ __device__ void finish(const int64_t max_iter, const int max_period = 4096,
+                                  const NewtonOptions& nw = NewtonOptions()) {
+    for (;;) {
+      if (!run(max_iter, max_iter, max_period)) continue;
+      if (!pending() || settle(max_iter, max_period, nw)) return;
+    }
   }
 
   // Iterations performed, once done
@@ -232,11 +244,12 @@ template<class T> struct Orbit {
     return true;
   }
 
-  // Finish a step stopped by run with defer (status 4) exactly as run would have: Newton, then Brent and the
+  // Finish a step at which run stopped (status 4 or 5) as a single step would: Newton (if due), then Brent and the
   // checkpoint.  Returns true if the orbit is done; otherwise it can run again.
   __host__ __device__ bool settle(const int64_t max_iter, const int max_period, const NewtonOptions& nw) {
+    const bool due = status == 4;
     status = 0;
-    if (newton(max_period, nw)) { status = 2; return true; }
+    if (due && newton(max_period, nw)) { status = 2; return true; }
     if (const int s = converged(zx, zy, cx, cy, candidate, max_period, nw)) { status = s; return true; }
     if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     if (n > max_iter) status = 3;
@@ -249,9 +262,10 @@ template<class T> struct Orbit {
   // Brent, checkpoint) run at steps that are multiples of 8: they cost as much as the iteration itself on GPUs,
   // and tying them to absolute step numbers keeps results independent of how the orbit is split into bursts.
   //
-  // With defer, run stops at Newton steps instead (status 4), so that GPU lanes can do Newton together.
-  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096,
-                               const NewtonOptions& nw = NewtonOptions(), const bool defer = false) {
+  // run stops at Newton steps (status 4) and Brent returns (status 5) and leaves them to settle, which callers
+  // run next: keeping Newton out of this loop keeps its registers down on GPUs, and lets GPU lanes settle together.
+  __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096) {
+    typedef OrbitTol<T> Tol;
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
     T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
     int32_t n = this->n, next_check = this->next_check, candidate = this->candidate;
@@ -275,12 +289,13 @@ template<class T> struct Orbit {
       // (zx, zy) is z_n, n a multiple of 8
       if (n > next_newton) [[unlikely]] {
         while (next_newton < n) next_newton *= 2;
-        if (defer) { status = 4; goto finish; }
-        this->zx = zx; this->zy = zy;
-        this->candidate = candidate;
-        if (newton(max_period, nw)) { candidate = this->candidate; status = 2; goto finish; }
+        status = 4;
+        goto finish;
       }
-      if (const int s = converged(zx, zy, cx, cy, candidate, max_period, nw)) [[unlikely]] { status = s; goto finish; }
+      {
+        const T dx = zx - cx, dy = zy - cy;
+        if (dx * dx + dy * dy < T(Tol::cycle)) [[unlikely]] { status = 5; goto finish; }
+      }
       if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     }
     if (n > max_iter) status = 3;
