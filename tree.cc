@@ -216,7 +216,7 @@ __host__ __device__ inline int tile_of(const int32_t ix, const int32_t iy, const
 }
 
 // Certified-below area per tile and threshold over chunks of cells, in finest-cell units
-const int64_t kTileChunk = 1 << 20;
+const int64_t kTileChunk = 1 << 16;  // Small chunks keep many GPU threads busy; per-chunk arrays are tiles² K
 
 struct TileCountChunk {
   const uint32_t* status;
