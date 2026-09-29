@@ -17,7 +17,8 @@ const int64_t kSteps = 1 << 14;
 
 // Variant 0: bare loop.  1: + escape test.  2: + atom-domain minimum.  3: + Brent check.  4: Orbit::run.
 // 5: OrbitDE::run without Newton.  6: OrbitDE::run with Newton attempts from step 64.  7: bare loop with Orbit's
-// FMA step (3 FMAs, 2 adds, 1 multiply: 9 flops in 6 FP64 instructions).
+// FMA step (3 FMAs, 2 adds, 1 multiply: 9 flops in 6 FP64 instructions).  8: variant 7 in unrolled 8-step blocks
+// with an escape test per block.  9: + the atom-domain minimum by integer selects.  10: + the block-end checks.
 template<int variant> __host__ __device__ double orbit(const double x, const double y) {
   if constexpr (variant == 5 || variant == 6) {
     // OrbitDE::start stops early inside the cardioid, so set up the iteration state by hand
@@ -31,6 +32,31 @@ template<int variant> __host__ __device__ double orbit(const double x, const dou
     double zx = x, zy = y, zy2 = y * y, r2 = orbit_fma(x, x, zy2);
     for (int64_t n = 1; n <= kSteps; n++) orbit_step(zx, zy, zy2, r2, x, y);
     return zx + zy + r2;
+  } else if constexpr (variant >= 8) {
+    double zx = x, zy = y, zy2 = y * y, r2 = orbit_fma(x, x, zy2), cx = x, cy = y;
+    int32_t min_key = INT32_MAX, candidate = 1, next_check = 16, next_newton = 1 << 30;
+    const int32_t max_period = 256;
+    int32_t n = 0;
+    for (; n < kSteps; n += 8) {
+      const bool track = n < max_period;
+#pragma unroll
+      for (int s = 0; s < 8; s++) {
+        orbit_step(zx, zy, zy2, r2, x, y);
+        if constexpr (variant >= 9) {
+          const int32_t key = orbit_key(r2);
+          const bool lower = track && key < min_key;
+          min_key = lower ? key : min_key;
+          candidate = lower ? n + s + 1 : candidate;
+        }
+      }
+      if (!(r2 < 18446744073709551616.0)) break;
+      if constexpr (variant >= 10) {
+        if (n > next_newton) break;
+        if (zx == cx && zy == cy) break;
+        if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
+      }
+    }
+    return zx + zy + r2 + double(candidate) + double(n);
   } else if constexpr (variant == 4) {
     Orbit<double> o;
     o.start(x, y, int64_t(1) << 40);  // No Newton.  Reports the cardioid, but initializes the state first.
@@ -126,6 +152,9 @@ int main(const int argc, const char** argv) {
   print("orbit_bench: %d orbits of %d steps on %s", n, kSteps, cuda ? "cuda" : "cpu");
   run<0>(n, cuda, "bare z^2 + c");
   run<7>(n, cuda, "bare FMA step");
+  run<8>(n, cuda, "FMA blocks of 8");
+  run<9>(n, cuda, "+ atom-domain selects");
+  run<10>(n, cuda, "+ block-end checks");
   run<1>(n, cuda, "+ escape test");
   run<2>(n, cuda, "+ atom-domain minimum");
   run<3>(n, cuda, "+ Brent check");
