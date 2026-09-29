@@ -197,8 +197,12 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
   // lanes refilling at different times do not split the warp into groups that each step half empty.
   // Item indices fit in 32 bits (n < 2^31), which saves registers.
   typename Task::State o;
+  // Claims are chunks of consecutive items, taken in scrambled chunk order: consecutive items share inputs (a
+  // leaf's samples share its cell), so a lane's refills hit cache, while the scramble still spreads slow
+  // regions across lanes.
   int32_t end = 0, i = -1, bursts = 0;  // i = current item or -1
-  int64_t j = 0, pos = 0;  // pos = scramble(j - 1).  64 bits: pos + stride can exceed 2^31.
+  int64_t j = 0;
+  const int64_t chunks = (n + chunk - 1) / chunk;
   unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
   const long long t0 = timing ? clock64() : 0;
   bool done = true, out = false;
@@ -207,15 +211,12 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
     while (done && !out) {
       if (i >= 0) { task.finish(o, i); it += task.iters(o); }
       if (j == end) {
-        j = int64_t(atomicAdd(counters, (unsigned long long)chunk));
-        if (j >= n) { out = true; i = -1; break; }
+        const int64_t c = int64_t(atomicAdd(counters, 1ull));
+        if (c >= chunks) { out = true; i = -1; break; }
+        j = scramble(c, stride, chunks) * chunk;
         end = int32_t(min(j + chunk, n));
-        pos = scramble(j, stride, n);
-      } else {
-        pos += stride;  // scramble(j) from scramble(j - 1), without a 64-bit modulus
-        if (pos >= n) pos -= n;
       }
-      i = int32_t(pos);
+      i = int32_t(j);
       j++;
       bursts = 0;
       done = task.start(o, i);
@@ -400,11 +401,12 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
     const int grid = blocks_per_sm * num_sms(), threads = grid * block;
     const int32_t budget = int32_t(std::max<int64_t>(1, budget_steps / task.burst));
+    const int64_t chunk_stride = scramble_stride((n + chunk - 1) / chunk);  // The kernel scrambles chunks
     if (timing)
-      engine_detail::launch_orbit_kernel<Task, true>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
+      engine_detail::launch_orbit_kernel<Task, true>(min_blocks, grid, task, n, chunk_stride, budget, parked.p, items.p,
                                                      cap, counters.p, chunk);
     else
-      engine_detail::launch_orbit_kernel<Task, false>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
+      engine_detail::launch_orbit_kernel<Task, false>(min_blocks, grid, task, n, chunk_stride, budget, parked.p, items.p,
                                                       cap, counters.p, chunk);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
