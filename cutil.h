@@ -43,7 +43,7 @@ cuda_check_fail(cudaError_t code, const char* function, const char* file, unsign
   if (_code != cudaSuccess) \
     cuda_check_fail(_code, __PRETTY_FUNCTION__, __FILE__, __LINE__, #code, tfm::format(__VA_ARGS__)); })
 
-// For now, we share one stream for simplicity
+// One non-blocking stream per host thread; copies synchronize with it
 CUstream stream();
 void cuda_sync();
 
@@ -56,16 +56,19 @@ template<class C> static inline auto device_get(C&& c) { return device_get(c.dat
 // We use synchronous copies since our high performance code will be entirely GPU resident.
 template<class T> static inline void host_to_device(span<Device<T>> dst, type_identity_t<span<const T>> src) {
   slow_assert(dst.size() == src.size());
-  cuda_check(cudaMemcpy(device_get(dst.data()), src.data(), src.size()*sizeof(T), cudaMemcpyHostToDevice));
+  cuda_check(cudaMemcpyAsync(device_get(dst.data()), src.data(), src.size()*sizeof(T), cudaMemcpyHostToDevice, stream()));
+  cuda_check(cudaStreamSynchronize(stream()));
 }
 template<class T> static inline void device_to_host(span<T> dst, type_identity_t<span<const Device<T>>> src) {
   slow_assert(dst.size() == src.size());
-  cuda_check(cudaMemcpy(dst.data(), device_get(src.data()), src.size()*sizeof(T), cudaMemcpyDeviceToHost));
+  cuda_check(cudaMemcpyAsync(dst.data(), device_get(src.data()), src.size()*sizeof(T), cudaMemcpyDeviceToHost, stream()));
+  cuda_check(cudaStreamSynchronize(stream()));
 }
 
 // One slow write
 template<class T> static inline void single_host_to_device(Device<T>* dst, const T src) {
-  cuda_check(cudaMemcpy(device_get(dst), &src, sizeof(T), cudaMemcpyHostToDevice));
+  cuda_check(cudaMemcpyAsync(device_get(dst), &src, sizeof(T), cudaMemcpyHostToDevice, stream()));
+  cuda_check(cudaStreamSynchronize(stream()));
 }
 
 // For device to device, we copy asynchronously

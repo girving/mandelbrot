@@ -7,6 +7,8 @@
 #include "rounded.h"
 #include "double_double.h"
 #include <cmath>
+#include <mutex>
+#include <thread>
 namespace mandelbrot {
 namespace {
 
@@ -351,6 +353,153 @@ double secs_since(const std::chrono::steady_clock::time_point t0) {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 }
 
+// One batch: base cells [cell0, cell1), with tree levels, leaf samples and reductions accumulated into Rb
+void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, const int64_t max_leaves,
+               TreeResult& Rb) {
+  const int K = p.ks.size();
+  const bool compare = p.prec.starts_with("compare"), single = p.prec == "float";
+
+  // Tree levels
+  const auto t1 = std::chrono::steady_clock::now();
+  int64_t n = cell1 - cell0;
+  Mem<Cell> cells(0, p.cuda), leaves(0, p.cuda);
+  int64_t n_leaves = 0;
+  for (int d = 0; d <= p.depth; d++) {
+    slow_assert(n < (int64_t(1) << 31), "level %d of a batch has %d cells; lower --batch", d, n);
+    const Level level{d ? cells.p : nullptr, p.base, cell0};
+    const double w = (p.x1 - p.x0) / double(p.base << d), h = (p.y1 - p.y0) / double(p.base << d);
+    Mem<uint32_t> status(n, p.cuda);
+    CenterTask task{p.burst, p.center_min_blocks, level, p.x0, p.y0, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
+                    p.center_first_newton, p.center_max_period, K, {},
+                    status.p};
+    for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
+    const auto stats = run_orbits(task, n, p.cuda);
+    Rb.center_kernel_secs += stats.secs;
+    Rb.centers += n;
+    Rb.center_iters += stats.iters;
+    Rb.overflow += stats.overflow;
+
+    // Count per chunk, then emit the next level in index order
+    const int64_t chunks = (n + kChunk - 1) / kChunk;
+    Mem<int64_t> counts(chunks * (K + 2), p.cuda);
+    for_each(chunks, CountChunk{status.p, n, K, counts.p}, p.cuda);
+    vector<int64_t> hc(chunks * (K + 2)), offsets(chunks);
+    counts.to_host(hc.data(), hc.size());
+    int64_t uncertified = 0;
+    for (int64_t c = 0; c < chunks; c++) {
+      const int64_t* o = hc.data() + c * (K + 2);
+      offsets[c] = uncertified;
+      uncertified += o[0];
+      Rb.exact[d] += o[1];
+      for (int k = 0; k < K; k++) Rb.certified[d * K + k] += o[2 + k];
+    }
+    if (p.tiles) {
+      const int64_t tc = (n + kTileChunk - 1) / kTileChunk, S = int64_t(p.tiles) * p.tiles * K;
+      Mem<int64_t> tout(tc * S, p.cuda);
+      for_each(tc, TileCountChunk{status.p, level, n, p.base << d, int64_t(1) << (2 * (p.depth - d)), p.tiles, K,
+                                  tout.p}, p.cuda);
+      const auto h = sum_chunks(tout, tc, S, p.cuda);
+      for (int64_t j = 0; j < S; j++) Rb.tile_cert[j] += h[j];
+    }
+    Mem<int64_t> doffsets(chunks, p.cuda);
+    doffsets.from_host(offsets.data(), chunks);
+    const bool last = d == p.depth;
+    Mem<Cell> next(last ? uncertified : 4 * uncertified, p.cuda);
+    for_each(chunks, EmitChunk{status.p, level, n, doffsets.p, !last, next.p}, p.cuda);
+    if (last) {
+      std::swap(leaves.p, next.p); std::swap(leaves.n, next.n);
+      n_leaves = uncertified;
+    } else {
+      std::swap(cells.p, next.p); std::swap(cells.n, next.n);
+      n = 4 * uncertified;
+    }
+  }
+  Rb.tree_secs += secs_since(t1);
+
+  // Leaf samples and reductions, in sub-batches of fewer than 2^31 samples
+  const double w = (p.x1 - p.x0) / double(p.base << p.depth), h = (p.y1 - p.y0) / double(p.base << p.depth);
+  for (int64_t l0 = 0; l0 < n_leaves; l0 += max_leaves) {
+    const int64_t nl = std::min(max_leaves, n_leaves - l0);
+    const auto t2 = std::chrono::steady_clock::now();
+    Mem<uint32_t> bits(nl * p.m, p.cuda), fbits(compare ? nl * p.m : 0, p.cuda),
+                  iters(p.leaf_stats ? nl * p.m : 0, p.cuda);
+    uint32_t* ip = p.leaf_stats ? iters.p : nullptr;
+    Rb.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip)
+                           : sample<double>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip);
+    if (compare) {
+      // The alternative precision: float, or double rounded to fewer bits
+      const Cell* lp = leaves.p + l0;
+      Rb.leaf_iters += p.prec == "compare30" ? sample<Rounded<30>>(lp, nl, p, w, h, fbits, Rb.overflow)
+                    : p.prec == "compare36" ? sample<Rounded<36>>(lp, nl, p, w, h, fbits, Rb.overflow)
+                    : p.prec == "compare42" ? sample<Rounded<42>>(lp, nl, p, w, h, fbits, Rb.overflow)
+                    : p.prec == "compare48" ? sample<Rounded<48>>(lp, nl, p, w, h, fbits, Rb.overflow)
+                    : p.prec == "comparedd" ? sample<DoubleDouble>(lp, nl, p, w, h, fbits, Rb.overflow)
+                                            : sample<float>(lp, nl, p, w, h, fbits, Rb.overflow);
+    }
+    Rb.sample_secs += secs_since(t2);
+
+    const auto t3 = std::chrono::steady_clock::now();
+    for (int k = 0; k < K; k++) {
+      Rb.area[k] += reduce(bits, nullptr, kArea, k, p, nl);
+      if (k + 1 < K) Rb.diff[k] += reduce(bits, nullptr, kDiff, k, p, nl);
+      if (compare) {
+        Rb.float_area[k] += reduce(fbits, nullptr, kArea, k, p, nl);
+        Rb.delta[k] += reduce(bits, &fbits, kDelta, k, p, nl);
+      }
+    }
+    if (compare) Rb.flips += reduce(bits, &fbits, kFlips, 0, p, nl).s;
+    if (p.tiles) {
+      const int64_t tc = (nl + kTileChunk - 1) / kTileChunk, S = int64_t(p.tiles) * p.tiles * K * 3;
+      Mem<int64_t> tout(tc * S, p.cuda);
+      for_each(tc, TileReduceChunk{bits.p, leaves.p + l0, nl, p.base << p.depth, p.tiles, K, p.m, p.strata * p.strata,
+                                   tout.p}, p.cuda);
+      const auto h = sum_chunks(tout, tc, S, p.cuda);
+      for (int64_t j = 0; j < S / 3; j++) Rb.tile_diff[j] += GroupSums{h[3 * j], h[3 * j + 1], h[3 * j + 2]};
+    }
+    if (p.leaf_stats) {
+      const int64_t chunks = (nl + kStatsChunk - 1) / kStatsChunk, size = int64_t(K) * 108;
+      Mem<int64_t> out(chunks * size, p.cuda);
+      for_each(chunks, LeafStatsChunk{bits.p, iters.p, K, nl, out.p}, p.cuda);
+      vector<int64_t> h(chunks * size);
+      out.to_host(h.data(), h.size());
+      for (int64_t c = 0; c < chunks; c++)
+        for (int64_t j = 0; j < size; j++) Rb.alloc[j] += h[c * size + j];
+    }
+    Rb.reduce_secs += secs_since(t3);
+  }
+  Rb.leaves += n_leaves;
+  Rb.batches++;
+}
+
+// Empty per-threshold sums shaped like R's, for a batch
+TreeResult empty_like(const TreeResult& R) {
+  TreeResult Rb;
+  Rb.p = R.p;
+  Rb.certified.assign(R.certified.size(), 0);
+  Rb.exact.assign(R.exact.size(), 0);
+  Rb.area.resize(R.area.size()); Rb.diff.resize(R.diff.size());
+  Rb.float_area.resize(R.float_area.size()); Rb.delta.resize(R.delta.size());
+  Rb.alloc.assign(R.alloc.size(), 0);
+  Rb.tile_diff.resize(R.tile_diff.size()); Rb.tile_cert.assign(R.tile_cert.size(), 0);
+  return Rb;
+}
+
+// R += Rb (integer sums, so the order of batches does not matter)
+void merge(TreeResult& R, const TreeResult& Rb) {
+  for (size_t i = 0; i < R.certified.size(); i++) R.certified[i] += Rb.certified[i];
+  for (size_t i = 0; i < R.exact.size(); i++) R.exact[i] += Rb.exact[i];
+  for (size_t i = 0; i < R.area.size(); i++) {
+    R.area[i] += Rb.area[i]; R.diff[i] += Rb.diff[i]; R.float_area[i] += Rb.float_area[i]; R.delta[i] += Rb.delta[i];
+  }
+  for (size_t i = 0; i < R.alloc.size(); i++) R.alloc[i] += Rb.alloc[i];
+  for (size_t i = 0; i < R.tile_diff.size(); i++) R.tile_diff[i] += Rb.tile_diff[i];
+  for (size_t i = 0; i < R.tile_cert.size(); i++) R.tile_cert[i] += Rb.tile_cert[i];
+  R.leaves += Rb.leaves; R.centers += Rb.centers; R.center_iters += Rb.center_iters; R.leaf_iters += Rb.leaf_iters;
+  R.overflow += Rb.overflow; R.flips += Rb.flips; R.batches += Rb.batches;
+  R.tree_secs += Rb.tree_secs; R.center_kernel_secs += Rb.center_kernel_secs; R.sample_secs += Rb.sample_secs;
+  R.reduce_secs += Rb.reduce_secs;
+}
+
 }  // namespace
 
 double TreeResult::cell_area(const int d) const {
@@ -405,7 +554,6 @@ TreeResult run_tree(const TreeParams& p) {
   slow_assert(p.strata >= 1 && p.m % ss == 0 && p.m / ss >= 2,
               "need m a multiple of strata^2 with at least 2 groups for variance estimates");
   slow_assert((p.base << p.depth) < (int64_t(1) << 31), "grid too fine for 32-bit cell coordinates");
-  const bool compare = p.prec.starts_with("compare"), single = p.prec == "float";
 
   TreeResult R;
   R.p = p;
@@ -420,130 +568,42 @@ TreeResult run_tree(const TreeParams& p) {
   const int64_t rows = p.rows < 0 ? p.base : std::min(p.rows, p.base);
 
   // Batches are runs of base cells in row-major order, sized adaptively for about p.batch leaves (and fewer
-  // than 2^31 samples)
+  // than 2^31 samples).  On the GPU, p.overlap batches run at once in host threads with their own streams, so
+  // one batch's slow orbits (a few lanes stepping long orbits) overlap with the next batch's full-GPU work.
   const int64_t total = rows * p.base, max_leaves = std::min<int64_t>(p.batch, ((int64_t(1) << 31) - 1) / p.m);
-  int64_t cells_per_batch = std::min<int64_t>(total, 64);  // A small first batch, to estimate leaves per cell
-  for (int64_t cell0 = 0; cell0 < total;) {
-    const int64_t cell1 = std::min(total, cell0 + cells_per_batch);
-    R.batches++;
-
-    // Tree levels
-    const auto t1 = std::chrono::steady_clock::now();
-    int64_t n = cell1 - cell0;
-    Mem<Cell> cells(0, p.cuda), leaves(0, p.cuda);
-    int64_t n_leaves = 0;
-    for (int d = 0; d <= p.depth; d++) {
-      slow_assert(n < (int64_t(1) << 31), "level %d of a batch has %d cells; lower --batch", d, n);
-      const Level level{d ? cells.p : nullptr, p.base, cell0};
-      const double w = (p.x1 - p.x0) / double(p.base << d), h = (p.y1 - p.y0) / double(p.base << d);
-      Mem<uint32_t> status(n, p.cuda);
-      CenterTask task{p.burst, p.center_min_blocks, level, p.x0, p.y0, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
-                      p.center_first_newton, p.center_max_period, K, {},
-                      status.p};
-      for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
-      const auto stats = run_orbits(task, n, p.cuda);
-      R.center_kernel_secs += stats.secs;
-      R.centers += n;
-      R.center_iters += stats.iters;
-      R.overflow += stats.overflow;
-
-      // Count per chunk, then emit the next level in index order
-      const int64_t chunks = (n + kChunk - 1) / kChunk;
-      Mem<int64_t> counts(chunks * (K + 2), p.cuda);
-      for_each(chunks, CountChunk{status.p, n, K, counts.p}, p.cuda);
-      vector<int64_t> hc(chunks * (K + 2)), offsets(chunks);
-      counts.to_host(hc.data(), hc.size());
-      int64_t uncertified = 0;
-      for (int64_t c = 0; c < chunks; c++) {
-        const int64_t* o = hc.data() + c * (K + 2);
-        offsets[c] = uncertified;
-        uncertified += o[0];
-        R.exact[d] += o[1];
-        for (int k = 0; k < K; k++) R.certified[d * K + k] += o[2 + k];
+  std::mutex mu;
+  int64_t next_cell = 0, cells_per_batch = std::min<int64_t>(total, 64);  // A small first batch, to estimate density
+  int64_t done_cells = 0, done_leaves = 0;
+  const auto worker = [&]() {
+    for (;;) {
+      int64_t cell0, cell1;
+      {
+        std::lock_guard<std::mutex> lock(mu);
+        if (next_cell >= total) return;
+        cell0 = next_cell;
+        cell1 = std::min(total, cell0 + cells_per_batch);
+        next_cell = cell1;
       }
-      if (p.tiles) {
-        const int64_t tc = (n + kTileChunk - 1) / kTileChunk, S = int64_t(p.tiles) * p.tiles * K;
-        Mem<int64_t> tout(tc * S, p.cuda);
-        for_each(tc, TileCountChunk{status.p, level, n, p.base << d, int64_t(1) << (2 * (p.depth - d)), p.tiles, K,
-                                    tout.p}, p.cuda);
-        const auto h = sum_chunks(tout, tc, S, p.cuda);
-        for (int64_t j = 0; j < S; j++) R.tile_cert[j] += h[j];
-      }
-      Mem<int64_t> doffsets(chunks, p.cuda);
-      doffsets.from_host(offsets.data(), chunks);
-      const bool last = d == p.depth;
-      Mem<Cell> next(last ? uncertified : 4 * uncertified, p.cuda);
-      for_each(chunks, EmitChunk{status.p, level, n, doffsets.p, !last, next.p}, p.cuda);
-      if (last) {
-        std::swap(leaves.p, next.p); std::swap(leaves.n, next.n);
-        n_leaves = uncertified;
-      } else {
-        std::swap(cells.p, next.p); std::swap(cells.n, next.n);
-        n = 4 * uncertified;
-      }
+      TreeResult Rb = empty_like(R);
+      run_batch(p, cell0, cell1, max_leaves, Rb);
+      std::lock_guard<std::mutex> lock(mu);
+      merge(R, Rb);
+      // Aim for about p.batch leaves per batch, from the leaves per base cell so far, growing at most 4× per
+      // batch since sparse early cells (common in --box domains) underestimate the density
+      done_cells += cell1 - cell0;
+      done_leaves += Rb.leaves;
+      const double per_cell = double(done_leaves) / double(done_cells);
+      cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (cell1 - cell0),
+                                                               int64_t(double(max_leaves) / std::max(1e-3, per_cell))));
     }
-    R.tree_secs += secs_since(t1);
-
-    // Leaf samples and reductions, in sub-batches of fewer than 2^31 samples
-    const double w = (p.x1 - p.x0) / double(p.base << p.depth), h = (p.y1 - p.y0) / double(p.base << p.depth);
-    for (int64_t l0 = 0; l0 < n_leaves; l0 += max_leaves) {
-      const int64_t nl = std::min(max_leaves, n_leaves - l0);
-      const auto t2 = std::chrono::steady_clock::now();
-      Mem<uint32_t> bits(nl * p.m, p.cuda), fbits(compare ? nl * p.m : 0, p.cuda),
-                    iters(p.leaf_stats ? nl * p.m : 0, p.cuda);
-      uint32_t* ip = p.leaf_stats ? iters.p : nullptr;
-      R.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, R.overflow, ip)
-                             : sample<double>(leaves.p + l0, nl, p, w, h, bits, R.overflow, ip);
-      if (compare) {
-        // The alternative precision: float, or double rounded to fewer bits
-        const Cell* lp = leaves.p + l0;
-        R.leaf_iters += p.prec == "compare30" ? sample<Rounded<30>>(lp, nl, p, w, h, fbits, R.overflow)
-                      : p.prec == "compare36" ? sample<Rounded<36>>(lp, nl, p, w, h, fbits, R.overflow)
-                      : p.prec == "compare42" ? sample<Rounded<42>>(lp, nl, p, w, h, fbits, R.overflow)
-                      : p.prec == "compare48" ? sample<Rounded<48>>(lp, nl, p, w, h, fbits, R.overflow)
-                      : p.prec == "comparedd" ? sample<DoubleDouble>(lp, nl, p, w, h, fbits, R.overflow)
-                                              : sample<float>(lp, nl, p, w, h, fbits, R.overflow);
-      }
-      R.sample_secs += secs_since(t2);
-
-      const auto t3 = std::chrono::steady_clock::now();
-      for (int k = 0; k < K; k++) {
-        R.area[k] += reduce(bits, nullptr, kArea, k, p, nl);
-        if (k + 1 < K) R.diff[k] += reduce(bits, nullptr, kDiff, k, p, nl);
-        if (compare) {
-          R.float_area[k] += reduce(fbits, nullptr, kArea, k, p, nl);
-          R.delta[k] += reduce(bits, &fbits, kDelta, k, p, nl);
-        }
-      }
-      if (compare) R.flips += reduce(bits, &fbits, kFlips, 0, p, nl).s;
-      if (p.tiles) {
-        const int64_t tc = (nl + kTileChunk - 1) / kTileChunk, S = int64_t(p.tiles) * p.tiles * K * 3;
-        Mem<int64_t> tout(tc * S, p.cuda);
-        for_each(tc, TileReduceChunk{bits.p, leaves.p + l0, nl, p.base << p.depth, p.tiles, K, p.m, p.strata * p.strata,
-                                     tout.p}, p.cuda);
-        const auto h = sum_chunks(tout, tc, S, p.cuda);
-        for (int64_t j = 0; j < S / 3; j++) R.tile_diff[j] += GroupSums{h[3 * j], h[3 * j + 1], h[3 * j + 2]};
-      }
-      if (p.leaf_stats) {
-        const int64_t chunks = (nl + kStatsChunk - 1) / kStatsChunk, size = int64_t(K) * 108;
-        Mem<int64_t> out(chunks * size, p.cuda);
-        for_each(chunks, LeafStatsChunk{bits.p, iters.p, K, nl, out.p}, p.cuda);
-        vector<int64_t> h(chunks * size);
-        out.to_host(h.data(), h.size());
-        for (int64_t c = 0; c < chunks; c++)
-          for (int64_t j = 0; j < size; j++) R.alloc[j] += h[c * size + j];
-      }
-      R.reduce_secs += secs_since(t3);
-    }
-    R.leaves += n_leaves;
-
-    // Aim for about p.batch leaves per batch
-    // Leaves per base cell so far (a running average, since single batches can be tiny)
-    const double per_cell = double(R.leaves) / double(cell1);
-    // At most 4× the last batch, since sparse early cells (common in --box domains) underestimate the density
-    cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (cell1 - cell0),
-                                                             int64_t(double(max_leaves) / std::max(1e-3, per_cell))));
-    cell0 = cell1;
+  };
+  const int threads = p.cuda ? p.overlap : 1;
+  slow_assert(threads >= 1, "overlap must be at least 1");
+  if (threads == 1) worker();
+  else {
+    vector<std::thread> pool;
+    for (int t = 0; t < threads; t++) pool.emplace_back(worker);
+    for (auto& t : pool) t.join();
   }
   R.secs = secs_since(t0);
   return R;

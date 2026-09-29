@@ -19,7 +19,7 @@ public:
 
   Stream() {
     CUstream p;
-    cuda_check(cudaStreamCreate(&p));
+    cuda_check(cudaStreamCreateWithFlags(&p, cudaStreamNonBlocking));
     s.reset(p, [](CUstream p) { cuda_check(cudaStreamDestroy(p)); });
   }
 
@@ -32,7 +32,8 @@ CUstream stream() {
   if (synchronous)
     return 0;
   else {
-    static Stream s;
+    // One non-blocking stream per host thread, so that concurrent batches (TreeParams::overlap) overlap
+    static thread_local Stream s;
     return s;
   }
 }

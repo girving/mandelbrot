@@ -107,17 +107,34 @@ template<class T> struct Mem : public Noncopyable {
   void to_host(T* dst, const int64_t count) const {
     slow_assert(count <= n);
     if (!count) return;
-    if (cuda) IF_CUDA(cuda_check(cudaMemcpy(dst, p, count * sizeof(T), cudaMemcpyDeviceToHost)));
-    else memcpy(dst, p, count * sizeof(T));
+    if (cuda) {
+      IF_CUDA(cuda_check(cudaMemcpyAsync(dst, p, count * sizeof(T), cudaMemcpyDeviceToHost, stream()));
+              cuda_check(cudaStreamSynchronize(stream())));
+    } else {
+      memcpy(dst, p, count * sizeof(T));
+    }
   }
   void from_host(const T* src, const int64_t count) {
     slow_assert(count <= n);
     if (!count) return;
-    if (cuda) IF_CUDA(cuda_check(cudaMemcpy(p, src, count * sizeof(T), cudaMemcpyHostToDevice)));
-    else memcpy(p, src, count * sizeof(T));
+    if (cuda) {
+      IF_CUDA(cuda_check(cudaMemcpyAsync(p, src, count * sizeof(T), cudaMemcpyHostToDevice, stream()));
+              cuda_check(cudaStreamSynchronize(stream())));
+    } else {
+      memcpy(p, src, count * sizeof(T));
+    }
   }
-  T get(const int64_t i) const { T x; slow_assert(i < n); if (cuda) IF_CUDA(cuda_check(cudaMemcpy(&x, p + i,
-      sizeof(T), cudaMemcpyDeviceToHost))); else x = p[i]; return x; }
+  T get(const int64_t i) const {
+    T x;
+    slow_assert(i < n);
+    if (cuda) {
+      IF_CUDA(cuda_check(cudaMemcpyAsync(&x, p + i, sizeof(T), cudaMemcpyDeviceToHost, stream()));
+              cuda_check(cudaStreamSynchronize(stream())));
+    } else {
+      x = p[i];
+    }
+    return x;
+  }
 };
 
 // Statistics of one run_orbits call
