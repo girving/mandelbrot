@@ -75,6 +75,13 @@ __host__ __device__ static inline uint64_t atomic_fetch_add(uint64_t* p, const u
   return __atomic_fetch_add(p, v, __ATOMIC_RELAXED);
 #endif
 }
+#ifdef __CUDACC__
+// Atomic max, on the device.  (CUDA's atomics take unsigned long long, which is not uint64_t on Linux, so the
+// casts live only in these helpers.)
+__device__ static inline void atomic_max(uint64_t* p, const uint64_t v) {
+  atomicMax(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v));
+}
+#endif
 
 // A buffer of trivially copyable T on the host or the device
 template<class T> struct Mem : public Noncopyable {
@@ -192,14 +199,14 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
 orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32_t budget,
              typename Task::State* overflow, int64_t* overflow_items, const int64_t overflow_cap,
-             unsigned long long* counters, const int32_t chunk) {
+             uint64_t* counters, const int32_t chunk) {
   // Lanes stay in the loop until their whole warp is out of work, and reconverge before each burst, so that
   // lanes refilling at different times do not split the warp into groups that each step half empty.
   // Item indices fit in 32 bits (n < 2^31), which saves registers.
   typename Task::State o;
   int32_t end = 0, i = -1, bursts = 0;  // i = current item or -1
   int64_t j = 0, pos = 0;  // pos = scramble(j - 1).  64 bits: pos + stride can exceed 2^31.
-  unsigned long long it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
+  uint64_t it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
   const long long t0 = timing ? clock64() : 0;
   bool done = true, out = false;
   for (;;) {
@@ -207,7 +214,7 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
     while (done && !out) {
       if (i >= 0) { task.finish(o, i); it += task.iters(o); }
       if (j == end) {
-        j = int64_t(atomicAdd(counters, (unsigned long long)chunk));
+        j = int64_t(atomic_fetch_add(counters, uint64_t(chunk)));
         if (j >= n) { out = true; i = -1; break; }
         end = int32_t(min(j + chunk, n));
         pos = scramble(j, stride, n);
@@ -234,7 +241,7 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
         // Steps this lane took, against the warp's longest: idle lanes within bursts
         const unsigned steps = unsigned(task.progress(o) - p0), longest = __reduce_max_sync(mask, steps);
         lane_steps += steps;
-        if (leader) warp_steps += 32ull * longest;
+        if (leader) warp_steps += uint64_t(32) * longest;
       } else {
         done = task.run(o);
       }
@@ -242,7 +249,7 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
       // Parked orbits' iterations are counted when they finish.
       const bool pending = done && task.pending(o);
       if (pending || (!done && ++bursts == budget)) {
-        const int64_t k = int64_t(atomicAdd(counters + 2, 1ull));
+        const int64_t k = int64_t(atomic_fetch_add(counters + 2, 1));
         if (k < overflow_cap) {
           overflow[k] = o;
           overflow_items[k] = i;
@@ -254,15 +261,15 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
       }
     }
   }
-  atomicAdd(counters + 1, it);
-  atomicMax(counters + 3, it);
+  atomic_add(counters + 1, it);
+  atomic_max(counters + 3, it);
   if constexpr (timing) {
-    atomicAdd(counters + 4, run_cycles);
-    atomicAdd(counters + 5, (unsigned long long)(clock64() - t0));
-    atomicAdd(counters + 6, active);
-    atomicAdd(counters + 7, slots);
-    atomicAdd(counters + 10, lane_steps);
-    atomicAdd(counters + 11, warp_steps);
+    atomic_add(counters + 4, run_cycles);
+    atomic_add(counters + 5, uint64_t(clock64() - t0));
+    atomic_add(counters + 6, active);
+    atomic_add(counters + 7, slots);
+    atomic_add(counters + 10, lane_steps);
+    atomic_add(counters + 11, warp_steps);
   }
 }
 
@@ -270,7 +277,7 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
 template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks, const int blocks, const Task& task,
                                                            const int64_t n, const int64_t stride, const int32_t budget,
                                                            typename Task::State* overflow, int64_t* items,
-                                                           const int64_t cap, unsigned long long* counters,
+                                                           const int64_t cap, uint64_t* counters,
                                                            const int32_t chunk) {
 #define LAUNCH(b) orbit_kernel<Task, timing, b><<<blocks, 256, 0, stream()>>>(task, n, stride, budget, overflow, \
                                                                              items, cap, counters, chunk)
@@ -286,8 +293,8 @@ template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks,
 
 // Settle all pending parked orbits at once, finishing those that are done (marked by item -1)
 template<class Task> __global__ void settle_kernel(const Task task, typename Task::State* parked, int64_t* items,
-                                                   const int64_t count, unsigned long long* counters) {
-  unsigned long long it = 0;
+                                                   const int64_t count, uint64_t* counters) {
+  uint64_t it = 0;
   for (int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; k < count; k += int64_t(blockDim.x) * gridDim.x) {
     typename Task::State o = parked[k];
     if (!task.pending(o)) continue;
@@ -299,8 +306,8 @@ template<class Task> __global__ void settle_kernel(const Task task, typename Tas
       parked[k] = o;
     }
   }
-  atomicAdd(counters + 1, it);
-  atomicAdd(counters + 9, it);
+  atomic_add(counters + 1, it);
+  atomic_add(counters + 9, it);
 }
 
 // Resume parked orbits (skipping finished ones) with persistent warp-synchronous threads like orbit_kernel's,
@@ -308,16 +315,16 @@ template<class Task> __global__ void settle_kernel(const Task task, typename Tas
 template<class Task> __global__ void resume_kernel(const Task task, const typename Task::State* parked,
                                                    const int64_t* items, const int64_t count,
                                                    typename Task::State* next, int64_t* next_items, const int64_t cap,
-                                                   unsigned long long* counters) {
+                                                   uint64_t* counters) {
   typename Task::State o;
   int64_t i = -1;
-  unsigned long long it = 0;
+  uint64_t it = 0;
   bool done = true, out = false;
   for (;;) {
     while (done && !out) {
       if (i >= 0) { task.finish(o, i); it += task.iters(o); }
       i = -1;
-      const int64_t k = int64_t(atomicAdd(counters + 8, 1ull));
+      const int64_t k = int64_t(atomic_fetch_add(counters + 8, 1));
       if (k >= count) { out = true; break; }
       if (items[k] < 0) continue;
       o = parked[k];
@@ -329,7 +336,7 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
     if (!out) {
       done = task.run(o);
       if (done && task.pending(o)) {
-        const int64_t k = int64_t(atomicAdd(counters + 12, 1ull));
+        const int64_t k = int64_t(atomic_fetch_add(counters + 12, 1));
         if (k < cap) {
           next[k] = o;
           next_items[k] = i;
@@ -340,8 +347,8 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
       }
     }
   }
-  atomicAdd(counters + 1, it);
-  atomicAdd(counters + 9, it);
+  atomic_add(counters + 1, it);
+  atomic_add(counters + 9, it);
 }
 
 // Finish orbits whose states were completed on the host (CPU tail), skipping finished ones (item -1)
@@ -391,7 +398,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / park));
     Mem<O> parked(cap, true), next(cap, true);
     Mem<int64_t> items(cap, true), next_items(cap, true);
-    Mem<unsigned long long> counters(13, true);
+    Mem<uint64_t> counters(13, true);
     counters.zero();
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
@@ -448,8 +455,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       rounds++;
       const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
       engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p);
-      cuda_check(cudaMemsetAsync(counters.p + 8, 0, sizeof(unsigned long long), stream()));
-      cuda_check(cudaMemsetAsync(counters.p + 12, 0, sizeof(unsigned long long), stream()));
+      cuda_check(cudaMemsetAsync(counters.p + 8, 0, sizeof(uint64_t), stream()));
+      cuda_check(cudaMemsetAsync(counters.p + 12, 0, sizeof(uint64_t), stream()));
       engine_detail::resume_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
                                                                    next_items.p, cap, counters.p);
       cuda_check(cudaGetLastError());
@@ -458,7 +465,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       std::swap(items.p, next_items.p);
     }
     cuda_check(cudaEventRecord(e2, stream()));
-    unsigned long long h[13];
+    uint64_t h[13];
     counters.to_host(h, 13);
     stats.iters = int64_t(h[1]) + cpu_iters;
     if (timing) {
