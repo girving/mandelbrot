@@ -11,6 +11,7 @@
 #include "cutil.h"
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 namespace mandelbrot {
 
 // Whether c is in the main cardioid or the period 2 disk (both inside M)
@@ -137,6 +138,21 @@ constexpr int64_t kOrbitNever = int64_t(1) << 30;
 __host__ __device__ inline double orbit_fma(const double a, const double b, const double c) { return fma(a, b, c); }
 __host__ __device__ inline float orbit_fma(const float a, const float b, const float c) { return fmaf(a, b, c); }
 
+// Order key for |z|^2 in the atom-domain minimum: the high 32 bits of the double, which order like the value
+// for nonnegative doubles (nan and inf sort above everything).  An integer compare, which GPUs issue alongside
+// FP64 work, instead of an FP64 one; ties within 2^-20 relative keep the earlier step.  Only the Newton period
+// candidate depends on it, and Newton certifies only true attracting cycles, so classifications cannot.
+__host__ __device__ inline int32_t orbit_key(const double r2) {
+#ifdef __CUDA_ARCH__
+  return __double2hiint(r2);
+#else
+  uint64_t b;
+  memcpy(&b, &r2, sizeof(b));
+  return int32_t(b >> 32);
+#endif
+}
+template<class T> __host__ __device__ inline int32_t orbit_key(const T r2) { return orbit_key(double(r2)); }
+
 // Exact doubling (Expansion<2> overloads it with its componentwise twice)
 template<class T> __host__ __device__ inline T orbit_twice(const T a) { return a + a; }
 
@@ -158,7 +174,7 @@ template<class T> struct Orbit {
   P x, y;         // The parameter c
   T zx, zy;
   T cx, cy;        // Brent checkpoint, refreshed at powers of two.  After escape, cx = |z_n|^2.
-  T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
+  int32_t min_key; // Atom domains: the step where |z_n| reaches a new minimum (orbit_key) is a candidate period
   orbit_int n, next_check, candidate, next_newton;  // max_iter < kOrbitNever
   int32_t status;  // 0 running, 1 escaped at step n, 2 attracting cycle (period in candidate), 3 hit max_iter,
                    // 4 stopped at a Newton step, 5 stopped at an exact return (settle does the rest of the step)
@@ -168,7 +184,7 @@ template<class T> struct Orbit {
   __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64) {
     x = P(x_); y = P(y_);
     zx = T(x); zy = T(y); cx = zx; cy = zy;
-    min_r2 = zx * zx + zy * zy;
+    min_key = orbit_key(zx * zx + zy * zy);
     n = 1; next_check = 16; candidate = 1; status = 0;
     next_newton = orbit_int(first_newton < kOrbitNever ? first_newton : kOrbitNever);  // ≥ kOrbitNever: never
     if (in_cardioid_or_disk(x_, y_)) {
@@ -274,10 +290,13 @@ template<class T> struct Orbit {
   // run stops at Newton steps (status 4) and exact returns (status 5) and leaves them to settle, which callers
   // run next: keeping Newton out of this loop keeps its registers down on GPUs, and lets GPU lanes settle together.
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096) {
-    T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
+    T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy;
+    int32_t min_key = this->min_key;
     T zy2 = zy * zy, r2 = orbit_fma(zx, zx, zy2);
     orbit_int n = this->n, next_check = this->next_check, candidate = this->candidate;
-    const orbit_int end = orbit_int(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
+    // End bursts at multiples of 8 (the budget permitting), so that later bursts are whole aligned blocks
+    orbit_int end = orbit_int(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
+    if (end <= max_iter && (end & ~orbit_int(7)) > n) end &= ~orbit_int(7);
     const P big = P(18446744073709551616.0);  // Escape at |z| > 2^32 so that log|z| is accurate
     while (n < end) {
       const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
@@ -287,28 +306,26 @@ template<class T> struct Orbit {
       // instead of branches; a block straddling max_period takes the careful path.  Both paths do the same
       // arithmetic, so results do not depend on which ran.
       if (block == n + 8 && !(r2 > big) && (n >= max_period || n + 8 <= max_period)) {
-        const T zx0 = zx, zy0 = zy, zy20 = zy2, r20 = r2, min0 = min_r2;
+        const T zx0 = zx, zy0 = zy, zy20 = zy2, r20 = r2;
+        const int32_t min0 = min_key;
         const orbit_int cand0 = candidate;
-        if (n >= max_period) {
+        const bool track = n < max_period;  // The whole block, since it does not straddle max_period
+        // One loop body for every lane: the minimum is tracked with integer selects, so lanes inside and past the
+        // atom-domain range do not diverge
 #ifdef __CUDA_ARCH__
 #pragma unroll
 #endif
-          for (int s = 0; s < 8; s++) orbit_step(zx, zy, zy2, r2, x, y);
-        } else {
-#ifdef __CUDA_ARCH__
-#pragma unroll
-#endif
-          for (int s = 0; s < 8; s++) {
-            orbit_step(zx, zy, zy2, r2, x, y);
-            const bool lower = r2 < min_r2;  // (zx, zy) is now z_{n+s+1}
-            min_r2 = lower ? r2 : min_r2;
-            candidate = lower ? n + s + 1 : candidate;
-          }
+        for (int s = 0; s < 8; s++) {
+          orbit_step(zx, zy, zy2, r2, x, y);
+          const int32_t key = orbit_key(r2);
+          const bool lower = track && key < min_key;  // (zx, zy) is now z_{n+s+1}
+          min_key = lower ? key : min_key;
+          candidate = lower ? n + s + 1 : candidate;
         }
         if (r2 < big) {  // False for nan and inf
           n = block;
         } else {
-          zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; min_r2 = min0; candidate = cand0;
+          zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; min_key = min0; candidate = cand0;
         }
       }
       for (; n < block; n++) {
@@ -318,7 +335,10 @@ template<class T> struct Orbit {
           goto finish;
         }
         orbit_step(zx, zy, zy2, r2, x, y);
-        if (n < max_period && r2 < min_r2) { min_r2 = r2; candidate = n + 1; }  // (zx, zy) is now z_{n+1}
+        if (n < max_period) {  // (zx, zy) is now z_{n+1}
+          const int32_t key = orbit_key(r2);
+          if (key < min_key) { min_key = key; candidate = n + 1; }
+        }
       }
       if (n & 7) continue;  // Partial block at the end of the burst
       // (zx, zy) is z_n, n a multiple of 8
@@ -332,7 +352,7 @@ template<class T> struct Orbit {
     }
     if (n > max_iter) status = 3;
   finish:
-    this->zx = zx; this->zy = zy; this->cx = cx; this->cy = cy; this->min_r2 = min_r2;
+    this->zx = zx; this->zy = zy; this->cx = cx; this->cy = cy; this->min_key = min_key;
     this->n = n; this->next_check = next_check; this->candidate = candidate;
     return status != 0;
   }
