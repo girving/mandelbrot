@@ -67,72 +67,6 @@ template<> struct OrbitTol<float> {
   static constexpr double multiplier = 1e-5;
 };
 
-// Newton certificate settings.  Negative tol2 or margin mean the precision's defaults (OrbitTol).
-struct NewtonOptions {
-  int iters = 30;             // Newton iterations per attempt
-  double close2 = INFINITY;   // Give up after one step unless |f^p(w) - w|^2 < close2
-  double tol2 = -1;           // Converged when |step|^2 < tol2 (1 + |w|^2)
-  double margin = -1;         // Attracting when |λ|^2 < 1 - margin
-  bool best_return = false;   // If the atom-domain candidate fails, also try the best return period (costly on
-                              // GPUs, where most Newton attempts are on exterior orbits and fail)
-};
-
-// Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
-// periodic point whose multiplier |(f^p)'(w)| < 1, which certifies that c is in a hyperbolic component.
-//
-// If close2 is finite, give up after the first iteration unless |f^p(w) - w|^2 < close2: orbit points that
-// have not nearly closed up rarely converge, and failures otherwise cost the full iteration count.
-template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const typename OrbitParam<T>::type x,
-                                                                   const typename OrbitParam<T>::type y, T wx, T wy,
-                                                                   const int p,
-                                                         const NewtonOptions nw = NewtonOptions()) {
-  typedef OrbitTol<T> Tol;
-  typedef typename OrbitParam<T>::type P;
-  const double tol2 = nw.tol2 < 0 ? Tol::newton : nw.tol2, margin = nw.margin < 0 ? Tol::multiplier : nw.margin,
-               close2 = nw.close2;
-  for (int it = 0; it < nw.iters; it++) {
-    // F(w) = f^p(w) - w, F'(w) = (f^p)'(w) - 1
-    T zx = wx, zy = wy, dx = T(1), dy = T(0);
-    for (int k = 0; k < p; k++) {
-      const T ndx = 2 * (zx * dx - zy * dy), ndy = 2 * (zx * dy + zy * dx);
-      dx = ndx; dy = ndy;
-      const T t = zx * zx - zy * zy + x;
-      zy = 2 * zx * zy + y;
-      zx = t;
-      if (zx * zx + zy * zy > P(16)) return false;
-    }
-    const T fx = zx - wx, fy = zy - wy, gx = dx - P(1), gy = dy;
-    if (it == 0 && !(double(fx * fx + fy * fy) < close2)) return false;
-    const T den = gx * gx + gy * gy;
-    if (!(den > P(0))) return false;
-    const T sx = (fx * gx + fy * gy) / den, sy = (fy * gx - fx * gy) / den;
-    wx -= sx; wy -= sy;
-    if (sx * sx + sy * sy < P(tol2) * (P(1) + wx * wx + wy * wy)) {
-      // Converged: the multiplier at the periodic point decides
-      T mx = T(1), my = T(0), zx2 = wx, zy2 = wy;
-      for (int k = 0; k < p; k++) {
-        const T nmx = 2 * (zx2 * mx - zy2 * my), nmy = 2 * (zx2 * my + zy2 * mx);
-        mx = nmx; my = nmy;
-        const T t = zx2 * zx2 - zy2 * zy2 + x;
-        zy2 = 2 * zx2 * zy2 + y;
-        zx2 = t;
-      }
-      return mx * mx + my * my < P(1 - margin);
-    }
-  }
-  return false;
-}
-
-// Orbit and OrbitDE keep step counts in 32 bits to save GPU registers, so max_iter must be below 2^30.  Building
-// with -DMANDELBROT_ORBIT64 makes them 64 bits, for deep runs (max_iter below 2^62), at some cost in registers.
-#ifdef MANDELBROT_ORBIT64
-typedef int64_t orbit_int;
-constexpr int64_t kOrbitNever = int64_t(1) << 62;
-#else
-typedef int32_t orbit_int;
-constexpr int64_t kOrbitNever = int64_t(1) << 30;
-#endif
-
 // Fused multiply-add for orbit arithmetic, overloaded per number type (Rounded and Expansion<2> define their own).
 // Explicit, so that CPU and GPU agree bit for bit (contraction is off in all builds) while the step uses FMAs.
 __host__ __device__ inline double orbit_fma(const double a, const double b, const double c) { return fma(a, b, c); }
@@ -166,6 +100,76 @@ template<class T> __host__ __device__ inline void orbit_step(T& zx, T& zy, T& zy
   zy2 = zy * zy;
   r2 = orbit_fma(zx, zx, zy2);
 }
+
+// Newton certificate settings.  Negative tol2 or margin mean the precision's defaults (OrbitTol).
+struct NewtonOptions {
+  int iters = 30;             // Newton iterations per attempt
+  double close2 = INFINITY;   // Give up after one step unless |f^p(w) - w|^2 < close2
+  double tol2 = -1;           // Converged when |step|^2 < tol2 (1 + |w|^2)
+  double margin = -1;         // Attracting when |λ|^2 < 1 - margin
+  bool best_return = false;   // If the atom-domain candidate fails, also try the best return period (costly on
+                              // GPUs, where most Newton attempts are on exterior orbits and fail)
+};
+
+// Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
+// periodic point whose multiplier |(f^p)'(w)| < 1, which certifies that c is in a hyperbolic component.
+//
+// If close2 is finite, give up after the first iteration unless |f^p(w) - w|^2 < close2: orbit points that
+// have not nearly closed up rarely converge, and failures otherwise cost the full iteration count.
+template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const typename OrbitParam<T>::type x,
+                                                                   const typename OrbitParam<T>::type y, T wx, T wy,
+                                                                   const int p,
+                                                         const NewtonOptions nw = NewtonOptions()) {
+  typedef OrbitTol<T> Tol;
+  typedef typename OrbitParam<T>::type P;
+  const double tol2 = nw.tol2 < 0 ? Tol::newton : nw.tol2, margin = nw.margin < 0 ? Tol::multiplier : nw.margin,
+               close2 = nw.close2;
+  for (int it = 0; it < nw.iters; it++) {
+    // F(w) = f^p(w) - w, F'(w) = (f^p)'(w) - 1, with FMAs sharing 2z between z^2 + c and 2 z dz
+    T zx = wx, zy = wy, dx = T(1), dy = T(0), zy2 = zy * zy;
+    for (int k = 0; k < p; k++) {
+      const T tzx = orbit_twice(zx), tzy = orbit_twice(zy);
+      const T ndx = orbit_fma(tzx, dx, -(tzy * dy)), ndy = orbit_fma(tzx, dy, tzy * dx);
+      dx = ndx; dy = ndy;
+      const T t = x - zy2;
+      zy = orbit_fma(tzx, zy, y);
+      zx = orbit_fma(zx, zx, t);
+      zy2 = zy * zy;
+      if (orbit_fma(zx, zx, zy2) > P(16)) return false;
+    }
+    const T fx = zx - wx, fy = zy - wy, gx = dx - P(1), gy = dy;
+    if (it == 0 && !(double(fx * fx + fy * fy) < close2)) return false;
+    const T den = gx * gx + gy * gy;
+    if (!(den > P(0))) return false;
+    const T sx = (fx * gx + fy * gy) / den, sy = (fy * gx - fx * gy) / den;
+    wx -= sx; wy -= sy;
+    if (sx * sx + sy * sy < P(tol2) * (P(1) + wx * wx + wy * wy)) {
+      // Converged: the multiplier at the periodic point decides
+      T mx = T(1), my = T(0), ux = wx, uy = wy, uy2 = uy * uy;
+      for (int k = 0; k < p; k++) {
+        const T tux = orbit_twice(ux), tuy = orbit_twice(uy);
+        const T nmx = orbit_fma(tux, mx, -(tuy * my)), nmy = orbit_fma(tux, my, tuy * mx);
+        mx = nmx; my = nmy;
+        const T t = x - uy2;
+        uy = orbit_fma(tux, uy, y);
+        ux = orbit_fma(ux, ux, t);
+        uy2 = uy * uy;
+      }
+      return mx * mx + my * my < P(1 - margin);
+    }
+  }
+  return false;
+}
+
+// Orbit and OrbitDE keep step counts in 32 bits to save GPU registers, so max_iter must be below 2^30.  Building
+// with -DMANDELBROT_ORBIT64 makes them 64 bits, for deep runs (max_iter below 2^62), at some cost in registers.
+#ifdef MANDELBROT_ORBIT64
+typedef int64_t orbit_int;
+constexpr int64_t kOrbitNever = int64_t(1) << 62;
+#else
+typedef int32_t orbit_int;
+constexpr int64_t kOrbitNever = int64_t(1) << 30;
+#endif
 
 template<class T> struct Orbit {
   typedef typename OrbitParam<T>::type P;
