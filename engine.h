@@ -195,56 +195,26 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 // inside run, total cycles, active lanes at run calls, warp lanes at run calls, 8: next resume claim,
 // 9: iterations in rounds, 10-11 with timing: lane steps and warp steps, 12: parked in this round].
 
-// Persistent threads.  Orbits that are pending or have run `budget` bursts are parked (if room) and finished in
-// rounds of settle_kernel and resume_kernel.
-template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
-orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32_t budget,
-             typename Task::State* overflow, int64_t* overflow_items, const int64_t overflow_cap,
-             uint64_t* counters) {
-  // Lanes stay in the loop until their whole warp is out of work, and reconverge before each burst, so that
-  // lanes refilling at different times do not split the warp into groups that each step half empty.
-  //
-  // Refills come from a per-warp queue in shared memory: the warp claims 32 items and starts them all at once,
-  // one per lane, so that lanes finishing in different bursts copy a started orbit instead of each running
-  // start (a few hundred instructions: sample placement, hashing, the cardioid test) with the rest of the warp
-  // idle.  Item indices fit in 32 bits (n < 2^31), which saves registers.
-  typedef typename Task::State State;
-  __shared__ alignas(16) unsigned char queue_bytes[256 * sizeof(State)];
-  __shared__ int32_t queue_items[256];
-  const int lane = int(threadIdx.x & 31);
-  State* const queue = reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u);
-  int32_t* const qitems = queue_items + (threadIdx.x & ~31u);
-  unsigned ready = 0;      // Queue slots holding started orbits (warp-uniform)
-  bool exhausted = false;  // No items left to claim (warp-uniform)
-  State o;
-  int32_t i = -1, bursts = 0;  // i = current item or -1
-  uint64_t it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
-  const long long t0 = timing ? clock64() : 0;
-  bool done = true;
-  for (;;) {
-    if (done && i >= 0) { task.finish(o, i); it += task.iters(o); i = -1; }
-    // Refill idle lanes from the queue, restocking it when empty
+// Per-warp queue of ready orbits in shared memory, restocked 32 at a time (one per lane), so that lanes going idle
+// in different bursts copy a ready orbit instead of each preparing one (starting a sample: a few hundred
+// instructions of placement, hashing, and the cardioid test; or claiming and loading a parked orbit) with the rest
+// of the warp waiting.  Item indices fit in 32 bits (n < 2^31), which saves registers.
+template<class State> struct WarpQueue {
+  State* slots;            // This warp's 32 slots
+  int32_t* items;
+  unsigned ready = 0;      // Slots holding ready orbits (warp-uniform)
+  bool exhausted = false;  // Nothing left to restock from (warp-uniform)
+
+  // Give idle (done) lanes ready orbits while there are any.  restock(slot, item, filled) fills this lane's slot,
+  // setting filled if it holds a ready orbit, and returns whether the source is now exhausted (warp-uniform).
+  template<class Restock> __device__ void refill(bool& done, State& o, int32_t& i, int32_t& bursts,
+                                                 const Restock& restock) {
+    const int lane = int(threadIdx.x & 31);
     for (unsigned need = __ballot_sync(0xffffffff, done); need && (ready || !exhausted);) {
       if (!ready) {
-        uint64_t j0 = 0;
-        if (!lane) j0 = atomic_fetch_add(counters, uint64_t(32));
-        j0 = __shfl_sync(0xffffffff, j0, 0);
-        const int64_t j = int64_t(j0) + lane;
-        bool started = false;
-        if (j < n) {
-          // Started in place, so that no second state occupies registers
-          const int32_t k = int32_t(scramble(j, stride, n));
-          State& q = queue[lane];
-          if (task.start(q, k)) {  // Decided at once
-            task.finish(q, k);
-            it += task.iters(q);
-          } else {
-            qitems[lane] = k;
-            started = true;
-          }
-        }
-        exhausted = int64_t(j0) + 32 >= n;
-        ready = __ballot_sync(0xffffffff, started);
+        bool filled = false;
+        exhausted = restock(slots[lane], items[lane], filled);
+        ready = __ballot_sync(0xffffffff, filled);
         __syncwarp();
         continue;
       }
@@ -252,8 +222,8 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
       const int r = __popc(need & ((1u << lane) - 1)), avail = __popc(ready);
       if (((need >> lane) & 1) && r < avail) {
         const int slot = int(__fns(ready, 0, r + 1));
-        o = queue[slot];
-        i = qitems[slot];
+        o = slots[slot];
+        i = items[slot];
         done = false;
         bursts = 0;
       }
@@ -262,6 +232,49 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
       need = __ballot_sync(0xffffffff, done);
       __syncwarp();
     }
+  }
+};
+
+// Persistent threads.  Orbits that are pending or have run `budget` bursts are parked (if room) and finished in
+// rounds of settle_kernel and resume_kernel.
+template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
+orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32_t budget,
+             typename Task::State* overflow, int64_t* overflow_items, const int64_t overflow_cap,
+             uint64_t* counters) {
+  // Lanes stay in the loop until their whole warp is out of work, and reconverge before each burst, so that
+  // lanes refilling at different times do not split the warp into groups that each step half empty.  Refills
+  // come from a WarpQueue, restocked by claiming 32 items and starting them in place (so that no second state
+  // occupies registers); items decided at once (the cardioid) finish there.
+  typedef typename Task::State State;
+  __shared__ alignas(16) unsigned char queue_bytes[256 * sizeof(State)];
+  __shared__ int32_t queue_items[256];
+  const int lane = int(threadIdx.x & 31);
+  WarpQueue<State> queue{reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u), queue_items + (threadIdx.x & ~31u)};
+  State o;
+  int32_t i = -1, bursts = 0;  // i = current item or -1
+  uint64_t it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
+  const long long t0 = timing ? clock64() : 0;
+  bool done = true;
+  const auto restock = [&](State& q, int32_t& qi, bool& filled) {
+    uint64_t j0 = 0;
+    if (!lane) j0 = atomic_fetch_add(counters, uint64_t(32));
+    j0 = __shfl_sync(0xffffffff, j0, 0);
+    const int64_t j = int64_t(j0) + lane;
+    if (j < n) {
+      const int32_t k = int32_t(scramble(j, stride, n));
+      if (task.start(q, k)) {  // Decided at once
+        task.finish(q, k);
+        it += task.iters(q);
+      } else {
+        qi = k;
+        filled = true;
+      }
+    }
+    return int64_t(j0) + 32 >= n;
+  };
+  for (;;) {
+    if (done && i >= 0) { task.finish(o, i); it += task.iters(o); i = -1; }
+    queue.refill(done, o, i, bursts, restock);
     if (__all_sync(0xffffffff, done)) break;  // Out of work
     if (!done) {
       if constexpr (timing) {
@@ -401,24 +414,33 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
                                                    const int64_t* items, const int64_t count,
                                                    typename Task::State* next, int64_t* next_items, const int64_t cap,
                                                    uint64_t* counters) {
-  typename Task::State o;
-  int64_t i = -1;
+  // A WarpQueue restocked by claiming 32 parked orbits and loading the unfinished ones
+  typedef typename Task::State State;
+  __shared__ alignas(16) unsigned char queue_bytes[256 * sizeof(State)];
+  __shared__ int32_t queue_items[256];
+  const int lane = int(threadIdx.x & 31);
+  WarpQueue<State> queue{reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u), queue_items + (threadIdx.x & ~31u)};
+  State o;
+  int32_t i = -1, bursts = 0;
   uint64_t it = 0;
-  bool done = true, out = false;
-  for (;;) {
-    while (done && !out) {
-      if (i >= 0) { task.finish(o, i); it += task.iters(o); }
-      i = -1;
-      const int64_t k = int64_t(atomic_fetch_add(counters + 8, 1));
-      if (k >= count) { out = true; break; }
-      if (items[k] < 0) continue;
-      o = parked[k];
-      i = items[k];
-      done = false;
+  bool done = true;
+  const auto restock = [&](State& q, int32_t& qi, bool& filled) {
+    uint64_t k0 = 0;
+    if (!lane) k0 = atomic_fetch_add(counters + 8, uint64_t(32));
+    k0 = __shfl_sync(0xffffffff, k0, 0);
+    const int64_t k = int64_t(k0) + lane;
+    if (k < count && items[k] >= 0) {
+      q = parked[k];
+      qi = int32_t(items[k]);
+      filled = true;
     }
-    if (__all_sync(0xffffffff, out)) break;
-    __syncwarp();
-    if (!out) {
+    return int64_t(k0) + 32 >= count;
+  };
+  for (;;) {
+    if (done && i >= 0) { task.finish(o, i); it += task.iters(o); i = -1; }
+    queue.refill(done, o, i, bursts, restock);
+    if (__all_sync(0xffffffff, done)) break;  // Out of work
+    if (!done) {
       done = task.run(o);
       if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
       if (done && task.pending(o)) {
@@ -432,6 +454,7 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
         }
       }
     }
+    __syncwarp();
   }
   atomic_add(counters + 1, it);
   atomic_add(counters + 9, it);
