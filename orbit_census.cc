@@ -55,20 +55,32 @@ int main(const int argc, const char** argv) {
     std::mutex mu;
     int64_t below = 0, n_long = 0;
     std::vector<int64_t> esc(octaves), cert(octaves), capped(1);
-    double work = 0, long_work = 0;
+    double work = 0, long_work = 0, newton_secs = 0, total_secs = 0;
+    int64_t newtons = 0, certified = 0;
     std::vector<std::thread> pool;
     for (int t = 0; t < cpu_threads(); t++)
       pool.emplace_back([&]() {
         int64_t b = 0, l = 0, cp = 0;
         std::vector<int64_t> e(octaves), c(octaves);
-        double w = 0, lw = 0;
+        double w = 0, lw = 0, ns = 0;
+        int64_t nn = 0, nc = 0;
+        const auto s0 = std::chrono::steady_clock::now();
         for (int64_t i; (i = next.fetch_add(1)) < samples;) {
           Orbit<double> o;
           if (o.start(pts[i].first, pts[i].second, first_newton)) { b++; continue; }
           bool done = false;
           while (!done) {
             done = o.run(max_iter, 1 << 20);
-            if (o.pending()) done = o.settle(max_iter, max_period, nw);
+            if (o.pending()) {
+              const bool due = o.status == 4;
+              const auto n0 = std::chrono::steady_clock::now();
+              done = o.settle(max_iter, max_period, nw);
+              if (due) {
+                ns += std::chrono::duration<double>(std::chrono::steady_clock::now() - n0).count();
+                nn++;
+                nc += o.status == 2;
+              }
+            }
           }
           w += double(o.n);
           b += o.status != 1 || escaped_below(o.n, double(o.cx), int(max_iter - 8));  // Below 2^-(max_iter - 8)
@@ -81,6 +93,8 @@ int main(const int argc, const char** argv) {
           }
         }
         std::lock_guard<std::mutex> g(mu);
+        total_secs += std::chrono::duration<double>(std::chrono::steady_clock::now() - s0).count();
+        newton_secs += ns; newtons += nn; certified += nc;
         below += b; n_long += l; capped[0] += cp; work += w; long_work += lw;
         for (int k = 0; k < octaves; k++) { esc[k] += e[k]; cert[k] += c[k]; }
       });
@@ -90,6 +104,8 @@ int main(const int argc, const char** argv) {
           "%d threads: %.1f s", samples, max_iter, first_newton, max_period, tol, nw.margin, cpu_threads(), secs);
     print("  work %.4g steps, %.1f%% in %d orbits longer than %d steps (%d hit max_iter); %d samples below "
           "2^-(max_iter - 8)", work, 100 * long_work / work, n_long, long_steps, capped[0], below);
+    print("  Newton: %d attempts, %d certified, %.1f%% of thread time", newtons, certified,
+          100 * newton_secs / total_secs);
     for (int k = int(std::log2(double(long_steps))); k < octaves; k++)
       if (esc[k] || cert[k]) print("    ended at 2^%d: %d escaped, %d certified", k, esc[k], cert[k]);
     return 0;
