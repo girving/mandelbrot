@@ -141,6 +141,7 @@ template<class T> struct Mem : public Noncopyable {
 struct RunStats {
   int64_t iters = 0;     // Total iterations
   int64_t overflow = 0;  // Orbits deferred to the second pass (GPU only)
+  int64_t cpu_tail = 0;  // Parked orbits finished on CPU threads (GPU only)
   double secs = 0;
 };
 
@@ -343,6 +344,13 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
   atomicAdd(counters + 9, it);
 }
 
+// Finish orbits whose states were completed on the host (CPU tail), skipping finished ones (item -1)
+template<class Task> __global__ void finish_kernel(const Task task, const typename Task::State* states,
+                                                   const int64_t* items, const int64_t count) {
+  for (int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; k < count; k += int64_t(blockDim.x) * gridDim.x)
+    if (items[k] >= 0) task.finish(states[k], items[k]);
+}
+
 template<class F> __global__ void for_each_kernel(const int64_t n, const F f) {
   for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += int64_t(blockDim.x) * gridDim.x)
     f(i);
@@ -376,7 +384,10 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                      budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 14),
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0),
                      park = env_int("MANDELBROT_CUDA_PARK", 8),  // Room to park n / park orbits
-                     chunk = env_int("MANDELBROT_CUDA_CHUNK", 16);  // Items per claim
+                     chunk = env_int("MANDELBROT_CUDA_CHUNK", 16),  // Items per claim
+                     // Finish on CPU threads once this few orbits remain: a lone GPU lane steps a sequential
+                     // orbit ~40× slower than a CPU core, so late rounds of a few long orbits idle the GPU.
+                     cpu_tail = env_int("MANDELBROT_CUDA_CPU_TAIL", 1024);
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / park));
     Mem<O> parked(cap, true), next(cap, true);
     Mem<int64_t> items(cap, true), next_items(cap, true);
@@ -400,7 +411,40 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     // Rounds: settle pending orbits together, then resume the rest until they are done or pending again
     int64_t count = std::min<int64_t>(cap, int64_t(counters.get(2))), rounds = 0;
     stats.overflow = count;
+    int64_t cpu_iters = 0;
     while (count) {
+      if (count <= cpu_tail) {
+        // Few orbits left: copy them to the host, finish them on CPU threads, and write results on the device
+        std::vector<O> h(count);
+        std::vector<int64_t> hi(count);
+        parked.to_host(h.data(), count);
+        items.to_host(hi.data(), count);
+        std::atomic<int64_t> next_k(0), iters(0);
+        std::vector<std::thread> pool;
+        for (int t = 0; t < cpu_threads(); t++)
+          pool.emplace_back([&]() {
+            int64_t it = 0;
+            for (int64_t k; (k = next_k.fetch_add(1)) < count;) {
+              if (hi[k] < 0) continue;
+              O o = h[k];
+              for (bool done = false; !done;) {
+                if (task.pending(o)) done = task.settle(o);
+                else done = task.run(o) && !task.pending(o);
+              }
+              h[k] = o;
+              it += task.iters(o);
+            }
+            iters += it;
+          });
+        for (auto& t : pool) t.join();
+        parked.from_host(h.data(), count);
+        const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
+        engine_detail::finish_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count);
+        cuda_check(cudaGetLastError());
+        cpu_iters = iters;
+        stats.cpu_tail = count;
+        break;
+      }
       rounds++;
       const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
       engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p);
@@ -416,7 +460,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     cuda_check(cudaEventRecord(e2, stream()));
     unsigned long long h[13];
     counters.to_host(h, 13);
-    stats.iters = int64_t(h[1]);
+    stats.iters = int64_t(h[1]) + cpu_iters;
     if (timing) {
       float main_ms, over_ms;
       cuda_check(cudaEventElapsedTime(&main_ms, e0, e1));
