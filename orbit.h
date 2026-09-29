@@ -182,10 +182,11 @@ template<class T> struct Orbit {
   // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling.
   // Returns true if already decided (the cardioid or period 2 disk).
   __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64) {
+    // Start at z_0 = 0 (the first step gives z_1 = c exactly), so that 8-step blocks align from the start
     x = P(x_); y = P(y_);
-    zx = T(x); zy = T(y); cx = zx; cy = zy;
-    min_key = orbit_key(zx * zx + zy * zy);
-    n = 1; next_check = 16; candidate = 1; status = 0;
+    zx = T(0); zy = T(0); cx = T(x); cy = T(y);
+    min_key = INT32_MAX;
+    n = 0; next_check = 16; candidate = 1; status = 0;
     next_newton = orbit_int(first_newton < kOrbitNever ? first_newton : kOrbitNever);  // ≥ kOrbitNever: never
     if (in_cardioid_or_disk(x_, y_)) {
       const bool disk = (x_ + 1) * (x_ + 1) + y_ * y_ <= 1.0 / 16;
@@ -196,7 +197,9 @@ template<class T> struct Orbit {
   }
 
   // Stopped for settle
-  __host__ __device__ bool pending() const { return status == 4 || status == 5; }
+  __host__ __device__ bool pending() const { return status == 4 || status == 5 || status == 8; }
+  // Stopped for a settle that should run at once (status 8: a block overflowed), all lanes of a warp together
+  __host__ __device__ bool immediate() const { return status == 8; }
 
   // Run to completion, settling as we go
   __host__ __device__ void finish(const int64_t max_iter, const int max_period = 4096,
@@ -272,6 +275,22 @@ template<class T> struct Orbit {
   // Finish a step at which run stopped (status 4 or 5) as a single step would: Newton (if due), then Brent and the
   // checkpoint.  Returns true if the orbit is done; otherwise it can run again.
   __host__ __device__ bool settle(const int64_t max_iter, const int max_period, const NewtonOptions& nw) {
+    if (status == 8) {
+      // A fast block overflowed: redo it step by step to find the escape step
+      status = 0;
+      T zy2 = zy * zy, r2 = orbit_fma(zx, zx, zy2);
+      const P big = P(18446744073709551616.0);
+      const orbit_int block = (n | 7) + 1;
+      for (;; n++) {
+        if (r2 > big) { cx = r2; status = 1; return true; }
+        if (n == block) return false;  // |z|^2 landed exactly on the threshold: keep going (skipping one block's checks)
+        orbit_step(zx, zy, zy2, r2, x, y);
+        if (n < max_period) {
+          const int32_t key = orbit_key(r2);
+          if (key < min_key) { min_key = key; candidate = n + 1; }
+        }
+      }
+    }
     const bool due = status == 4;
     status = 0;
     if (due && newton(max_period, nw)) { status = 2; return true; }
@@ -306,7 +325,7 @@ template<class T> struct Orbit {
       // instead of branches; a block straddling max_period takes the careful path.  Both paths do the same
       // arithmetic, so results do not depend on which ran.
       if (block == n + 8 && !(r2 > big) && (n >= max_period || n + 8 <= max_period)) {
-        const T zx0 = zx, zy0 = zy, zy20 = zy2, r20 = r2;
+        const T zx0 = zx, zy0 = zy;
         const int32_t min0 = min_key;
         const orbit_int cand0 = candidate;
         const bool track = n < max_period;  // The whole block, since it does not straddle max_period
@@ -325,7 +344,11 @@ template<class T> struct Orbit {
         if (r2 < big) {  // False for nan and inf
           n = block;
         } else {
-          zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; min_key = min0; candidate = cand0;
+          // It escaped in this block: restore its start and leave the step-by-step search to settle, which the
+          // engine runs for all such lanes of a warp together instead of each lane stalling the rest
+          zx = zx0; zy = zy0; min_key = min0; candidate = cand0;
+          status = 8;
+          goto finish;
         }
       }
       for (; n < block; n++) {

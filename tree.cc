@@ -163,6 +163,7 @@ template<class T> struct SampleTask {
   __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ bool pending(const State& o) const { return o.pending(); }
+  __host__ __device__ bool immediate(const State& o) const { return o.immediate(); }
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton); }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
