@@ -313,26 +313,6 @@ template<class Task> __global__ void settle_kernel(const Task task, typename Tas
   atomic_add(counters + 9, it);
 }
 
-// Bucket sort of parked orbits by task.settle_key (in [0, kSettleBuckets)), so that each warp of settle_kernel
-// settles similar work (Newton's cost scales with the candidate period).  The order within a bucket varies from
-// run to run, which only changes processing order: results are keyed by item.
-constexpr int kSettleBuckets = 16;
-template<class Task> __global__ void bucket_count_kernel(const Task task, const typename Task::State* parked,
-                                                         const int64_t count, uint64_t* sizes) {
-  for (int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; k < count; k += int64_t(blockDim.x) * gridDim.x)
-    atomic_add(sizes + task.settle_key(parked[k]), 1);
-}
-template<class Task> __global__ void bucket_scatter_kernel(const Task task, const typename Task::State* parked,
-                                                           const int64_t* items, const int64_t count, uint64_t* next,
-                                                           typename Task::State* out, int64_t* out_items) {
-  for (int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; k < count; k += int64_t(blockDim.x) * gridDim.x) {
-    const typename Task::State o = parked[k];
-    const int64_t j = int64_t(atomic_fetch_add(next + task.settle_key(o), 1));
-    out[j] = o;
-    out_items[j] = items[k];
-  }
-}
-
 // Resume parked orbits (skipping finished ones) with persistent warp-synchronous threads like orbit_kernel's,
 // until done or pending again, when they park into next
 template<class Task> __global__ void resume_kernel(const Task task, const typename Task::State* parked,
@@ -482,24 +462,6 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       rounds++;
       const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
       const auto r0 = std::chrono::steady_clock::now();
-      if constexpr (requires { task.settle_key(*parked.p); }) {
-        // Group similar settles into the same warps: count, prefix-sum, and scatter into next, then swap
-        Mem<uint64_t> sizes(2 * engine_detail::kSettleBuckets, true);
-        sizes.zero();
-        engine_detail::bucket_count_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, count, sizes.p);
-        uint64_t h[2 * engine_detail::kSettleBuckets];
-        sizes.to_host(h, engine_detail::kSettleBuckets);
-        uint64_t offset = 0;
-        for (int b = 0; b < engine_detail::kSettleBuckets; b++) { h[engine_detail::kSettleBuckets + b] = offset; offset += h[b]; }
-        cuda_check(cudaMemcpyAsync(sizes.p + engine_detail::kSettleBuckets, h + engine_detail::kSettleBuckets,
-                                   engine_detail::kSettleBuckets * sizeof(uint64_t), cudaMemcpyHostToDevice, stream()));
-        engine_detail::bucket_scatter_kernel<Task><<<g, block, 0, stream()>>>(
-            task, parked.p, items.p, count, sizes.p + engine_detail::kSettleBuckets, next.p, next_items.p);
-        cuda_check(cudaGetLastError());
-        std::swap(parked.p, next.p);
-        std::swap(items.p, next_items.p);
-        cuda_check(cudaStreamSynchronize(stream()));  // h is read by the async copy
-      }
       engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p);
       if (timing) cuda_check(cudaStreamSynchronize(stream()));
       const auto r1 = std::chrono::steady_clock::now();
