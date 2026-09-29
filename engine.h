@@ -31,6 +31,7 @@
 #include <cstring>
 #include <thread>
 #include <type_traits>
+#include <typeinfo>
 #include <vector>
 namespace mandelbrot {
 
@@ -489,8 +490,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       float main_ms, over_ms;
       cuda_check(cudaEventElapsedTime(&main_ms, e0, e1));
       cuda_check(cudaEventElapsedTime(&over_ms, e1, e2));
-      print("    cuda run: %d items, %d threads, main %.1f ms, %d parked, %d rounds %.1f ms, %.3g it/s; "
-            "iterations per thread mean %.3g, max %.3g", n, threads, main_ms, stats.overflow, rounds, over_ms,
+      print("    cuda run (%s): %d items, %d threads, main %.1f ms, %d parked, %d rounds %.1f ms, %.3g it/s; "
+            "iterations per thread mean %.3g, max %.3g", typeid(Task).name(), n, threads, main_ms, stats.overflow, rounds, over_ms,
             double(h[1]) / ((main_ms + over_ms) * 1e-3), double(h[1]) / threads, double(h[3]));
       print("      main pass: %.3g it/s, %.1f%% of thread cycles in run, SIMT efficiency at run %.1f%%, "
             "lane steps / warp steps %.1f%%; rounds %.3g it/s", double(h[1] - h[9]) / (main_ms * 1e-3),

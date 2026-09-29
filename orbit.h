@@ -596,8 +596,10 @@ struct OrbitDE {
     if (end <= max_iter && (end & ~orbit_int(7)) > n) end &= ~orbit_int(7);  // Bursts end on block boundaries
     const double big = 18446744073709551616.0;
     while (n < end) {
-      const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
-      if (block == n + 8 && !(r2 > big)) {
+      // A fast block unless unaligned or at the end of the burst; one that overflows is redone carefully.  (A
+      // careful block can end escaped on a block boundary; the next fast block then overflows and is redone.)
+      bool careful = (n & 7) || n + 8 > end;
+      if (!careful) {
         const double zx0 = zx, zy0 = zy, zy20 = zy2, r20 = r2, dx0 = dx, dy0 = dy;
         const int32_t min0 = min_key;
 #ifdef __CUDA_ARCH__
@@ -609,43 +611,47 @@ struct OrbitDE {
           min_key = key < min_key ? key : min_key;
         }
         if (r2 < big) {  // False for nan and inf
-          n = block;
+          n += 8;
         } else {
           zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; dx = dx0; dy = dy0; min_key = min0;
+          careful = true;
         }
       }
-      for (; n < block; n++) {
-        if (r2 > big) {
-          // The distance bound is computed by result(), off the hot loop: GPU lanes that finish in the same burst
-          // compute it together, instead of each stalling its warp
-          cx = r2;
-          status = 7;
-          goto finish;
+      if (careful) [[unlikely]] {
+        const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
+        for (; n < block; n++) {
+          if (r2 > big) {
+            // The distance bound is computed by result(), off the hot loop: GPU lanes that finish in the same
+            // burst compute it together, instead of each stalling its warp
+            cx = r2;
+            status = 7;
+            goto finish;
+          }
+          step(zx, zy, zy2, r2, dx, dy, unit);
+          const int32_t key = orbit_key(r2);
+          min_key = key < min_key ? key : min_key;
         }
-        step(zx, zy, zy2, r2, dx, dy, unit);
-        const int32_t key = orbit_key(r2);
-        min_key = key < min_key ? key : min_key;
       }
       if (dx * dx + dy * dy > 1e200) [[unlikely]] {
         dx = std::ldexp(dx, -256); dy = std::ldexp(dy, -256); dexp += 256;
         unit = std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000)));
       }
-      if (n & 7) continue;  // Partial block at the end of the burst
-      // (zx, zy) is z_n, n a multiple of 8
-      {
+      if (n & 7) break;  // Partial block at the end of the burst
+      // (zx, zy) is z_n, n a multiple of 8.  One branch for the rare checks keeps the fast loop tight.
+      const double ex = zx - cx, ey = zy - cy;
+      const bool brent = ex * ex + ey * ey < 1e-26;
+      if (n > next_newton || n > next_check || brent) [[unlikely]] {
         const bool newton = n > next_newton;
-        if (newton) while (next_newton < n) next_newton *= 2;
-        const double ex = zx - cx, ey = zy - cy;
-        const bool brent = ex * ex + ey * ey < 1e-26;
-        if (newton || brent) [[unlikely]] {
+        if (newton || brent) {
+          if (newton) while (next_newton < n) next_newton *= 2;
           status = newton ? 4 : 5;
           if (defer) goto finish;
           this->zx = zx; this->zy = zy; this->n = n; this->min_key = min_key;
           if (settle(max_iter, max_period)) goto finish;
           continue;  // settle did the checkpoint
         }
+        cx = zx; cy = zy; check_n = n; next_check *= 2;
       }
-      if (n > next_check) { cx = zx; cy = zy; check_n = n; next_check *= 2; }
     }
     if (n > max_iter) { r.e = {-1, -INFINITY, 0, int64_t(max_iter)}; status = 1; }
   finish:
