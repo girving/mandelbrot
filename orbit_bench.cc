@@ -61,7 +61,7 @@ template<int variant> __host__ __device__ double orbit(const double x, const dou
     Orbit<double> o;
     o.start(x, y, int64_t(1) << 40);  // No Newton.  Reports the cardioid, but initializes the state first.
     o.status = 0; o.n = 0;
-    o.run(kSteps, kSteps, 256);
+    o.run(kSteps, kSteps);
     return double(o.n) + o.zx;
   } else {
     double zx = x, zy = y, min_r2 = 1e300, cx = x, cy = y;
@@ -110,7 +110,7 @@ struct SiegelTask {
     o.status = 0; o.n = 0;
     return false;  // Iterate even though start() reports the cardioid
   }
-  __host__ __device__ bool run(State& o) const { return o.run(kSteps, burst, 256); }
+  __host__ __device__ bool run(State& o) const { return o.run(kSteps, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ bool pending(const State&) const { return false; }

@@ -67,7 +67,7 @@ int main(const int argc, const char** argv) {
           if (o.start(pts[i].first, pts[i].second, first_newton)) { b++; continue; }
           bool done = false;
           while (!done) {
-            done = o.run(max_iter, 1 << 20, max_period);
+            done = o.run(max_iter, 1 << 20);
             if (o.pending()) done = o.settle(max_iter, max_period, nw);
           }
           w += double(o.n);
