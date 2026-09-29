@@ -237,6 +237,7 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
         const int64_t p0 = task.progress(o);
         const long long r0 = clock64();
         done = task.run(o);
+        if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
         run_cycles += clock64() - r0;
         // Steps this lane took, against the warp's longest: idle lanes within bursts
         const unsigned steps = unsigned(task.progress(o) - p0), longest = __reduce_max_sync(mask, steps);
@@ -244,6 +245,8 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
         if (leader) warp_steps += uint64_t(32) * longest;
       } else {
         done = task.run(o);
+        // Settles due at once (an overflowed block), for all such lanes of the warp together
+        if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
       }
       // Park orbits that are pending (so that lanes settle together later) or have used their step budget.
       // Parked orbits' iterations are counted when they finish.
@@ -335,6 +338,7 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
     __syncwarp();
     if (!out) {
       done = task.run(o);
+      if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
       if (done && task.pending(o)) {
         const int64_t k = int64_t(atomic_fetch_add(counters + 12, 1));
         if (k < cap) {

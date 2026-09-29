@@ -34,7 +34,7 @@ template<int variant> __host__ __device__ double orbit(const double x, const dou
   } else if constexpr (variant == 4) {
     Orbit<double> o;
     o.start(x, y, int64_t(1) << 40);  // No Newton.  Reports the cardioid, but initializes the state first.
-    o.status = 0; o.n = 1;
+    o.status = 0; o.n = 0;
     o.run(kSteps, kSteps, 256);
     return double(o.n) + o.zx;
   } else {
@@ -81,7 +81,7 @@ struct SiegelTask {
     const double theta = 2 * M_PI * 0.6180339887498949, r = 1 - 1e-9 * (1 + double(i % 1024) / 1024);
     const double mx = r * std::cos(theta), my = r * std::sin(theta);
     o.start(mx / 2 - (mx * mx - my * my) / 4, my / 2 - mx * my / 2, int64_t(1) << 40);
-    o.status = 0; o.n = 1;
+    o.status = 0; o.n = 0;
     return false;  // Iterate even though start() reports the cardioid
   }
   __host__ __device__ bool run(State& o) const { return o.run(kSteps, burst, 256); }
