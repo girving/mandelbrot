@@ -176,41 +176,48 @@ template<class T> struct SampleTask {
   }
 };
 
-// Group sums of a per-sample value over a chunk of leaves.  Values: area (bit k of a), diff (bit k minus bit
-// k + 1 of a), delta (bit k of b minus bit k of a), or flips (a != b, into s only).
+// Group sums of per-sample values over chunks of leaves, for several series at once.  Values: area (bit k of a),
+// diff (bit k minus bit k + 1 of a), delta (bit k of b minus bit k of a), or flips (a != b, into s only); with
+// swap, a and b trade places (so area of b is a series).  All sums are integers, so exact in any order.
 enum Kind { kArea, kDiff, kDelta, kFlips };
-const int64_t kLeafChunk = 1024;
+struct Series { int8_t kind, k; bool swap; };
+const int kMaxSeries = 4 * 32 + 1;
+const int64_t kLeafChunk = 32;  // Small, so that many GPU threads share each pass
 
 struct ReduceChunk {
   const uint32_t* a;
   const uint32_t* b;
-  Kind kind;
-  int k, m, ss;
+  int m, ss, S;
   int64_t leaves;
-  int64_t* out;  // [3 * chunk + {s, q, p}]
-  __host__ __device__ int value(const int64_t i) const {
-    switch (kind) {
-      case kArea: return (a[i] >> k) & 1;
-      case kDiff: return int((a[i] >> k) & 1) - int((a[i] >> (k + 1)) & 1);
-      case kDelta: return int((b[i] >> k) & 1) - int((a[i] >> k) & 1);
+  Series series[kMaxSeries];
+  int64_t* out;  // [(chunk * S + series) * 3 + {s, q, p}]
+  __host__ __device__ int value(const Series e, const int64_t i) const {
+    const uint32_t x = e.swap ? b[i] : a[i];
+    switch (e.kind) {
+      case kArea: return (x >> e.k) & 1;
+      case kDiff: return int((x >> e.k) & 1) - int((x >> (e.k + 1)) & 1);
+      case kDelta: return int(((e.swap ? a[i] : b[i]) >> e.k) & 1) - int((x >> e.k) & 1);
       default: return a[i] != b[i];
     }
   }
   __host__ __device__ void operator()(const int64_t c) const {
-    int64_t s = 0, q = 0, p = 0;
     const int64_t hi = (c + 1) * kLeafChunk < leaves ? (c + 1) * kLeafChunk : leaves;
-    for (int64_t l = c * kLeafChunk; l < hi; l++) {
-      int64_t total = 0;
-      for (int g = 0; g < m / ss; g++) {
-        int64_t cg = 0;
-        for (int t = 0; t < ss; t++) cg += value(l * m + g * ss + t);
-        total += cg;
-        q += cg * cg;
+    for (int e = 0; e < S; e++) {
+      int64_t s = 0, q = 0, p = 0;
+      for (int64_t l = c * kLeafChunk; l < hi; l++) {
+        int64_t total = 0;
+        for (int g = 0; g < m / ss; g++) {
+          int64_t cg = 0;
+          for (int t = 0; t < ss; t++) cg += value(series[e], l * m + g * ss + t);
+          total += cg;
+          q += cg * cg;
+        }
+        s += total;
+        p += total * total;
       }
-      s += total;
-      p += total * total;
+      int64_t* o = out + (c * S + e) * 3;
+      o[0] = s; o[1] = q; o[2] = p;
     }
-    out[3 * c] = s; out[3 * c + 1] = q; out[3 * c + 2] = p;
   }
 };
 
@@ -273,23 +280,33 @@ struct TileReduceChunk {
 };
 
 // Sum per-chunk arrays of S int64s over chunks: out[j] = Σ_c in[c S + j]
-struct SumChunks {
+// Sums of groups of rows of a rows × S array: out[g * S + j] = Σ in[r * S + j] over rows r of group g
+const int64_t kSumGroup = 256;
+struct SumGroups {
   const int64_t* in;
-  int64_t chunks, S;
+  int64_t rows, S;
   int64_t* out;
-  __host__ __device__ void operator()(const int64_t j) const {
+  __host__ __device__ void operator()(const int64_t t) const {
+    const int64_t g = t / S, j = t % S, hi = (g + 1) * kSumGroup < rows ? (g + 1) * kSumGroup : rows;
     int64_t s = 0;
-    for (int64_t c = 0; c < chunks; c++) s += in[c * S + j];
-    out[j] = s;
+    for (int64_t r = g * kSumGroup; r < hi; r++) s += in[r * S + j];
+    out[t] = s;
   }
 };
 
+// Column sums of a chunks × S array, in parallel passes over groups of rows (integers, so exact in any order)
 vector<int64_t> sum_chunks(const Mem<int64_t>& in, const int64_t chunks, const int64_t S, const bool cuda) {
-  Mem<int64_t> out(S, cuda);
-  for_each(S, SumChunks{in.p, chunks, S, out.p}, cuda);
-  vector<int64_t> h(S);
-  out.to_host(h.data(), S);
-  return h;
+  if (chunks > kSumGroup) {
+    const int64_t groups = (chunks + kSumGroup - 1) / kSumGroup;
+    Mem<int64_t> out(groups * S, cuda);
+    for_each(groups * S, SumGroups{in.p, chunks, S, out.p}, cuda);
+    return sum_chunks(out, groups, S, cuda);
+  }
+  vector<int64_t> h(chunks * S), sums(S);
+  in.to_host(h.data(), chunks * S);
+  for (int64_t c = 0; c < chunks; c++)
+    for (int64_t j = 0; j < S; j++) sums[j] += h[c * S + j];
+  return sums;
 }
 
 // Pilot-allocation statistics over chunks of leaves (see alloc_index in tree.h), with m = 16
@@ -326,15 +343,19 @@ struct LeafStatsChunk {
   }
 };
 
-GroupSums reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const Kind kind, const int k,
-                 const TreeParams& p, const int64_t leaves) {
+// Group sums of each series over leaves, in one pass
+vector<GroupSums> reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const vector<Series>& series,
+                         const TreeParams& p, const int64_t leaves) {
+  const int S = int(series.size());
+  slow_assert(S <= kMaxSeries);
   const int64_t chunks = (leaves + kLeafChunk - 1) / kLeafChunk;
-  Mem<int64_t> out(3 * chunks, p.cuda);
-  for_each(chunks, ReduceChunk{a.p, b ? b->p : nullptr, kind, k, p.m, p.strata * p.strata, leaves, out.p}, p.cuda);
-  vector<int64_t> h(3 * chunks);
-  out.to_host(h.data(), 3 * chunks);
-  GroupSums g;
-  for (int64_t c = 0; c < chunks; c++) g += GroupSums{h[3 * c], h[3 * c + 1], h[3 * c + 2]};
+  Mem<int64_t> out(chunks * S * 3, p.cuda);
+  ReduceChunk r{a.p, b ? b->p : nullptr, p.m, p.strata * p.strata, S, leaves, {}, out.p};
+  for (int e = 0; e < S; e++) r.series[e] = series[e];
+  for_each(chunks, r, p.cuda);
+  const auto h = sum_chunks(out, chunks, S * 3, p.cuda);
+  vector<GroupSums> g(S);
+  for (int e = 0; e < S; e++) g[e] = GroupSums{h[3 * e], h[3 * e + 1], h[3 * e + 2]};
   return g;
 }
 
@@ -441,15 +462,24 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     Rb.sample_secs += secs_since(t2);
 
     const auto t3 = std::chrono::steady_clock::now();
+    // Every series in one pass: areas and consecutive differences, and with compare, the alternative's areas, its
+    // difference from double, and flips
+    vector<Series> series;
+    vector<GroupSums*> into;
+    GroupSums flips;
     for (int k = 0; k < K; k++) {
-      Rb.area[k] += reduce(bits, nullptr, kArea, k, p, nl);
-      if (k + 1 < K) Rb.diff[k] += reduce(bits, nullptr, kDiff, k, p, nl);
+      const int8_t k8 = int8_t(k);
+      series.push_back({kArea, k8, false}); into.push_back(&Rb.area[k]);
+      if (k + 1 < K) { series.push_back({kDiff, k8, false}); into.push_back(&Rb.diff[k]); }
       if (compare) {
-        Rb.float_area[k] += reduce(fbits, nullptr, kArea, k, p, nl);
-        Rb.delta[k] += reduce(bits, &fbits, kDelta, k, p, nl);
+        series.push_back({kArea, k8, true}); into.push_back(&Rb.float_area[k]);
+        series.push_back({kDelta, k8, false}); into.push_back(&Rb.delta[k]);
       }
     }
-    if (compare) Rb.flips += reduce(bits, &fbits, kFlips, 0, p, nl).s;
+    if (compare) { series.push_back({kFlips, 0, false}); into.push_back(&flips); }
+    const auto sums = reduce(bits, compare ? &fbits : nullptr, series, p, nl);
+    for (size_t e = 0; e < sums.size(); e++) *into[e] += sums[e];
+    Rb.flips += flips.s;
     if (p.tiles) {
       const int64_t tc = (nl + kTileChunk - 1) / kTileChunk, S = int64_t(p.tiles) * p.tiles * K * 3;
       Mem<int64_t> tout(tc * S, p.cuda);
