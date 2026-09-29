@@ -1,7 +1,7 @@
 // Census of long leaf orbits: which samples run long, how they end, and what they cost
 //
 // Samples points near the boundary, like escape_tree's leaves (16 points in a 4e-5 box around random points
-// that take at least 1024 steps to classify), and runs each to max_iter with the leaf pipeline's Newton
+// that escape after at least 1024 steps), and runs each to max_iter with the leaf pipeline's Newton
 // schedule (first attempt at first_newton, deferred and settled as in the GPU rounds).  Reports total work,
 // the orbits longer than max_iter / 16 by outcome (escaped, certified interior, hit max_iter) with the step
 // they ended at, and how many samples are below the deepest threshold.  Classification counts must not depend
@@ -27,6 +27,7 @@ int main(const int argc, const char** argv) {
     program.add_argument("--max-iter").scan<'i', int64_t>().default_value(int64_t(1) << 28);
     program.add_argument("--first-newton").scan<'i', int64_t>().default_value(int64_t(16384));
     program.add_argument("--max-period").scan<'i', int>().default_value(256);
+    program.add_argument("--newton-iters").scan<'i', int>().default_value(30);
     program.add_argument("--newton-tol").scan<'g', double>().default_value(-1.0);
     program.add_argument("--newton-margin").scan<'g', double>().default_value(-1.0);
     program.add_argument("--seed").scan<'i', int64_t>().default_value(int64_t(100));
@@ -35,7 +36,7 @@ int main(const int argc, const char** argv) {
                   first_newton = program.get<int64_t>("--first-newton");
     const int max_period = program.get<int>("--max-period");
     const double tol = program.get<double>("--newton-tol");
-    const NewtonOptions nw{30, INFINITY, tol < 0 ? -1 : tol * tol, program.get<double>("--newton-margin")};
+    const NewtonOptions nw{program.get<int>("--newton-iters"), INFINITY, tol < 0 ? -1 : tol * tol, program.get<double>("--newton-margin")};
     slow_assert(max_iter < (int64_t(1) << 30), "max_iter must be below 2^30");
     const auto t0 = std::chrono::steady_clock::now();
 
@@ -45,7 +46,10 @@ int main(const int argc, const char** argv) {
     std::uniform_real_distribution<double> ux(-2, 0.5), uy(0, 1.2), u(-0.5, 0.5);
     while (int64_t(pts.size()) < samples) {
       const double x0 = ux(rng), y0 = uy(rng);
-      if (escape(x0, y0, 1 << 12).iters < 1024) continue;
+      // Iterations without Newton, so that the sample set does not depend on Newton's behavior
+      Orbit<double> f;
+      if (!f.start(x0, y0, int64_t(1) << 40)) f.finish(1 << 12);
+      if (f.status != 1 || f.iters() < 1024) continue;  // Escaping slowly: near the boundary
       for (int s = 0; s < 16 && int64_t(pts.size()) < samples; s++) pts.push_back({x0 + 4e-5 * u(rng), y0 + 4e-5 * u(rng)});
     }
 
