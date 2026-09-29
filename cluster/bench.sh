@@ -43,10 +43,15 @@ CXXFLAGS="-O3 -march=native" timeout 600 meson setup build/release --buildtype=r
   || { cat /tmp/setup.log; exit 1; }
 grep -i -E "cuda|openmp" /tmp/setup.log || true
 timeout 1800 meson compile -C build/release tree_test escape_tree orbit_bench orbit_census orbit_regimes
+if [ -n "${BUILD64:-}" ]; then  # 64-bit orbit step counts, for max_iter beyond 2^30
+  CXXFLAGS="-O3 -march=native -DMANDELBROT_ORBIT64" timeout 600 meson setup build/release64 --buildtype=release \
+    > /tmp/setup64.log || { cat /tmp/setup64.log; exit 1; }
+  timeout 1800 meson compile -C build/release64 escape_tree
+fi
 
 mkdir -p /data/results
 OUT=/data/results/bench-$(date +%Y%m%d-%H%M%S).txt
-run() { step "$*"; timeout 1800 "$@" 2>&1 | tee -a "$OUT"; }
+run() { step "$*"; timeout "${RUN_TIMEOUT:-1800}" "$@" 2>&1 | tee -a "$OUT"; }
 
 run ./build/release/tree_test
 if [ -n "${RUNS:-}" ]; then
