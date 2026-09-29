@@ -383,6 +383,33 @@ template<class T> struct Orbit {
 
 // Distance-estimating orbits (escape_de): z and dz/dc, with Koebe distance bounds on exit
 
+// Koebe lower bound on the distance to the component's boundary from the p-cycle point w of c (p the minimal
+// period, since the bound needs the multiplier map to be univalent), or 0 if the cycle is not attracting
+ORBIT_COLD __host__ __device__ static double interior_bound(const Complex<double> c, const Complex<double> w,
+                                                            const int p) {
+  typedef Complex<double> C;
+  const C one(1);
+  // Derivatives of F = f^p at the periodic point w: A = F_z, B = F_c, Cz = F_zz, D = F_zc
+  C z2 = w, A = one, B, Cz, D;
+  for (int k = 0; k < p; k++) {
+    const C nA = 2.0 * (z2 * A), nB = 2.0 * (z2 * B) + one;
+    const C nC = 2.0 * (A * A + z2 * Cz), nD = 2.0 * (A * B + z2 * D);
+    A = nA; B = nB; Cz = nC; D = nD;
+    z2 = z2 * z2 + c;
+  }
+  const double a2 = sqr_abs(A);
+  if (!(a2 < 1 - 1e-9)) return 0;
+  return (1 - a2) / (4 * abs(D + Cz * B * inv(one - A)));
+}
+
+// Principal square root
+__host__ __device__ static inline Complex<double> complex_sqrt(const Complex<double> z) {
+  const double r = abs(z);
+  if (r == 0) return Complex<double>(0);
+  const double s = std::sqrt(0.5 * (r + std::abs(z.r)));
+  return z.r >= 0 ? Complex<double>(s, z.i / (2 * s)) : Complex<double>(std::abs(z.i) / (2 * s), std::copysign(s, z.i));
+}
+
 // Interior distance lower bound at an attracting p-cycle near w (p must be the minimal period, since the
 // Koebe bound needs the multiplier map to be univalent), or 0 if Newton does not certify one
 ORBIT_COLD __host__ __device__ static double interior_distance_exact(const double x, const double y, const double wx,
@@ -395,19 +422,7 @@ ORBIT_COLD __host__ __device__ static double interior_distance_exact(const doubl
     for (int k = 0; k < p; k++) { dz = 2.0 * (z * dz); z = z * z + c; }
     const C step = (z - w) * inv(dz - one);
     w -= step;
-    if (sqr_abs(step) < 1e-28 * (1 + sqr_abs(w))) {
-      // Derivatives of F = f^p at the periodic point w: A = F_z, B = F_c, Cz = F_zz, D = F_zc
-      C z2 = w, A = one, B, Cz, D;
-      for (int k = 0; k < p; k++) {
-        const C nA = 2.0 * (z2 * A), nB = 2.0 * (z2 * B) + one;
-        const C nC = 2.0 * (A * A + z2 * Cz), nD = 2.0 * (A * B + z2 * D);
-        A = nA; B = nB; Cz = nC; D = nD;
-        z2 = z2 * z2 + c;
-      }
-      const double a2 = sqr_abs(A);
-      if (!(a2 < 1 - 1e-9)) return 0;
-      return (1 - a2) / (4 * abs(D + Cz * B * inv(one - A)));
-    }
+    if (sqr_abs(step) < 1e-28 * (1 + sqr_abs(w))) return interior_bound(c, w, p);
   }
   return 0;
 }
@@ -492,15 +507,12 @@ struct OrbitDE {
     if (status == 6) {
       const bool disk = (x + 1) * (x + 1) + y * y <= 1.0 / 16;
       r.e = {-1, -INFINITY, disk ? 2 : 1, 0};
-      // Start Newton from an orbit point near the attracting cycle (not a fixed guess, which can converge to
-      // a repelling cycle instead)
-      double wx = x, wy = y;
-      for (int k = 0; k < 256; k++) {
-        const double t = wx * wx - wy * wy + x;
-        wy = 2 * wx * wy + y;
-        wx = t;
-      }
-      r.dist = interior_distance(x, y, wx, wy, disk ? 2 : 1);
+      // The attracting cycle in closed form: the fixed point w = (1 - sqrt(1 - 4c)) / 2 (principal root, so
+      // |2w| < 1 inside the cardioid), or a root of z^2 + z + c + 1 = 0 for the period 2 cycle
+      typedef Complex<double> C;
+      const C c(x, y);
+      const C w = disk ? 0.5 * (complex_sqrt(C(-3) - 4.0 * c) - C(1)) : 0.5 * (C(1) - complex_sqrt(C(1) - 4.0 * c));
+      r.dist = interior_bound(c, w, disk ? 2 : 1);
       status = 1;
       return true;
     }
