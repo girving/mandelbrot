@@ -5,7 +5,7 @@
 #include "engine.h"
 #include "orbit.h"
 #include "rounded.h"
-#include "double_double.h"
+#include "orbit_expansion.h"
 #include <cmath>
 #include <mutex>
 #include <thread>
@@ -433,7 +433,7 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
                     : p.prec == "compare36" ? sample<Rounded<36>>(lp, nl, p, w, h, fbits, Rb.overflow)
                     : p.prec == "compare42" ? sample<Rounded<42>>(lp, nl, p, w, h, fbits, Rb.overflow)
                     : p.prec == "compare48" ? sample<Rounded<48>>(lp, nl, p, w, h, fbits, Rb.overflow)
-                    : p.prec == "comparedd" ? sample<DoubleDouble>(lp, nl, p, w, h, fbits, Rb.overflow)
+                    : p.prec == "comparedd" ? sample<Expansion<2>>(lp, nl, p, w, h, fbits, Rb.overflow)
                                             : sample<float>(lp, nl, p, w, h, fbits, Rb.overflow);
     }
     Rb.sample_secs += secs_since(t2);

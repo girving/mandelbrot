@@ -2,7 +2,7 @@
 
 #include "tree.h"
 #include "rounded.h"
-#include "double_double.h"
+#include "orbit_expansion.h"
 #include "engine.h"
 #include "escape.h"
 #include "tests.h"
@@ -303,21 +303,13 @@ TEST(rounded) {
   }
 }
 
-TEST(double_double) {
-  // Products and sums are exact to about 2^-104, checked against exact rational identities
-  std::mt19937_64 rng(5);
-  std::uniform_real_distribution<double> u(-4, 4);
-  for (int i = 0; i < 10000; i++) {
-    const double a = u(rng), b = u(rng);
-    const DoubleDouble p = DoubleDouble(a) * DoubleDouble(b);
-    ASSERT_EQ(p.hi + p.lo, p.hi);  // Normalized
-    ASSERT_EQ(p.lo, std::fma(a, b, -p.hi));  // Exact product
-    const DoubleDouble s = DoubleDouble(a) + DoubleDouble(b);
-    ASSERT_EQ(double(s - DoubleDouble(a)), b) << tfm::format("%.17g %.17g", a, b);
-    const DoubleDouble q = p / DoubleDouble(b);
-    ASSERT_LE(std::abs(double(q - DoubleDouble(a))), 1e-30 * std::abs(a) + 1e-300);
-  }
-  // Escape classifications mostly agree with double
+TEST(expansion_orbits) {
+  // Ordering on Expansion<2> follows its value, and comparisons with nan are false (as the orbit's block test needs)
+  typedef Expansion<2> E;
+  const E a(1.0), b(1.0, 0x1p-60, Nonoverlap()), c(1.0, -0x1p-60, Nonoverlap()), nan(double(NAN));
+  ASSERT_TRUE(c < a && a < b && c < b && a <= a && b >= a && !(a < a) && !(b < a));
+  ASSERT_TRUE(!(nan < a) && !(nan <= a) && !(nan > a) && !(nan >= a) && !(a < nan) && !(a <= nan));
+  // Escape classifications over Expansion<2> orbits mostly agree with double
   auto p = small_params();
   p.prec = "comparedd";
   const auto R = run_tree(p);
