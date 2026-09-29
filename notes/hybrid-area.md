@@ -544,6 +544,22 @@ decorations outside all maximal copies.  Simple forms for it do not fit: a/(k (l
 a/k + b/(k ln k) + c/k² (χ² 45).  So the renormalization structure is quantitatively understood, but the
 tail's functional form reduces to T_0's, which is not yet known.
 
+*Systematics checks (depth 8, GPU).*
+- **Absolute accuracy against Grönwall.**  `fattened f-k27.npy 8 22` gives the exact F(2^−k) for k = 8…22 from
+  the 2^27 coefficients (omitted weight e^{−2^(28−k)} ≤ 1.6e-28; 4 s).  The tree at the same k differs by
+  −2.4e-8 … +2.2e-8 with errors 6e-9 … 1.7e-8, all within 2.2σ, χ² 17.1 over 15 (ignoring correlations
+  between thresholds): the whole pipeline (tree, certificates, leaf sampling, estimator) is unbiased at the
+  1e-8 level, 100× tighter than the §5 validation of the older Monte Carlo.
+- **Certification margin.**  Safety 2, 4 and 8 give bit-identical A(2^14) and A(2^20) and identical errors,
+  although leaves number 1.08e9, 1.29e9 and 1.56e9: a cell certified at one margin but not another has its
+  certified disk covering it, so its 16 samples are unanimous and agree with the certificate, adding the
+  same area and zero variance.  The margin never changed the answer, only the cost: safety 2 runs in
+  31.2 s against 36.5 s (1.17×).
+- **Leaf Newton settings.**  With the same leaves and samples, margin 1e-4 and tolerance 1e-12 (tighter than
+  the defaults 1e-6, 1e-10) reproduce A(2^20) bit for bit; margin 1e-9 and tolerance 1e-8 (looser) raise it
+  by 2e-10, i.e. a few false interior certificates.  The defaults sit two orders of magnitude inside the
+  safe range.
+
 ## 6. Reproducing
 
 ```
@@ -555,6 +571,7 @@ meson compile -C build/release
 ./build/release/rootsum f-k27.npy 8 26 20 4 7           # octave energy near roots, by period
 ./build/release/hyperbolic 16 1024 1 components.txt     # per-component centers and areas
 ./build/release/tuning components.txt 16                # tuning structure and D(s)
+./build/release/fattened f-k27.npy 8 22                 # exact fattened-set areas for k ≤ 22
 ./build/release/escape_area 16000 1048576 SEED 16384 ... 1048568   # fattened areas; ~22 s per 2e9 samples
 ./build/release/escape_tree --prec compare 64 1024 16384 262144 1048568   # certified tree, float vs double; ~85 s
 ```
