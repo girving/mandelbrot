@@ -28,6 +28,10 @@ template<int bits> struct Rounded {
   __host__ __device__ friend Rounded operator-(const Rounded a, const Rounded b) { return Rounded(a.v - b.v); }
   __host__ __device__ friend Rounded operator*(const Rounded a, const Rounded b) { return Rounded(a.v * b.v); }
   __host__ __device__ friend Rounded operator/(const Rounded a, const Rounded b) { return Rounded(a.v / b.v); }
+  // One rounding of the exact a b + c, as a b-bit FMA would do
+  __host__ __device__ friend Rounded orbit_fma(const Rounded a, const Rounded b, const Rounded c) {
+    return Rounded(fma(a.v, b.v, c.v));
+  }
   __host__ __device__ Rounded& operator+=(const Rounded b) { return *this = *this + b; }
   __host__ __device__ Rounded& operator-=(const Rounded b) { return *this = *this - b; }
   __host__ __device__ friend bool operator<(const Rounded a, const Rounded b) { return a.v < b.v; }

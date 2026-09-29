@@ -54,6 +54,9 @@ struct DoubleDouble {
     const double q3 = r2.hi / b.hi;
     return quick_two_sum(q1, q2) + DoubleDouble(q3);
   }
+  __host__ __device__ friend DoubleDouble orbit_fma(const DoubleDouble a, const DoubleDouble b, const DoubleDouble c) {
+    return a * b + c;
+  }
   __host__ __device__ DoubleDouble& operator+=(const DoubleDouble b) { return *this = *this + b; }
   __host__ __device__ DoubleDouble& operator-=(const DoubleDouble b) { return *this = *this - b; }
   __host__ __device__ friend bool operator<(const DoubleDouble a, const DoubleDouble b) {

@@ -124,6 +124,20 @@ typedef int32_t orbit_int;
 constexpr int64_t kOrbitNever = int64_t(1) << 30;
 #endif
 
+// Fused multiply-add for orbit arithmetic, overloaded per number type (Rounded and DoubleDouble define their own).
+// Explicit, so that CPU and GPU agree bit for bit (contraction is off in all builds) while the step uses FMAs.
+__host__ __device__ inline double orbit_fma(const double a, const double b, const double c) { return fma(a, b, c); }
+__host__ __device__ inline float orbit_fma(const float a, const float b, const float c) { return fmaf(a, b, c); }
+
+// One step z → z^2 + c carrying zy^2 and r2 = |z|^2: 3 FMAs, 2 adds and 1 multiply
+template<class T> __host__ __device__ inline void orbit_step(T& zx, T& zy, T& zy2, T& r2, const T x, const T y) {
+  const T t = x - zy2;
+  zy = orbit_fma(zx + zx, zy, y);
+  zx = orbit_fma(zx, zx, t);
+  zy2 = zy * zy;
+  r2 = orbit_fma(zx, zx, zy2);
+}
+
 template<class T> struct Orbit {
   // State is kept small, since it lives in GPU registers across the persistent loop: the result is encoded in
   // existing fields (see status), and task-wide settings are arguments to run.
@@ -246,22 +260,34 @@ template<class T> struct Orbit {
   // run next: keeping Newton out of this loop keeps its registers down on GPUs, and lets GPU lanes settle together.
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096) {
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
-    T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
+    T zy2 = zy * zy, r2 = orbit_fma(zx, zx, zy2);
     orbit_int n = this->n, next_check = this->next_check, candidate = this->candidate;
     const orbit_int end = orbit_int(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
+    const T big = T(18446744073709551616.0);  // Escape at |z| > 2^32 so that log|z| is accurate
     while (n < end) {
       const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
+      // Fast path: a whole aligned block past the atom-domain range, with no per-step tests.  Once |z| > 2^32 it
+      // only grows (to inf or nan within the block), so a single test at the end finds escapes, and the block is
+      // redone step by step to find the exact escape step.  Both paths do the same arithmetic.
+      if (n >= max_period && block == n + 8 && !(r2 > big)) {
+        const T zx0 = zx, zy0 = zy, zy20 = zy2, r20 = r2;
+#ifdef __CUDA_ARCH__
+#pragma unroll
+#endif
+        for (int s = 0; s < 8; s++) orbit_step(zx, zy, zy2, r2, x, y);
+        if (r2 <= big) {
+          n = block;
+        } else {
+          zx = zx0; zy = zy0; zy2 = zy20; r2 = r20;
+        }
+      }
       for (; n < block; n++) {
-        // Escape at |z| > 2^32 so that log|z| is accurate
-        if (r2 > T(18446744073709551616.0)) {
+        if (r2 > big) {
           cx = r2;
           status = 1;
           goto finish;
         }
-        const T xy = zx * zy;
-        zx = zx2 - zy2 + x;
-        zy = xy + xy + y;
-        zx2 = zx * zx; zy2 = zy * zy; r2 = zx2 + zy2;
+        orbit_step(zx, zy, zy2, r2, x, y);
         if (n < max_period && r2 < min_r2) { min_r2 = r2; candidate = n + 1; }  // (zx, zy) is now z_{n+1}
       }
       if (n & 7) continue;  // Partial block at the end of the burst
