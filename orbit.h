@@ -335,43 +335,46 @@ template<class T> struct Orbit {
     if (end <= max_iter && (end & ~orbit_int(7)) > n) end &= ~orbit_int(7);
     const P big = P(18446744073709551616.0);  // Escape at |z| > 2^32 so that log|z| is accurate
     while (n < end) {
-      const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
-      // Fast path: a whole aligned block with no per-step tests.  Once |z| > 2^32 it only grows (to inf or nan
-      // within the block), so a single test at the end finds escapes, and the block is redone step by step to
-      // find the exact escape step.  Both paths do the same arithmetic, so results do not depend on which ran.
-      if (block == n + 8 && !(r2 > big)) {
+      if (!(n & 7) && n + 8 <= end) {
+        // Fast path: a whole aligned block with no per-step tests.  Once |z| > 2^32 it only grows (to inf or nan
+        // within the block), so a single test at the end finds escapes, and the block is redone step by step to
+        // find the exact escape step.  Both paths do the same arithmetic, so results do not depend on which ran.
         const T zx0 = zx, zy0 = zy;
 #ifdef __CUDA_ARCH__
 #pragma unroll
 #endif
         for (int s = 0; s < 8; s++) orbit_step(zx, zy, zy2, r2, x, y);
-        if (r2 < big) {  // False for nan and inf
-          n = block;
-        } else {
+        if (!(r2 < big)) {  // True for nan and inf
           // It escaped in this block: restore its start and leave the step-by-step search to settle, which the
           // engine runs for all such lanes of a warp together instead of each lane stalling the rest
           zx = zx0; zy = zy0;
           status = 8;
           goto finish;
         }
+        n += 8;
+      } else {
+        // Careful path, step by step up to the next multiple of 8 or the end (at |z|^2 ≤ 2^64 on entry)
+        const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;
+        for (; n < block; n++) {
+          if (r2 > big) {
+            cx = r2;
+            status = 1;
+            goto finish;
+          }
+          orbit_step(zx, zy, zy2, r2, x, y);
+        }
+        if (n & 7) break;  // Partial block at the end of the burst
       }
-      for (; n < block; n++) {
-        if (r2 > big) {
-          cx = r2;
-          status = 1;
+      // (zx, zy) is z_n, n a multiple of 8.  One branch for the rare checks keeps the fast loop tight.
+      if (n > next_newton || n > next_check || (zx == cx && zy == cy)) [[unlikely]] {
+        if (n > next_newton) {
+          while (next_newton < n) next_newton *= 2;
+          status = 4;
           goto finish;
         }
-        orbit_step(zx, zy, zy2, r2, x, y);
+        if (zx == cx && zy == cy) { status = 5; goto finish; }  // Exact return: settle finds the period
+        cx = zx; cy = zy; next_check *= 2;
       }
-      if (n & 7) continue;  // Partial block at the end of the burst
-      // (zx, zy) is z_n, n a multiple of 8
-      if (n > next_newton) [[unlikely]] {
-        while (next_newton < n) next_newton *= 2;
-        status = 4;
-        goto finish;
-      }
-      if (zx == cx && zy == cy) [[unlikely]] { status = 5; goto finish; }  // Exact return: settle finds the period
-      if (n > next_check) { cx = zx; cy = zy; next_check *= 2; }
     }
     if (n > max_iter) status = 3;
   finish:
@@ -464,8 +467,8 @@ ORBIT_COLD __host__ __device__ static EscapeDE escaped(const int64_t n, const do
 // escape_de as a resumable state machine, like Orbit
 struct OrbitDE {
   double x, y, zx, zy, dx, dy, cx, cy;
-  orbit_int n, candidate, next_newton, check_n, next_check;  // max_iter < kOrbitNever
-  int32_t dexp, min_key;  // min_key: atom-domain minimum of |z|^2 (orbit_key)
+  orbit_int n, next_newton, check_n, next_check;  // max_iter < kOrbitNever
+  int32_t dexp, min_key;  // min_key: the minimum of |z_j|^2 over j ≤ n (orbit_key), for atom_candidate
   // 0 running, 1 done (result in r), 7 escaped (at step n with |z|^2 = cx; result() computes the distance), and
   // with defer, stopped for settle: 4 Newton step due, 5 Brent fired, 6 cardioid or period 2 disk (whose
   // interior distance settle computes)
@@ -489,11 +492,27 @@ struct OrbitDE {
     // binary exponent to avoid overflow.
     zx = x; zy = y; dx = 1; dy = 0; dexp = 0;
     min_key = orbit_key(zx * zx + zy * zy);
-    candidate = 1;
     next_newton = orbit_int(first_newton < kOrbitNever ? first_newton : kOrbitNever);  // ≥ kOrbitNever: never
     cx = zx; cy = zy; check_n = 1; next_check = 16;  // Brent checkpoint
     n = 1;
     return false;
+  }
+
+  // Atom domains: the first step j ≤ n at which |z_j| is least (by orbit_key) is a candidate period, used if at
+  // most max_period.  The loop tracks only the least key; the step, needed only at Newton steps, is recomputed
+  // here from z_1 = c with the same arithmetic: it is at most max_period iff the least key over j ≤ max_period is
+  // the overall least.  Returns 0 if the candidate is above max_period.
+  __host__ __device__ int atom_candidate(const int max_period) const {
+    double zx = x, zy = y, zy2 = y * y, r2 = 0;
+    int32_t least = orbit_key(x * x + y * y);
+    int c = 1;
+    const orbit_int end = n < max_period ? n : orbit_int(max_period);
+    for (orbit_int j = 2; j <= end; j++) {
+      orbit_step(zx, zy, zy2, r2, x, y);  // (zx, zy) is now z_j
+      const int32_t key = orbit_key(r2);
+      if (key < least) { least = key; c = int(j); }
+    }
+    return least == min_key ? c : 0;
   }
 
   // The result, once done (status 1 or 7)
@@ -516,8 +535,9 @@ struct OrbitDE {
       status = 1;
       return true;
     }
-    if (status == 4 && candidate <= max_period) {
-      const double b = interior_distance(x, y, zx, zy, int(candidate));
+    if (status == 4) {
+      const int p = atom_candidate(max_period);
+      const double b = p ? interior_distance(x, y, zx, zy, p) : 0;
       if (b > 0) { r.e = {-1, -INFINITY, 0, n}; r.dist = b; status = 1; return true; }
     }
     {
@@ -560,7 +580,7 @@ struct OrbitDE {
 
   // Iterate at most `budget` steps.  Returns true when done, with the result in r, or, with defer, when stopped
   // for settle (status 4 or 5).  As in Orbit::run: whole aligned blocks of 8 steps run without per-step tests
-  // (escapes found at the block end and the block redone step by step), the atom-domain minimum is an integer
+  // (escapes found at the block end and the block redone step by step), the least |z|^2 (for atom_candidate) is an integer
   // key, and the rare checks (Newton, Brent, checkpoint) run at steps divisible by 8.  dz/dc is rescaled at block
   // ends: from |dz| ≤ 1e100, 8 steps before escape grow it by at most (2^33)^8 < 1e80, and rescaling by exact
   // powers of 2 leaves results independent of when it happens.
@@ -569,7 +589,7 @@ struct OrbitDE {
     if (status == 6) return true;  // Deferred cardioid/disk start
     double zx = this->zx, zy = this->zy, dx = this->dx, dy = this->dy;
     double zy2 = zy * zy, r2 = fma(zx, zx, zy2);
-    orbit_int n = this->n, candidate = this->candidate;
+    orbit_int n = this->n;
     int32_t dexp = this->dexp, min_key = this->min_key;
     double unit = std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000)));  // The +1 in dz/dc, rescaled
     orbit_int end = orbit_int(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
@@ -580,21 +600,18 @@ struct OrbitDE {
       if (block == n + 8 && !(r2 > big)) {
         const double zx0 = zx, zy0 = zy, zy20 = zy2, r20 = r2, dx0 = dx, dy0 = dy;
         const int32_t min0 = min_key;
-        const orbit_int cand0 = candidate;
 #ifdef __CUDA_ARCH__
 #pragma unroll
 #endif
         for (int s = 0; s < 8; s++) {
           step(zx, zy, zy2, r2, dx, dy, unit);
           const int32_t key = orbit_key(r2);
-          const bool lower = key < min_key;  // (zx, zy) is now z_{n+s+1}
-          min_key = lower ? key : min_key;
-          candidate = lower ? n + s + 1 : candidate;
+          min_key = key < min_key ? key : min_key;
         }
         if (r2 < big) {  // False for nan and inf
           n = block;
         } else {
-          zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; dx = dx0; dy = dy0; min_key = min0; candidate = cand0;
+          zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; dx = dx0; dy = dy0; min_key = min0;
         }
       }
       for (; n < block; n++) {
@@ -607,7 +624,7 @@ struct OrbitDE {
         }
         step(zx, zy, zy2, r2, dx, dy, unit);
         const int32_t key = orbit_key(r2);
-        if (key < min_key) { min_key = key; candidate = n + 1; }  // (zx, zy) is now z_{n+1}
+        min_key = key < min_key ? key : min_key;
       }
       if (dx * dx + dy * dy > 1e200) [[unlikely]] {
         dx = std::ldexp(dx, -256); dy = std::ldexp(dy, -256); dexp += 256;
@@ -623,7 +640,7 @@ struct OrbitDE {
         if (newton || brent) [[unlikely]] {
           status = newton ? 4 : 5;
           if (defer) goto finish;
-          this->zx = zx; this->zy = zy; this->n = n; this->candidate = candidate;
+          this->zx = zx; this->zy = zy; this->n = n; this->min_key = min_key;
           if (settle(max_iter, max_period)) goto finish;
           continue;  // settle did the checkpoint
         }
@@ -633,7 +650,7 @@ struct OrbitDE {
     if (n > max_iter) { r.e = {-1, -INFINITY, 0, int64_t(max_iter)}; status = 1; }
   finish:
     this->zx = zx; this->zy = zy; this->dx = dx; this->dy = dy; this->min_key = min_key;
-    this->n = n; this->dexp = dexp; this->candidate = candidate;
+    this->n = n; this->dexp = dexp;
     return status != 0;
   }
 };
