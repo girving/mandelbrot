@@ -83,24 +83,24 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x
                close2 = nw.close2;
   for (int it = 0; it < nw.iters; it++) {
     // F(w) = f^p(w) - w, F'(w) = (f^p)'(w) - 1
-    T zx = wx, zy = wy, dx = 1, dy = 0;
+    T zx = wx, zy = wy, dx = T(1), dy = T(0);
     for (int k = 0; k < p; k++) {
       const T ndx = 2 * (zx * dx - zy * dy), ndy = 2 * (zx * dy + zy * dx);
       dx = ndx; dy = ndy;
       const T t = zx * zx - zy * zy + x;
       zy = 2 * zx * zy + y;
       zx = t;
-      if (zx * zx + zy * zy > 16) return false;
+      if (zx * zx + zy * zy > T(16)) return false;
     }
-    const T fx = zx - wx, fy = zy - wy, gx = dx - 1, gy = dy;
+    const T fx = zx - wx, fy = zy - wy, gx = dx - T(1), gy = dy;
     if (it == 0 && !(double(fx * fx + fy * fy) < close2)) return false;
     const T den = gx * gx + gy * gy;
-    if (!(den > 0)) return false;
+    if (!(den > T(0))) return false;
     const T sx = (fx * gx + fy * gy) / den, sy = (fy * gx - fx * gy) / den;
     wx -= sx; wy -= sy;
-    if (sx * sx + sy * sy < T(tol2) * (1 + wx * wx + wy * wy)) {
+    if (sx * sx + sy * sy < T(tol2) * (T(1) + wx * wx + wy * wy)) {
       // Converged: the multiplier at the periodic point decides
-      T mx = 1, my = 0, zx2 = wx, zy2 = wy;
+      T mx = T(1), my = T(0), zx2 = wx, zy2 = wy;
       for (int k = 0; k < p; k++) {
         const T nmx = 2 * (zx2 * mx - zy2 * my), nmy = 2 * (zx2 * my + zy2 * mx);
         mx = nmx; my = nmy;
@@ -124,7 +124,7 @@ typedef int32_t orbit_int;
 constexpr int64_t kOrbitNever = int64_t(1) << 30;
 #endif
 
-// Fused multiply-add for orbit arithmetic, overloaded per number type (Rounded and DoubleDouble define their own).
+// Fused multiply-add for orbit arithmetic, overloaded per number type (Rounded and Expansion<2> define their own).
 // Explicit, so that CPU and GPU agree bit for bit (contraction is off in all builds) while the step uses FMAs.
 __host__ __device__ inline double orbit_fma(const double a, const double b, const double c) { return fma(a, b, c); }
 __host__ __device__ inline float orbit_fma(const float a, const float b, const float c) { return fmaf(a, b, c); }
@@ -290,7 +290,7 @@ template<class T> struct Orbit {
             candidate = lower ? n + s + 1 : candidate;
           }
         }
-        if (r2 < big) {  // False for nan and inf (DoubleDouble's <= is not: it is !(b < a))
+        if (r2 < big) {  // False for nan and inf
           n = block;
         } else {
           zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; min_r2 = min0; candidate = cand0;
