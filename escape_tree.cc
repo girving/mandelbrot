@@ -111,7 +111,7 @@ int main(const int argc, const char** argv) {
   try {
     argparse::ArgumentParser program("escape_tree");
     program.add_argument("ks").help("thresholds g < 2^-k, increasing (options go before these)").remaining()
-        .scan<'i', int>();
+        .scan<'i', int64_t>();
     program.add_argument("--base").help("base grid size per axis").scan<'i', int64_t>().default_value(int64_t(1000));
     program.add_argument("--depth").help("refinement levels").scan<'i', int>().default_value(5);
     program.add_argument("--safety").help("certify if half-diagonal ≤ dist / safety").scan<'g', double>()
@@ -176,8 +176,8 @@ int main(const int argc, const char** argv) {
     p.newton_tol = program.get<double>("--newton-tol");
     p.newton_margin = program.get<double>("--newton-margin");
     p.newton_close2 = program.get<double>("--newton-close") * program.get<double>("--newton-close");
-    p.ks = program.get<vector<int>>("ks");
-    for (const int k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
+    p.ks = program.get<vector<int64_t>>("ks");
+    for (const int64_t k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
     for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");
     slow_assert(p.first_newton >= 1, "need --first-newton ≥ 1");
     p.leaf_stats = program.get<bool>("--leaf-stats");
@@ -198,7 +198,7 @@ int main(const int argc, const char** argv) {
         for (int k = 0; k + 1 < int(p.ks.size()); k++) {
           const double D = R.tile_diff_estimate(t, k), v = R.tile_diff_variance(t, k);
           if (D == 0 && v == 0) continue;
-          fprintf(f, "%d %d %d %d %.12e %.6e\n", t % p.tiles, t / p.tiles, p.ks[k], p.ks[k + 1], D, v);
+          fprintf(f, "%d %d %lld %lld %.12e %.6e\n", t % p.tiles, t / p.tiles, (long long)p.ks[k], (long long)p.ks[k + 1], D, v);
           lines++;
         }
       fclose(f);

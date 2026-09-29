@@ -40,7 +40,7 @@ struct CenterTask {
   int64_t max_iter, first_newton;
   int max_period;
   int K;
-  int ks[32];
+  int64_t ks[32];
   uint32_t* status;
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
@@ -141,7 +141,7 @@ template<class T> struct SampleTask {
   int max_period;
   NewtonOptions newton;
   int K;
-  int ks[32];
+  int64_t ks[32];
   uint32_t* bits;
   uint32_t* iters_out;  // Per-sample iterations, or null
 
@@ -397,6 +397,7 @@ double TreeResult::variance(const vector<GroupSums>& sums, const int k) const {
 TreeResult run_tree(const TreeParams& p) {
   const int K = p.ks.size();
   slow_assert(0 < K && K <= 31, "need 1 to 31 thresholds, got %d", K);
+  slow_assert(p.max_iter < kOrbitNever, "max_iter %d needs a -DMANDELBROT_ORBIT64 build", p.max_iter);
   slow_assert(p.prec == "double" || p.prec == "float" || p.prec == "compare" || p.prec == "compare30" ||
               p.prec == "compare36" || p.prec == "compare42" || p.prec == "compare48" || p.prec == "comparedd",
               "bad prec %s", p.prec);

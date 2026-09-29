@@ -37,7 +37,7 @@ struct Escape {
 // log2 g = log2(log(r2) / 2) - (steps - 1), and r2 ∈ (2^64, 2^128] at escape, so log(r2) / 2 ∈ (22.1, 44.4]:
 // with d = steps - 1 - k, g < 2^-k iff log(r2) / 2 < 2^d, which holds for d ≥ 6, fails for d ≤ 4, and for
 // d = 5 means r2 < e^64.
-__host__ __device__ static inline bool escaped_below(const int64_t steps, const double r2, const int k) {
+__host__ __device__ static inline bool escaped_below(const int64_t steps, const double r2, const int64_t k) {
   const int64_t d = steps - 1 - k;
   return d >= 6 || (d == 5 && r2 < 6.235149080811617e27);
 }
@@ -114,14 +114,23 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x
   return false;
 }
 
-// Orbit and OrbitDE keep step counts in 32 bits to save GPU registers, so max_iter must be below 2^30
+// Orbit and OrbitDE keep step counts in 32 bits to save GPU registers, so max_iter must be below 2^30.  Building
+// with -DMANDELBROT_ORBIT64 makes them 64 bits, for deep runs (max_iter below 2^62), at some cost in registers.
+#ifdef MANDELBROT_ORBIT64
+typedef int64_t orbit_int;
+constexpr int64_t kOrbitNever = int64_t(1) << 62;
+#else
+typedef int32_t orbit_int;
+constexpr int64_t kOrbitNever = int64_t(1) << 30;
+#endif
+
 template<class T> struct Orbit {
   // State is kept small, since it lives in GPU registers across the persistent loop: the result is encoded in
   // existing fields (see status), and task-wide settings are arguments to run.
   T x, y, zx, zy;
   T cx, cy;        // Brent checkpoint, refreshed at powers of two.  After escape, cx = |z_n|^2.
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
-  int32_t n, next_check, candidate, next_newton;  // 32 bits to save registers: max_iter < 2^30
+  orbit_int n, next_check, candidate, next_newton;  // max_iter < kOrbitNever
   int32_t status;  // 0 running, 1 escaped at step n, 2 attracting cycle (period in candidate), 3 hit max_iter,
                    // 4 stopped at a Newton step, 5 stopped at an exact return (settle does the rest of the step)
 
@@ -132,7 +141,7 @@ template<class T> struct Orbit {
     zx = x; zy = y; cx = x; cy = y;
     min_r2 = zx * zx + zy * zy;
     n = 1; next_check = 16; candidate = 1; status = 0;
-    next_newton = int32_t(first_newton < (int64_t(1) << 30) ? first_newton : int64_t(1) << 30);  // ≥ 2^30: never
+    next_newton = orbit_int(first_newton < kOrbitNever ? first_newton : kOrbitNever);  // ≥ kOrbitNever: never
     if (in_cardioid_or_disk(x_, y_)) {
       const bool disk = (x_ + 1) * (x_ + 1) + y_ * y_ <= 1.0 / 16;
       status = 2; candidate = disk ? 2 : 1; n = 0;
@@ -238,10 +247,10 @@ template<class T> struct Orbit {
   __host__ __device__ bool run(const int64_t max_iter, const int64_t budget, const int max_period = 4096) {
     T zx = this->zx, zy = this->zy, cx = this->cx, cy = this->cy, min_r2 = this->min_r2;
     T zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
-    int32_t n = this->n, next_check = this->next_check, candidate = this->candidate;
-    const int32_t end = int32_t(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
+    orbit_int n = this->n, next_check = this->next_check, candidate = this->candidate;
+    const orbit_int end = orbit_int(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
     while (n < end) {
-      const int32_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
+      const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       for (; n < block; n++) {
         // Escape at |z| > 2^32 so that log|z| is accurate
         if (r2 > T(18446744073709551616.0)) {
@@ -324,7 +333,7 @@ struct EscapeDE {
 };
 
 // Result for an orbit escaping at step n with |z|^2 = r2 and dz/dc = 2^dexp (dx + i dy)
-ORBIT_COLD __host__ __device__ static EscapeDE escaped(const int32_t n, const double r2, const double dx,
+ORBIT_COLD __host__ __device__ static EscapeDE escaped(const int64_t n, const double r2, const double dx,
                                                        const double dy, const int32_t dexp) {
   EscapeDE r;
   const double lz = 0.5 * std::log(r2);
@@ -341,7 +350,8 @@ ORBIT_COLD __host__ __device__ static EscapeDE escaped(const int32_t n, const do
 // escape_de as a resumable state machine, like Orbit
 struct OrbitDE {
   double x, y, zx, zy, dx, dy, min_r2, cx, cy;
-  int32_t n, dexp, candidate, next_newton, check_n, next_check;  // 32 bits to save registers: max_iter < 2^30
+  orbit_int n, candidate, next_newton, check_n, next_check;  // max_iter < kOrbitNever
+  int32_t dexp;
   // 0 running, 1 done (result in r), 7 escaped (at step n with |z|^2 = cx; result() computes the distance), and
   // with defer, stopped for settle: 4 Newton step due, 5 Brent fired, 6 cardioid or period 2 disk (whose
   // interior distance settle computes)
@@ -366,7 +376,7 @@ struct OrbitDE {
     zx = x; zy = y; dx = 1; dy = 0; dexp = 0;
     min_r2 = zx * zx + zy * zy;
     candidate = 1;
-    next_newton = int32_t(first_newton < (int64_t(1) << 30) ? first_newton : int64_t(1) << 30);  // ≥ 2^30: never
+    next_newton = orbit_int(first_newton < kOrbitNever ? first_newton : kOrbitNever);  // ≥ kOrbitNever: never
     cx = zx; cy = zy; check_n = 1; next_check = 16;  // Brent checkpoint
     n = 1;
     return false;
@@ -403,10 +413,10 @@ struct OrbitDE {
       // Brent fallback: converged to a cycle; recover its period by iterating until the orbit returns
       const double ex = zx - cx, ey = zy - cy;
       if (ex * ex + ey * ey < 1e-26) {
-        const int32_t lag = n - check_n;
+        const orbit_int lag = n - check_n;
         double wx = zx, wy = zy;
         r.e = {-1, -INFINITY, 0, n};
-        for (int32_t q = 1; q <= (lag < 65536 ? lag : 65536); q++) {
+        for (int32_t q = 1; q <= int32_t(lag < 65536 ? lag : 65536); q++) {
           const double t2 = wx * wx - wy * wy + x;
           wy = 2 * wx * wy + y;
           wx = t2;
@@ -431,11 +441,12 @@ struct OrbitDE {
     if (status == 6) return true;  // Deferred cardioid/disk start
     double zx = this->zx, zy = this->zy, dx = this->dx, dy = this->dy, min_r2 = this->min_r2;
     double zx2 = zx * zx, zy2 = zy * zy, r2 = zx2 + zy2;
-    int32_t n = this->n, dexp = this->dexp, candidate = this->candidate;
+    orbit_int n = this->n, candidate = this->candidate;
+    int32_t dexp = this->dexp;
     double unit = std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000)));  // The +1 in dz/dc, rescaled
-    const int32_t end = int32_t(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
+    const orbit_int end = orbit_int(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
     while (n < end) {
-      const int32_t block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
+      const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       for (; n < block; n++) {
         if (r2 > 18446744073709551616.0) {
           // The distance bound is computed by result(), off the hot loop: GPU lanes that finish in the same burst
