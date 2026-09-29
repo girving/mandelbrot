@@ -38,7 +38,7 @@ struct TreeParams {
   int strata = 2;            // Each group of strata^2 samples is jittered on a strata × strata grid
   int64_t max_iter = 1 << 20;
   uint64_t seed = 1;
-  vector<int> ks;            // Thresholds 2^-k, increasing, at most 32
+  vector<int64_t> ks;        // Thresholds 2^-k, increasing, at most 31
   int64_t first_newton = 16384;  // First Newton certificate attempt for leaf samples (later diverges less)
   int64_t center_max_iter = 1 << 14;  // Iteration cap for cell centers (long orbits rarely certify a cell)
   int64_t center_first_newton = 8192; // First Newton interior certificate attempt for cell centers
