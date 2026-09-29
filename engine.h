@@ -454,13 +454,23 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       }
       rounds++;
       const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
+      const auto r0 = std::chrono::steady_clock::now();
       engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p);
+      if (timing) cuda_check(cudaStreamSynchronize(stream()));
+      const auto r1 = std::chrono::steady_clock::now();
       cuda_check(cudaMemsetAsync(counters.p + 8, 0, sizeof(uint64_t), stream()));
       cuda_check(cudaMemsetAsync(counters.p + 12, 0, sizeof(uint64_t), stream()));
       engine_detail::resume_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
                                                                    next_items.p, cap, counters.p);
       cuda_check(cudaGetLastError());
+      const int64_t was = count;
       count = std::min<int64_t>(cap, int64_t(counters.get(12)));
+      if (timing) {
+        const auto r2 = std::chrono::steady_clock::now();
+        print("      round %d: %d orbits, settle %.1f ms, resume %.1f ms, %d still pending", rounds, was,
+              1e3 * std::chrono::duration<double>(r1 - r0).count(), 1e3 * std::chrono::duration<double>(r2 - r1).count(),
+              count);
+      }
       std::swap(parked.p, next.p);
       std::swap(items.p, next_items.p);
     }
