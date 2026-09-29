@@ -210,6 +210,84 @@ struct ReduceChunk {
   }
 };
 
+// Tile-resolved accounting: tile of cell (ix, iy) at depth d, on a tiles × tiles grid of the box
+__host__ __device__ inline int tile_of(const int32_t ix, const int32_t iy, const int64_t grid, const int T) {
+  return int(int64_t(iy) * T / grid) * T + int(int64_t(ix) * T / grid);
+}
+
+// Certified-below area per tile and threshold over chunks of cells, in finest-cell units
+const int64_t kTileChunk = 1 << 20;
+
+struct TileCountChunk {
+  const uint32_t* status;
+  Level level;
+  int64_t n, grid, weight;
+  int T, K;
+  int64_t* out;  // [chunk * T² K + tile * K + k]
+  __host__ __device__ void operator()(const int64_t c) const {
+    int64_t* o = out + c * T * T * K;
+    for (int j = 0; j < T * T * K; j++) o[j] = 0;
+    const int64_t hi = (c + 1) * kTileChunk < n ? (c + 1) * kTileChunk : n;
+    for (int64_t i = c * kTileChunk; i < hi; i++) {
+      const uint32_t s = status[i];
+      if (s == kUncertified || !s) continue;
+      const Cell a = level.at(i);
+      int64_t* ot = o + tile_of(a.ix, a.iy, grid, T) * K;
+      for (int k = 0; k < K; k++) ot[k] += weight * ((s >> k) & 1);
+    }
+  }
+};
+
+// Leaf group sums of consecutive differences per tile over chunks of leaves
+struct TileReduceChunk {
+  const uint32_t* bits;
+  const Cell* leaves;
+  int64_t n, grid;
+  int T, K, m, ss;
+  int64_t* out;  // [chunk * T² K 3 + (tile * K + k) * 3 + {s, q, p}]
+  __host__ __device__ void operator()(const int64_t c) const {
+    int64_t* o = out + c * T * T * K * 3;
+    for (int j = 0; j < T * T * K * 3; j++) o[j] = 0;
+    const int64_t hi = (c + 1) * kTileChunk < n ? (c + 1) * kTileChunk : n;
+    for (int64_t l = c * kTileChunk; l < hi; l++) {
+      int64_t* ot = o + tile_of(leaves[l].ix, leaves[l].iy, grid, T) * K * 3;
+      for (int k = 0; k + 1 < K; k++) {
+        int64_t total = 0, q = 0;
+        for (int g = 0; g < m / ss; g++) {
+          int64_t cg = 0;
+          for (int t = 0; t < ss; t++) {
+            const uint32_t b = bits[l * m + g * ss + t];
+            cg += int((b >> k) & 1) - int((b >> (k + 1)) & 1);
+          }
+          total += cg;
+          q += cg * cg;
+        }
+        ot[3 * k] += total; ot[3 * k + 1] += q; ot[3 * k + 2] += total * total;
+      }
+    }
+  }
+};
+
+// Sum per-chunk arrays of S int64s over chunks: out[j] = Σ_c in[c S + j]
+struct SumChunks {
+  const int64_t* in;
+  int64_t chunks, S;
+  int64_t* out;
+  __host__ __device__ void operator()(const int64_t j) const {
+    int64_t s = 0;
+    for (int64_t c = 0; c < chunks; c++) s += in[c * S + j];
+    out[j] = s;
+  }
+};
+
+vector<int64_t> sum_chunks(const Mem<int64_t>& in, const int64_t chunks, const int64_t S, const bool cuda) {
+  Mem<int64_t> out(S, cuda);
+  for_each(S, SumChunks{in.p, chunks, S, out.p}, cuda);
+  vector<int64_t> h(S);
+  out.to_host(h.data(), S);
+  return h;
+}
+
 // Pilot-allocation statistics over chunks of leaves (see alloc_index in tree.h), with m = 16
 const int64_t kStatsChunk = 16384;
 
@@ -296,6 +374,19 @@ double TreeResult::diff_estimate(const int k) const {
   return 2 * e;
 }
 
+double TreeResult::tile_diff_estimate(const int tile, const int k) const {
+  const int K = p.ks.size();
+  const double a = cell_area(p.depth);
+  return 2 * a * (double(tile_diff[tile * K + k].s) / p.m + double(tile_cert[tile * K + k] - tile_cert[tile * K + k + 1]));
+}
+
+double TreeResult::tile_diff_variance(const int tile, const int k) const {
+  const int K = p.ks.size();
+  const double ss = p.strata * p.strata, G = p.m / ss, a = cell_area(p.depth);
+  const auto& g = tile_diff[tile * K + k];
+  return 4 * a * a * (double(g.q) - double(g.p) / G) / (ss * ss * G * (G - 1));
+}
+
 double TreeResult::variance(const vector<GroupSums>& sums, const int k) const {
   // Per leaf with group sums c_g and G = m / ss groups: var = a^2 (Σ c_g^2 - (Σ c_g)^2 / G) / (ss^2 G (G - 1))
   const double ss = p.strata * p.strata, G = p.m / ss, a = cell_area(p.depth);
@@ -322,6 +413,8 @@ TreeResult run_tree(const TreeParams& p) {
   R.area.resize(K); R.diff.resize(K); R.float_area.resize(K); R.delta.resize(K);
   slow_assert(!p.leaf_stats || (p.m == 16 && !p.prec.starts_with("compare")), "leaf_stats needs m = 16, no compare");
   if (p.leaf_stats) R.alloc.assign(int64_t(K) * 108, 0);
+  slow_assert(p.tiles >= 0 && p.tiles <= 64, "tiles must be in [0, 64]");
+  if (p.tiles) { R.tile_diff.resize(int64_t(p.tiles) * p.tiles * K); R.tile_cert.assign(int64_t(p.tiles) * p.tiles * K, 0); }
   const auto t0 = std::chrono::steady_clock::now();
   const int64_t rows = p.rows < 0 ? p.base : std::min(p.rows, p.base);
 
@@ -366,6 +459,14 @@ TreeResult run_tree(const TreeParams& p) {
         uncertified += o[0];
         R.exact[d] += o[1];
         for (int k = 0; k < K; k++) R.certified[d * K + k] += o[2 + k];
+      }
+      if (p.tiles) {
+        const int64_t tc = (n + kTileChunk - 1) / kTileChunk, S = int64_t(p.tiles) * p.tiles * K;
+        Mem<int64_t> tout(tc * S, p.cuda);
+        for_each(tc, TileCountChunk{status.p, level, n, p.base << d, int64_t(1) << (2 * (p.depth - d)), p.tiles, K,
+                                    tout.p}, p.cuda);
+        const auto h = sum_chunks(tout, tc, S, p.cuda);
+        for (int64_t j = 0; j < S; j++) R.tile_cert[j] += h[j];
       }
       Mem<int64_t> doffsets(chunks, p.cuda);
       doffsets.from_host(offsets.data(), chunks);
@@ -414,6 +515,14 @@ TreeResult run_tree(const TreeParams& p) {
         }
       }
       if (compare) R.flips += reduce(bits, &fbits, kFlips, 0, p, nl).s;
+      if (p.tiles) {
+        const int64_t tc = (nl + kTileChunk - 1) / kTileChunk, S = int64_t(p.tiles) * p.tiles * K * 3;
+        Mem<int64_t> tout(tc * S, p.cuda);
+        for_each(tc, TileReduceChunk{bits.p, leaves.p + l0, nl, p.base << p.depth, p.tiles, K, p.m, p.strata * p.strata,
+                                     tout.p}, p.cuda);
+        const auto h = sum_chunks(tout, tc, S, p.cuda);
+        for (int64_t j = 0; j < S / 3; j++) R.tile_diff[j] += GroupSums{h[3 * j], h[3 * j + 1], h[3 * j + 2]};
+      }
       if (p.leaf_stats) {
         const int64_t chunks = (nl + kStatsChunk - 1) / kStatsChunk, size = int64_t(K) * 108;
         Mem<int64_t> out(chunks * size, p.cuda);

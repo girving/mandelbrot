@@ -146,6 +146,9 @@ int main(const int argc, const char** argv) {
         .scan<'g', double>().default_value(1e-6);
     program.add_argument("--box").help("domain x0 x1 y0 y1 (estimates double it by conjugate symmetry)")
         .nargs(4).scan<'g', double>().default_value(vector<double>{-2, 0.5, 0, 1.2});
+    program.add_argument("--tiles").help("resolve consecutive differences over a T × T grid of the box").scan<'i', int>()
+        .default_value(0);
+    program.add_argument("--tiles-out").help("file for per-tile differences: tx ty k k' D var").default_value(string(""));
     program.add_argument("--leaf-stats").help("report two-phase allocation gains (needs --m 16)")
         .default_value(false).implicit_value(true);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
@@ -178,12 +181,29 @@ int main(const int argc, const char** argv) {
     for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");
     slow_assert(p.first_newton >= 1, "need --first-newton ≥ 1");
     p.leaf_stats = program.get<bool>("--leaf-stats");
+    p.tiles = program.get<int>("--tiles");
+    const auto tiles_out = program.get<string>("--tiles-out");
+    slow_assert(!p.tiles == tiles_out.empty(), "--tiles and --tiles-out go together");
     const auto box = program.get<vector<double>>("--box");
     p.x0 = box[0]; p.x1 = box[1]; p.y0 = box[2]; p.y1 = box[3];
     slow_assert(p.x0 < p.x1 && p.y0 < p.y1, "empty box");
     const auto R = run_tree(p);
     report(R);
     if (p.leaf_stats) allocation_report(R);
+    if (p.tiles) {
+      FILE* f = fopen(tiles_out.c_str(), "w");
+      slow_assert(f, "can't open %s", tiles_out);
+      int64_t lines = 0;
+      for (int t = 0; t < p.tiles * p.tiles; t++)
+        for (int k = 0; k + 1 < int(p.ks.size()); k++) {
+          const double D = R.tile_diff_estimate(t, k), v = R.tile_diff_variance(t, k);
+          if (D == 0 && v == 0) continue;
+          fprintf(f, "%d %d %d %d %.12e %.6e\n", t % p.tiles, t / p.tiles, p.ks[k], p.ks[k + 1], D, v);
+          lines++;
+        }
+      fclose(f);
+      print("  wrote %d tile differences to %s", lines, tiles_out);
+    }
     return 0;
   } catch (const std::exception& e) {
     die(e.what());

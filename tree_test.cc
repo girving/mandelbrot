@@ -227,6 +227,30 @@ TEST(box) {
     ASSERT_TRUE(std::abs(R.area_estimate(k) - 0.04) < 1e-12) << tfm::format("k %d: %.17g", k, R.area_estimate(k));
 }
 
+TEST(tiles) {
+  // Tile-resolved differences partition the global ones exactly
+  auto p = small_params();
+  p.tiles = 5;
+  const auto R = run_tree(p);
+  const int K = p.ks.size(), T2 = p.tiles * p.tiles;
+  for (int k = 0; k + 1 < K; k++) {
+    GroupSums g;
+    double D = 0, V = 0;
+    for (int t = 0; t < T2; t++) { g += R.tile_diff[t * K + k]; D += R.tile_diff_estimate(t, k); V += R.tile_diff_variance(t, k); }
+    ASSERT_EQ(g.s, R.diff[k].s);
+    ASSERT_EQ(g.q, R.diff[k].q);
+    ASSERT_EQ(g.p, R.diff[k].p);
+    ASSERT_TRUE(std::abs(D - R.diff_estimate(k)) <= 1e-12 * std::abs(R.diff_estimate(k))) << tfm::format("k %d: %.17g vs %.17g", k, D, R.diff_estimate(k));
+    ASSERT_TRUE(std::abs(V - R.variance(R.diff, k)) <= 1e-9 * R.variance(R.diff, k));
+  }
+  for (int k = 0; k < K; k++) {
+    int64_t cert = 0, want = 0;
+    for (int t = 0; t < T2; t++) cert += R.tile_cert[t * K + k];
+    for (int d = 0; d <= p.depth; d++) want += R.certified[d * K + k] << (2 * (p.depth - d));
+    ASSERT_EQ(cert, want);
+  }
+}
+
 TEST(leaf_stats) {
   // Allocation statistics partition the leaves, and their costs add up to the leaf iterations
   auto p = small_params();

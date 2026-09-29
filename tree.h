@@ -56,6 +56,7 @@ struct TreeParams {
   int64_t batch = 1 << 22;   // Target leaves per batch
   int64_t rows = -1;         // Only the first `rows` base rows (for tests), or -1 for all
   bool leaf_stats = false;   // Collect pilot-allocation statistics (TreeResult::alloc; needs m = 16)
+  int tiles = 0;             // Resolve consecutive differences over a tiles × tiles grid of the box (0: off)
 };
 
 // Pilot-allocation statistics: leaves are classed by c1, the count below threshold k among their first P
@@ -82,6 +83,8 @@ struct TreeResult {
   vector<GroupSums> area, diff;       // Leaf sums per threshold for areas, and for consecutive differences
   vector<GroupSums> float_area, delta;  // With compare: float areas, and float - double
   vector<int64_t> alloc;              // With leaf_stats: [alloc_index(k, pi, c1, {N, S, W2, Wp})]
+  vector<GroupSums> tile_diff;        // With tiles: [tile * K + k] leaf sums of the k, k + 1 difference
+  vector<int64_t> tile_cert;          // With tiles: [tile * K + k] area certified below k, in finest cells
   int64_t leaves = 0, centers = 0, center_iters = 0, leaf_iters = 0, overflow = 0, flips = 0, batches = 0;
   double tree_secs = 0, center_kernel_secs = 0, sample_secs = 0, reduce_secs = 0, secs = 0;
 
@@ -92,6 +95,9 @@ struct TreeResult {
   double variance(const vector<GroupSums>& sums, int k) const;
   double area_estimate(int k) const { return estimate(area, k, true); }
   double diff_estimate(int k) const;
+  // Per tile (index ty * tiles + tx): consecutive difference A(k) - A(k + 1) and its variance
+  double tile_diff_estimate(int tile, int k) const;
+  double tile_diff_variance(int tile, int k) const;
 };
 
 TreeResult run_tree(const TreeParams& p);
