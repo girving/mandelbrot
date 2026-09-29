@@ -146,6 +146,7 @@ template<class T> struct SampleTask {
   int64_t ks[32];
   uint32_t* bits;
   uint32_t* iters_out;  // Per-sample iterations, or null
+  int64_t park_steps;   // GPU steps before parking: the first Newton step (see run_orbits)
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
     // Item counts are below 2^31 (scramble_stride checks), so 32-bit division suffices
@@ -342,7 +343,7 @@ template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, con
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, p.x0, p.y0, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
                                    p.newton_margin, false},
-                     int(p.ks.size()), {}, bits.p, iters};
+                     int(p.ks.size()), {}, bits.p, iters, p.first_newton};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;
