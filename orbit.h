@@ -266,19 +266,34 @@ template<class T> struct Orbit {
     const T big = T(18446744073709551616.0);  // Escape at |z| > 2^32 so that log|z| is accurate
     while (n < end) {
       const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
-      // Fast path: a whole aligned block past the atom-domain range, with no per-step tests.  Once |z| > 2^32 it
-      // only grows (to inf or nan within the block), so a single test at the end finds escapes, and the block is
-      // redone step by step to find the exact escape step.  Both paths do the same arithmetic.
-      if (n >= max_period && block == n + 8 && !(r2 > big)) {
-        const T zx0 = zx, zy0 = zy, zy20 = zy2, r20 = r2;
+      // Fast path: a whole aligned block with no per-step tests.  Once |z| > 2^32 it only grows (to inf or nan
+      // within the block), so a single test at the end finds escapes, and the block is redone step by step to
+      // find the exact escape step.  Inside the atom-domain range the block tracks the minimum with selects
+      // instead of branches; a block straddling max_period takes the careful path.  Both paths do the same
+      // arithmetic, so results do not depend on which ran.
+      if (block == n + 8 && !(r2 > big) && (n >= max_period || n + 8 <= max_period)) {
+        const T zx0 = zx, zy0 = zy, zy20 = zy2, r20 = r2, min0 = min_r2;
+        const orbit_int cand0 = candidate;
+        if (n >= max_period) {
 #ifdef __CUDA_ARCH__
 #pragma unroll
 #endif
-        for (int s = 0; s < 8; s++) orbit_step(zx, zy, zy2, r2, x, y);
-        if (r2 <= big) {
+          for (int s = 0; s < 8; s++) orbit_step(zx, zy, zy2, r2, x, y);
+        } else {
+#ifdef __CUDA_ARCH__
+#pragma unroll
+#endif
+          for (int s = 0; s < 8; s++) {
+            orbit_step(zx, zy, zy2, r2, x, y);
+            const bool lower = r2 < min_r2;  // (zx, zy) is now z_{n+s+1}
+            min_r2 = lower ? r2 : min_r2;
+            candidate = lower ? n + s + 1 : candidate;
+          }
+        }
+        if (r2 < big) {  // False for nan and inf (DoubleDouble's <= is not: it is !(b < a))
           n = block;
         } else {
-          zx = zx0; zy = zy0; zy2 = zy20; r2 = r20;
+          zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; min_r2 = min0; candidate = cand0;
         }
       }
       for (; n < block; n++) {
