@@ -328,11 +328,59 @@ template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks,
 #undef LAUNCH
 }
 
-// Settle all pending parked orbits at once, finishing those that are done (marked by item -1)
-template<class Task> __global__ void settle_kernel(const Task task, typename Task::State* parked, int64_t* items,
-                                                   const int64_t count, uint64_t* counters) {
-  uint64_t it = 0;
+// Counting sort of parked orbits by task.settle_key (the work settle will do, in [0, kSettleKeys)) into a
+// permutation, so that each warp of settle_kernel settles similar work: settles are long serial loops (Newton over
+// the candidate period) that would otherwise run at the pace of each warp's slowest lane.  Each block ranks a tile
+// of keys in shared memory and reserves each bucket's range with one global atomic per (tile, bucket).
+constexpr int kSettleKeys = 512, kSortTile = 256 * 8;
+template<class Task> __global__ void settle_keys_kernel(const Task task, const typename Task::State* parked,
+                                                        const int64_t* items, const int64_t count, uint16_t* keys,
+                                                        uint64_t* sizes) {
+  __shared__ uint32_t hist[kSettleKeys];
+  for (int b = threadIdx.x; b < kSettleKeys; b += blockDim.x) hist[b] = 0;
+  __syncthreads();
   for (int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; k < count; k += int64_t(blockDim.x) * gridDim.x) {
+    const int key = items[k] < 0 ? 0 : min(max(task.settle_key(parked[k]), 0), kSettleKeys - 1);
+    keys[k] = uint16_t(key);
+    atomicAdd(hist + key, 1u);
+  }
+  __syncthreads();
+  for (int b = threadIdx.x; b < kSettleKeys; b += blockDim.x)
+    if (hist[b]) atomic_add(sizes + b, uint64_t(hist[b]));
+}
+template<class Task> __global__ void settle_sort_kernel(const uint16_t* keys, const int64_t count, uint64_t* offsets,
+                                                        int32_t* perm) {
+  __shared__ uint32_t hist[kSettleKeys];
+  __shared__ uint64_t base[kSettleKeys];
+  constexpr int per = kSortTile / 256;
+  for (int64_t t0 = int64_t(blockIdx.x) * kSortTile; t0 < count; t0 += int64_t(gridDim.x) * kSortTile) {
+    for (int b = threadIdx.x; b < kSettleKeys; b += blockDim.x) hist[b] = 0;
+    __syncthreads();
+    uint32_t rank[per];
+    int key[per];
+    for (int j = 0; j < per; j++) {
+      const int64_t k = t0 + j * 256 + threadIdx.x;
+      key[j] = k < count ? keys[k] : -1;
+      if (key[j] >= 0) rank[j] = atomicAdd(hist + key[j], 1u);
+    }
+    __syncthreads();
+    for (int b = threadIdx.x; b < kSettleKeys; b += blockDim.x)
+      if (hist[b]) base[b] = atomic_fetch_add(offsets + b, uint64_t(hist[b]));
+    __syncthreads();
+    for (int j = 0; j < per; j++)
+      if (key[j] >= 0) perm[base[key[j]] + rank[j]] = int32_t(t0 + j * 256 + threadIdx.x);
+    __syncthreads();
+  }
+}
+
+// Settle all pending parked orbits at once (in the order perm, if given), finishing those that are done (marked by
+// item -1)
+template<class Task> __global__ void settle_kernel(const Task task, typename Task::State* parked, int64_t* items,
+                                                   const int64_t count, uint64_t* counters,
+                                                   const int32_t* perm = nullptr) {
+  uint64_t it = 0;
+  for (int64_t t = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; t < count; t += int64_t(blockDim.x) * gridDim.x) {
+    const int64_t k = perm ? perm[t] : t;
     typename Task::State o = parked[k];
     if (!task.pending(o)) continue;
     if (task.settle(o)) {
@@ -495,7 +543,29 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       rounds++;
       const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
       const auto r0 = std::chrono::steady_clock::now();
-      engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p);
+      if constexpr (requires { task.settle_key(*parked.p); }) {
+        // Sort by settle work (see settle_keys_kernel), then settle in that order
+        Mem<uint16_t> keys(count, true);
+        Mem<int32_t> perm(count, true);
+        Mem<uint64_t> sizes(engine_detail::kSettleKeys, true);
+        sizes.zero();
+        engine_detail::settle_keys_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, keys.p,
+                                                                           sizes.p);
+        uint64_t h[engine_detail::kSettleKeys];
+        sizes.to_host(h, engine_detail::kSettleKeys);
+        for (uint64_t b = 0, offset = 0; b < uint64_t(engine_detail::kSettleKeys); b++) {
+          const uint64_t size = h[b];
+          h[b] = offset;
+          offset += size;
+        }
+        sizes.from_host(h, engine_detail::kSettleKeys);
+        const int sg = int(std::min<int64_t>(grid, (count + engine_detail::kSortTile - 1) / engine_detail::kSortTile));
+        engine_detail::settle_sort_kernel<Task><<<sg, block, 0, stream()>>>(keys.p, count, sizes.p, perm.p);
+        engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p,
+                                                                      perm.p);
+      } else {
+        engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p);
+      }
       if (timing) cuda_check(cudaStreamSynchronize(stream()));
       const auto r1 = std::chrono::steady_clock::now();
       cuda_check(cudaMemsetAsync(counters.p + 8, 0, sizeof(uint64_t), stream()));
