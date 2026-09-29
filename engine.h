@@ -197,8 +197,9 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 
 // Per-warp queue of ready orbits in shared memory, restocked 32 at a time (one per lane), so that lanes going idle
 // in different bursts copy a ready orbit instead of each preparing one (starting a sample: a few hundred
-// instructions of placement, hashing, and the cardioid test; or claiming and loading a parked orbit) with the rest
-// of the warp waiting.  Item indices fit in 32 bits (n < 2^31), which saves registers.
+// instructions of placement, hashing, and the cardioid test) with the rest of the warp waiting.  (Not for
+// resume_kernel: restocking 32 at a time hoards parked orbits in busy warps at the end of each round.)  Item
+// indices fit in 32 bits (n < 2^31), which saves registers.
 template<class State> struct WarpQueue {
   State* slots;            // This warp's 32 slots
   int32_t* items;
