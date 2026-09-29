@@ -526,6 +526,24 @@ s* ≈ 1.45, and the tail fits cannot tell: with a log term, a/k + b/(k ln k) + 
 s ≈ 1.2 agreement above was fortuitous; D gives the correction exponent (1.45 ± 0.05 if larger bulbs weigh
 like these two) but the tail data do not yet constrain it.
 
+*The non-copy tail T_0.*  Subtracting the copies' share with the renewal equation in octave differences,
+D(k) = D_0(k) + Σ_W r_W D(k/p_W) (shifts c_W neglected; D at non-dyadic points by local cubic interpolation
+of log(k D) in log k; weights 0.65 satellite, 0.90 primitive, periods to 16 plus a p^−3 tail), using M's
+depth-8 octave differences for k = 2^12 … 2^21 and the §5.2 octaves beyond:
+
+| k | 2^12 | 2^14 | 2^16 | 2^18 | 2^20 | 2^22 | 2^23 |
+|---|---|---|---|---|---|---|---|
+| k·D_M | 1.809 | 1.698 | 1.597 | 1.509 | 1.441 | 1.381 | 1.341 |
+| k·D_0 | 0.903 | 0.839 | 0.788 | 0.747 | 0.720 | 0.693 | 0.668 |
+| copies' share | 0.501 | 0.506 | 0.506 | 0.505 | 0.501 | 0.498 | 0.502 |
+
+(With all weights 1 the share is 0.77, equally flat.)  The copies' share is constant, so they inherit M's drift
+rather than causing it: the slow departure from a/k lives in T_0, the neutral-boundary shells (§3) and
+decorations outside all maximal copies.  Simple forms for it do not fit: a/(k (ln k)^ν) + c/k² is best at
+ν = 0.4 with χ² 67 (k ≥ 2^16, 31 dof; 400 from 2^14), and adding b/k drives ν to 1, i.e. back to
+a/k + b/(k ln k) + c/k² (χ² 45).  So the renormalization structure is quantitatively understood, but the
+tail's functional form reduces to T_0's, which is not yet known.
+
 ## 6. Reproducing
 
 ```
