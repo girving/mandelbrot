@@ -182,7 +182,9 @@ template<class T> struct SampleTask {
 enum Kind { kArea, kDiff, kDelta, kFlips };
 struct Series { int8_t kind, k; bool swap; };
 const int kMaxSeries = 4 * 32 + 1;
-const int64_t kLeafChunk = 32;  // Small, so that many GPU threads share each pass
+// Chunk t (a GPU thread) sums 32 leaves interleaved with its tile's 31 other chunks, so that a warp reads 32
+// consecutive leaves at a time
+const int64_t kLeafChunk = 32, kLeafTile = 32 * kLeafChunk;
 
 struct ReduceChunk {
   const uint32_t* a;
@@ -190,7 +192,7 @@ struct ReduceChunk {
   int m, ss, S;
   int64_t leaves;
   Series series[kMaxSeries];
-  int64_t* out;  // [(chunk * S + series) * 3 + {s, q, p}]
+  int64_t* out;  // [(chunk * S + series) * 3 + {s, q, p}], with ceil(leaves / kLeafTile) * 32 chunks
   __host__ __device__ int value(const Series e, const int64_t i) const {
     const uint32_t x = e.swap ? b[i] : a[i];
     switch (e.kind) {
@@ -201,10 +203,10 @@ struct ReduceChunk {
     }
   }
   __host__ __device__ void operator()(const int64_t c) const {
-    const int64_t hi = (c + 1) * kLeafChunk < leaves ? (c + 1) * kLeafChunk : leaves;
+    const int64_t l0 = c / 32 * kLeafTile + c % 32;
     for (int e = 0; e < S; e++) {
       int64_t s = 0, q = 0, p = 0;
-      for (int64_t l = c * kLeafChunk; l < hi; l++) {
+      for (int64_t l = l0; l < l0 + kLeafTile && l < leaves; l += 32) {
         int64_t total = 0;
         for (int g = 0; g < m / ss; g++) {
           int64_t cg = 0;
@@ -348,7 +350,7 @@ vector<GroupSums> reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const v
                          const TreeParams& p, const int64_t leaves) {
   const int S = int(series.size());
   slow_assert(S <= kMaxSeries);
-  const int64_t chunks = (leaves + kLeafChunk - 1) / kLeafChunk;
+  const int64_t chunks = (leaves + kLeafTile - 1) / kLeafTile * 32;
   Mem<int64_t> out(chunks * S * 3, p.cuda);
   ReduceChunk r{a.p, b ? b->p : nullptr, p.m, p.strata * p.strata, S, leaves, {}, out.p};
   for (int e = 0; e < S; e++) r.series[e] = series[e];
@@ -364,7 +366,7 @@ template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, con
                                  uint32_t* iters = nullptr) {
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, p.x0, p.y0, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
-                                   p.newton_margin, false},
+                                   p.newton_margin, false, p.newton_repel2},
                      int(p.ks.size()), {}, bits.p, iters, p.first_newton};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);

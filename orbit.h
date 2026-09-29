@@ -109,6 +109,8 @@ struct NewtonOptions {
   double margin = -1;         // Attracting when |λ|^2 < 1 - margin
   bool best_return = false;   // If the atom-domain candidate fails, also try the best return period (costly on
                               // GPUs, where most Newton attempts are on exterior orbits and fail)
+  double repel2 = INFINITY;   // Give up from the second iteration once |(f^p)'(w)|^2 exceeds this: most attempts
+                              // converge to a repelling cycle, and would otherwise take 5-15 iterations to fail
 };
 
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
@@ -139,6 +141,7 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const typ
     }
     const T fx = zx - wx, fy = zy - wy, gx = dx - P(1), gy = dy;
     if (it == 0 && !(double(fx * fx + fy * fy) < close2)) return false;
+    if (it > 0 && double(dx * dx + dy * dy) > nw.repel2) return false;
     const T den = gx * gx + gy * gy;
     if (!(den > P(0))) return false;
     const T sx = (fx * gx + fy * gy) / den, sy = (fy * gx - fx * gy) / den;
