@@ -137,7 +137,7 @@ int main(const int argc, const char** argv) {
     program.add_argument("--center-first-newton").help("first Newton attempt for cell centers")
         .scan<'i', int64_t>().default_value(int64_t(8192));
     program.add_argument("--newton-repel").help("leaf Newton gives up from its second iteration once |λ(w)| exceeds this")
-        .scan<'g', double>().default_value(double(INFINITY));
+        .scan<'g', double>().default_value(std::sqrt(2.0));
     program.add_argument("--newton-close").help("leaf Newton needs |f^p(w) - w| below this after one iteration")
         .scan<'g', double>().default_value(double(INFINITY));
     program.add_argument("--center-max-period").help("largest period Newton tries for cell centers")
