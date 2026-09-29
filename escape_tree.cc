@@ -18,9 +18,9 @@ void report(const TreeResult& R) {
   if (p.x0 != -2 || p.x1 != 0.5 || p.y0 != 0 || p.y1 != 1.2)
     print("box [%.17g, %.17g] × [%.17g, %.17g] (doubled)", p.x0, p.x1, p.y0, p.y1);
   print("base %d, depth %d (effective grid %d), safety %g, %d samples/leaf, strata %d, max_iter %d, seed %d, "
-        "first Newton %d, center max_iter %d, center first Newton %d, center max period %d, Newton max period %d, Newton iterations %d, Newton close %g, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s with centers %.1f s, sampling %.1f s, "
+        "first Newton %d, center max_iter %d, center first Newton %d, center max period %d, Newton max period %d, Newton iterations %d, Newton close %g, Newton repel %g, burst %d, prec %s, %s, %d threads: %.1f s (tree %.1f s with centers %.1f s, sampling %.1f s, "
         "reduce %.1f s, %d batches)", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.max_iter, p.seed,
-        p.first_newton, p.center_max_iter, p.center_first_newton, p.center_max_period, p.newton_max_period, p.newton_iters, std::sqrt(p.newton_close2), p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.center_kernel_secs, R.sample_secs,
+        p.first_newton, p.center_max_iter, p.center_first_newton, p.center_max_period, p.newton_max_period, p.newton_iters, std::sqrt(p.newton_close2), std::sqrt(p.newton_repel2), p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.center_kernel_secs, R.sample_secs,
         R.reduce_secs, R.batches);
   print("  sampling throughput: %.3g iterations/s", double(R.leaf_iters) / R.sample_secs);
   print("  centers: %.3g cells, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations; "
@@ -136,6 +136,8 @@ int main(const int argc, const char** argv) {
         .default_value(30);
     program.add_argument("--center-first-newton").help("first Newton attempt for cell centers")
         .scan<'i', int64_t>().default_value(int64_t(8192));
+    program.add_argument("--newton-repel").help("leaf Newton gives up from its second iteration once |λ(w)| exceeds this")
+        .scan<'g', double>().default_value(double(INFINITY));
     program.add_argument("--newton-close").help("leaf Newton needs |f^p(w) - w| below this after one iteration")
         .scan<'g', double>().default_value(double(INFINITY));
     program.add_argument("--center-max-period").help("largest period Newton tries for cell centers")
@@ -177,6 +179,7 @@ int main(const int argc, const char** argv) {
     p.newton_tol = program.get<double>("--newton-tol");
     p.newton_margin = program.get<double>("--newton-margin");
     p.newton_close2 = program.get<double>("--newton-close") * program.get<double>("--newton-close");
+    p.newton_repel2 = program.get<double>("--newton-repel") * program.get<double>("--newton-repel");
     p.ks = program.get<vector<int64_t>>("ks");
     for (const int64_t k : p.ks) slow_assert(k + 8 <= p.max_iter, "need max_iter ≥ k + 8 for k = %d", k);
     for (size_t i = 0; i + 1 < p.ks.size(); i++) slow_assert(p.ks[i] < p.ks[i + 1], "thresholds must increase");

@@ -46,6 +46,7 @@ struct TreeParams {
   int newton_max_period = 256;        // Largest period Newton tries for leaf samples
   int newton_iters = 30;             // Newton iterations per certificate attempt for leaf samples
   double newton_close2 = INFINITY;   // Leaf Newton gives up unless |f^p(w) - w|^2 < this after one iteration
+  double newton_repel2 = INFINITY;   // Leaf Newton gives up from its second iteration once |λ(w)|^2 exceeds this
   double newton_tol = 1e-10;         // Leaf Newton converges when |step| < this · |w| (-1: 1e-14)
   double newton_margin = 1e-6;       // Leaf Newton certifies when |λ|^2 < 1 - this (-1: 1e-9)
   int64_t burst = 128;               // Orbit steps per run call (finished lanes refill between bursts)
