@@ -16,7 +16,8 @@ namespace {
 const int64_t kSteps = 1 << 14;
 
 // Variant 0: bare loop.  1: + escape test.  2: + atom-domain minimum.  3: + Brent check.  4: Orbit::run.
-// 5: OrbitDE::run without Newton.  6: OrbitDE::run with Newton attempts from step 64.
+// 5: OrbitDE::run without Newton.  6: OrbitDE::run with Newton attempts from step 64.  7: bare loop with Orbit's
+// FMA step (3 FMAs, 2 adds, 1 multiply: 9 flops in 6 FP64 instructions).
 template<int variant> __host__ __device__ double orbit(const double x, const double y) {
   if constexpr (variant == 5 || variant == 6) {
     // OrbitDE::start stops early inside the cardioid, so set up the iteration state by hand
@@ -26,6 +27,10 @@ template<int variant> __host__ __device__ double orbit(const double x, const dou
     o.cx = x; o.cy = y; o.check_n = 1; o.next_check = 16; o.n = 1; o.status = 0;
     o.run(kSteps, kSteps);
     return double(o.n) + o.zx + o.result().dist;
+  } else if constexpr (variant == 7) {
+    double zx = x, zy = y, zy2 = y * y, r2 = orbit_fma(x, x, zy2);
+    for (int64_t n = 1; n <= kSteps; n++) orbit_step(zx, zy, zy2, r2, x, y);
+    return zx + zy + r2;
   } else if constexpr (variant == 4) {
     Orbit<double> o;
     o.start(x, y, int64_t(1) << 40);  // No Newton.  Reports the cardioid, but initializes the state first.
@@ -106,7 +111,9 @@ template<int variant> void run(const int64_t n, const bool cuda, const char* nam
   for_each(n, Bench<variant>{out.p}, cuda);
   out.to_host(&h, 1);
   const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  print("  %-28s %.3g iterations/s  (%.3g s)", name, double(n) * kSteps / secs, secs);
+  // Flops at 9 per iteration (the FMA step, counting an FMA as 2), against the H200's 33.9 Tflop/s FP64 peak
+  const double rate = double(n) * kSteps / secs;
+  print("  %-28s %.3g iterations/s  (%.3g s, %.1f Tflop/s at 9 flops/iteration)", name, rate, secs, 9e-12 * rate);
 }
 
 }  // namespace
@@ -118,6 +125,7 @@ int main(const int argc, const char** argv) {
   const int64_t n = cuda ? 8 << 20 : int64_t(cpu_threads()) << 10;
   print("orbit_bench: %d orbits of %d steps on %s", n, kSteps, cuda ? "cuda" : "cpu");
   run<0>(n, cuda, "bare z^2 + c");
+  run<7>(n, cuda, "bare FMA step");
   run<1>(n, cuda, "+ escape test");
   run<2>(n, cuda, "+ atom-domain minimum");
   run<3>(n, cuda, "+ Brent check");

@@ -118,14 +118,12 @@ TEST(period) {
 
 // Reference classification without the Newton shortcut: plain iteration with Brent cycle detection
 Escape slow_escape(const double x, const double y, const int64_t max_iter) {
-  double zx = x, zy = y, cx = x, cy = y;
+  // The same step arithmetic as Orbit (orbit_step), so that escapes agree bit for bit
+  double zx = x, zy = y, cx = x, cy = y, zy2 = y * y, r2 = orbit_fma(x, x, zy2);
   int64_t next_check = 16;
   for (int64_t n = 1; n <= max_iter; n++) {
-    const double r2 = zx * zx + zy * zy;
     if (r2 > std::ldexp(1.0, 64)) return {n, std::log2(0.5 * std::log(r2)) - double(n - 1), 0, n};
-    const double t = zx * zx - zy * zy + x;
-    zy = 2 * zx * zy + y;
-    zx = t;
+    orbit_step(zx, zy, zy2, r2, x, y);
     const double dx = zx - cx, dy = zy - cy;
     if (dx * dx + dy * dy < 1e-26) return {-1, -INFINITY, 0, n};
     if (n == next_check) { cx = zx; cy = zy; next_check *= 2; }
