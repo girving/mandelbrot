@@ -34,9 +34,20 @@ clang++ --version | head -1
 
 step "Cloning $COMMIT"
 cd /tmp
-timeout 300 git clone -q --depth 1 --branch "$COMMIT" https://github.com/girving/mandelbrot
+# GitHub sometimes refuses anonymous clones from the cluster for a while: retry, then fall back to a tarball
+cloned=
+for attempt in 1 2 3 4; do
+  if timeout 300 git clone -q --depth 1 --branch "$COMMIT" https://github.com/girving/mandelbrot; then cloned=1; break; fi
+  rm -rf mandelbrot; echo "clone attempt $attempt failed"; sleep $((30 * attempt))
+done
+if [ -z "$cloned" ]; then
+  mkdir mandelbrot
+  timeout 300 curl -fsSL "https://codeload.github.com/girving/mandelbrot/tar.gz/$COMMIT" \
+    | tar -xz -C mandelbrot --strip-components=1 || { echo "tarball download failed"; exit 1; }
+  echo "fetched $COMMIT as a tarball (no git history)"
+fi
 cd mandelbrot
-echo "commit $(git rev-parse HEAD)"
+echo "commit $(git rev-parse HEAD 2>/dev/null || echo "$COMMIT (tarball)")"
 
 step "Configuring and building"
 CXXFLAGS="-O3 -march=native" timeout 600 meson setup build/release --buildtype=release > /tmp/setup.log \
