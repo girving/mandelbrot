@@ -8,11 +8,19 @@
 #include "orbit.h"
 namespace mandelbrot {
 
-// Same algorithm and tolerances as double
+// Same algorithm and tolerances as double; the parameter c and constants are exact doubles, which mixed
+// expansion-double arithmetic handles more cheaply than promoted expansions
 template<> struct OrbitTol<Expansion<2>> : public OrbitTol<double> {};
+template<> struct OrbitParam<Expansion<2>> { typedef double type; };
 
-// The step's fused multiply-add: exact products and sums to about 2^-104
+// Exact doubling, componentwise
+__host__ __device__ inline Expansion<2> orbit_twice(const Expansion<2> a) { return twice(a); }
+
+// The step's fused multiply-adds: exact products and sums to about 2^-104
 __host__ __device__ inline Expansion<2> orbit_fma(const Expansion<2> a, const Expansion<2> b, const Expansion<2> c) {
+  return a * b + c;
+}
+__host__ __device__ inline Expansion<2> orbit_fma(const Expansion<2> a, const Expansion<2> b, const double c) {
   return a * b + c;
 }
 

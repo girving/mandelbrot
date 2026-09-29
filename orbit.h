@@ -46,6 +46,11 @@ __host__ __device__ static inline bool escaped_below(const int64_t steps, const 
 // that call them keep few registers on GPUs
 #define ORBIT_COLD __attribute__((noinline))
 
+// The type of an orbit's parameter c and of the constants it compares or combines with T: T itself, except for
+// expansions (orbit_expansion.h), whose constants are exact doubles, so that cheaper mixed expansion-double
+// arithmetic applies.  (Writing constants as double would instead promote float arithmetic to double.)
+template<class T> struct OrbitParam { typedef T type; };
+
 // Tolerances by precision (squared distances, relative where noted)
 template<class T> struct OrbitTol;
 template<> struct OrbitTol<double> {
@@ -76,9 +81,12 @@ struct NewtonOptions {
 //
 // If close2 is finite, give up after the first iteration unless |f^p(w) - w|^2 < close2: orbit points that
 // have not nearly closed up rarely converge, and failures otherwise cost the full iteration count.
-template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x, const T y, T wx, T wy, const int p,
+template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const typename OrbitParam<T>::type x,
+                                                                   const typename OrbitParam<T>::type y, T wx, T wy,
+                                                                   const int p,
                                                          const NewtonOptions nw = NewtonOptions()) {
   typedef OrbitTol<T> Tol;
+  typedef typename OrbitParam<T>::type P;
   const double tol2 = nw.tol2 < 0 ? Tol::newton : nw.tol2, margin = nw.margin < 0 ? Tol::multiplier : nw.margin,
                close2 = nw.close2;
   for (int it = 0; it < nw.iters; it++) {
@@ -90,15 +98,15 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x
       const T t = zx * zx - zy * zy + x;
       zy = 2 * zx * zy + y;
       zx = t;
-      if (zx * zx + zy * zy > T(16)) return false;
+      if (zx * zx + zy * zy > P(16)) return false;
     }
-    const T fx = zx - wx, fy = zy - wy, gx = dx - T(1), gy = dy;
+    const T fx = zx - wx, fy = zy - wy, gx = dx - P(1), gy = dy;
     if (it == 0 && !(double(fx * fx + fy * fy) < close2)) return false;
     const T den = gx * gx + gy * gy;
-    if (!(den > T(0))) return false;
+    if (!(den > P(0))) return false;
     const T sx = (fx * gx + fy * gy) / den, sy = (fy * gx - fx * gy) / den;
     wx -= sx; wy -= sy;
-    if (sx * sx + sy * sy < T(tol2) * (T(1) + wx * wx + wy * wy)) {
+    if (sx * sx + sy * sy < P(tol2) * (P(1) + wx * wx + wy * wy)) {
       // Converged: the multiplier at the periodic point decides
       T mx = T(1), my = T(0), zx2 = wx, zy2 = wy;
       for (int k = 0; k < p; k++) {
@@ -108,7 +116,7 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const T x
         zy2 = 2 * zx2 * zy2 + y;
         zx2 = t;
       }
-      return mx * mx + my * my < T(1 - margin);
+      return mx * mx + my * my < P(1 - margin);
     }
   }
   return false;
@@ -129,19 +137,26 @@ constexpr int64_t kOrbitNever = int64_t(1) << 30;
 __host__ __device__ inline double orbit_fma(const double a, const double b, const double c) { return fma(a, b, c); }
 __host__ __device__ inline float orbit_fma(const float a, const float b, const float c) { return fmaf(a, b, c); }
 
+// Exact doubling (Expansion<2> overloads it with its componentwise twice)
+template<class T> __host__ __device__ inline T orbit_twice(const T a) { return a + a; }
+
 // One step z → z^2 + c carrying zy^2 and r2 = |z|^2: 3 FMAs, 2 adds and 1 multiply
-template<class T> __host__ __device__ inline void orbit_step(T& zx, T& zy, T& zy2, T& r2, const T x, const T y) {
+template<class T> __host__ __device__ inline void orbit_step(T& zx, T& zy, T& zy2, T& r2,
+                                                             const typename OrbitParam<T>::type x,
+                                                             const typename OrbitParam<T>::type y) {
   const T t = x - zy2;
-  zy = orbit_fma(zx + zx, zy, y);
+  zy = orbit_fma(orbit_twice(zx), zy, y);
   zx = orbit_fma(zx, zx, t);
   zy2 = zy * zy;
   r2 = orbit_fma(zx, zx, zy2);
 }
 
 template<class T> struct Orbit {
+  typedef typename OrbitParam<T>::type P;
   // State is kept small, since it lives in GPU registers across the persistent loop: the result is encoded in
   // existing fields (see status), and task-wide settings are arguments to run.
-  T x, y, zx, zy;
+  P x, y;         // The parameter c
+  T zx, zy;
   T cx, cy;        // Brent checkpoint, refreshed at powers of two.  After escape, cx = |z_n|^2.
   T min_r2;        // Atom domains: the step where |z_n| reaches a new minimum is a candidate period
   orbit_int n, next_check, candidate, next_newton;  // max_iter < kOrbitNever
@@ -151,8 +166,8 @@ template<class T> struct Orbit {
   // Start at c = x + iy, with Newton certificate attempts at step first_newton and then at each doubling.
   // Returns true if already decided (the cardioid or period 2 disk).
   __host__ __device__ bool start(const double x_, const double y_, const int64_t first_newton = 64) {
-    x = T(x_); y = T(y_);
-    zx = x; zy = y; cx = x; cy = y;
+    x = P(x_); y = P(y_);
+    zx = T(x); zy = T(y); cx = zx; cy = zy;
     min_r2 = zx * zx + zy * zy;
     n = 1; next_check = 16; candidate = 1; status = 0;
     next_newton = orbit_int(first_newton < kOrbitNever ? first_newton : kOrbitNever);  // ≥ kOrbitNever: never
@@ -201,7 +216,7 @@ template<class T> struct Orbit {
       wy = 2 * wx * wy + y;
       wx = t2;
       const T ex = wx - zx, ey = wy - zy;
-      if (ex * ex + ey * ey < T(Tol::period)) { candidate = p; break; }
+      if (ex * ex + ey * ey < P(Tol::period)) { candidate = p; break; }
     }
   }
 
@@ -263,7 +278,7 @@ template<class T> struct Orbit {
     T zy2 = zy * zy, r2 = orbit_fma(zx, zx, zy2);
     orbit_int n = this->n, next_check = this->next_check, candidate = this->candidate;
     const orbit_int end = orbit_int(n + budget < max_iter + 1 ? n + budget : max_iter + 1);
-    const T big = T(18446744073709551616.0);  // Escape at |z| > 2^32 so that log|z| is accurate
+    const P big = P(18446744073709551616.0);  // Escape at |z| > 2^32 so that log|z| is accurate
     while (n < end) {
       const orbit_int block = (n | 7) + 1 < end ? (n | 7) + 1 : end;  // Up to the next multiple of 8
       // Fast path: a whole aligned block with no per-step tests.  Once |z| > 2^32 it only grows (to inf or nan
