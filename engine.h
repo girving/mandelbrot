@@ -414,33 +414,24 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
                                                    const int64_t* items, const int64_t count,
                                                    typename Task::State* next, int64_t* next_items, const int64_t cap,
                                                    uint64_t* counters) {
-  // A WarpQueue restocked by claiming 32 parked orbits and loading the unfinished ones
-  typedef typename Task::State State;
-  __shared__ alignas(16) unsigned char queue_bytes[256 * sizeof(State)];
-  __shared__ int32_t queue_items[256];
-  const int lane = int(threadIdx.x & 31);
-  WarpQueue<State> queue{reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u), queue_items + (threadIdx.x & ~31u)};
-  State o;
-  int32_t i = -1, bursts = 0;
+  typename Task::State o;
+  int64_t i = -1;
   uint64_t it = 0;
-  bool done = true;
-  const auto restock = [&](State& q, int32_t& qi, bool& filled) {
-    uint64_t k0 = 0;
-    if (!lane) k0 = atomic_fetch_add(counters + 8, uint64_t(32));
-    k0 = __shfl_sync(0xffffffff, k0, 0);
-    const int64_t k = int64_t(k0) + lane;
-    if (k < count && items[k] >= 0) {
-      q = parked[k];
-      qi = int32_t(items[k]);
-      filled = true;
-    }
-    return int64_t(k0) + 32 >= count;
-  };
+  bool done = true, out = false;
   for (;;) {
-    if (done && i >= 0) { task.finish(o, i); it += task.iters(o); i = -1; }
-    queue.refill(done, o, i, bursts, restock);
-    if (__all_sync(0xffffffff, done)) break;  // Out of work
-    if (!done) {
+    while (done && !out) {
+      if (i >= 0) { task.finish(o, i); it += task.iters(o); }
+      i = -1;
+      const int64_t k = int64_t(atomic_fetch_add(counters + 8, 1));
+      if (k >= count) { out = true; break; }
+      if (items[k] < 0) continue;
+      o = parked[k];
+      i = items[k];
+      done = false;
+    }
+    if (__all_sync(0xffffffff, out)) break;
+    __syncwarp();
+    if (!out) {
       done = task.run(o);
       if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
       if (done && task.pending(o)) {
@@ -454,7 +445,6 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
         }
       }
     }
-    __syncwarp();
   }
   atomic_add(counters + 1, it);
   atomic_add(counters + 9, it);
