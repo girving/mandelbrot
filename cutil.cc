@@ -18,6 +18,18 @@ private:
 public:
 
   Stream() {
+    // Keep freed stream-ordered allocations (Mem) in the device's pool: by default the pool returns them to the OS
+    // at each synchronize, so every batch's buffers (gigabytes of leaf bits) would be mapped afresh
+    static const bool pooled = [] {
+      int device;
+      cuda_check(cudaGetDevice(&device));
+      cudaMemPool_t pool;
+      cuda_check(cudaDeviceGetDefaultMemPool(&pool, device));
+      uint64_t threshold = UINT64_MAX;
+      cuda_check(cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold));
+      return true;
+    }();
+    (void)pooled;
     CUstream p;
     cuda_check(cudaStreamCreateWithFlags(&p, cudaStreamNonBlocking));
     s.reset(p, [](CUstream p) { cuda_check(cudaStreamDestroy(p)); });
