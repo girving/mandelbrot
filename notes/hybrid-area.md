@@ -573,6 +573,22 @@ and decay with k (by ~20× over six octaves at scale 0.002), consistent with fas
 such as bulb-root horns (T ~ k^−3) inside small tiles.  The weak-convergence form (U) survives; an exact
 finite-k form F(k) · w(U) does not.
 
+*Deep-run calibration (64-bit orbit counters, `-DMANDELBROT_ORBIT64`).*  One H200:
+- The 64-bit build costs 9% at depth 8 (39.1 s vs 35.8 s) and reproduces the 32-bit estimates bit for bit.
+- Depth 5, max_iter 2^33, octaves 2^20 … 2^32: 1776 s for 6.6e11 iterations, i.e. 3.7e8 it/s, three orders
+  below normal throughput.  Deep runs are latency-bound: each of the 8 batches waits ~220 s for its longest
+  orbits, single lanes stepping ~9e6 it/s through 2^31-step orbits.  The octave counts at 2^28 … 2^32
+  (11, 3, 0 samples) match the 1/k extrapolation from lower octaves (≈ 7, 3.6, 1.8), so no sign of double
+  orbits stalling, but depth 5 is far too coarse (one sample weighs 3.7e-10) to measure the deep tail.
+- Double-double vs double (paired, depth 4, max_iter 2^31): consistent at every k through 2^30 (errors
+  2.5e-9 … 1.5e-8, 144 flips of 1.9e8 samples), extending the rounding check from 2^28 to 2^30 at this
+  precision.
+- Projection: a depth-8 run to 2^32 needs ≥ 10 batches (the 2^31-sample limit), each waiting ~220–1000 s for
+  its longest orbit, so 1–3 hours of latency regardless of GPU speed, unless batches overlap (feeding the
+  next batch's items to idle lanes while long orbits finish).  With the absolute-error budget of the
+  previous paragraphs, two more digits by direct measurement stays ~10× over the 1–2 GPU-day budget; one
+  more digit (±3e-10, measuring to 2^26–2^28 where double is validated) fits in about a day.
+
 ## 6. Reproducing
 
 ```
