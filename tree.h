@@ -57,6 +57,7 @@ struct TreeParams {
   int64_t rows = -1;         // Only the first `rows` base rows (for tests), or -1 for all
   bool leaf_stats = false;   // Collect pilot-allocation statistics (TreeResult::alloc; needs m = 16)
   int tiles = 0;             // Resolve consecutive differences over a tiles × tiles grid of the box (0: off)
+  int overlap = 1;           // Batches in flight at once on the GPU (host threads with their own streams)
 };
 
 // Pilot-allocation statistics: leaves are classed by c1, the count below threshold k among their first P
