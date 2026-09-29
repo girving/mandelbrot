@@ -560,6 +560,19 @@ tail's functional form reduces to T_0's, which is not yet known.
   by 2e-10, i.e. a few false interior certificates.  The defaults sit two orders of magnitude inside the
   safe range.
 
+*Careful universality test (`--tiles`).*  Per-tile octave differences from single runs (depth 8,
+max_iter 2^22), with each tile's share s_t(k) = D_t(k)/Σ_t D_t(k) fitted as ln s_t = α + β log₂ k:
+- Whole M, 16 × 16 tiles (0.16 × 0.075), k = 2^14 … 2^21: 61 tiles, share-weighted rms β = 0.0014 per octave,
+  largest tiles within ±2.4σ, χ² 173 over 61 (a mild excess, possibly from errors treated as independent
+  across k).  At this scale the shares are constant to ~0.1% per octave.
+- Golden-mean cardioid box, 8 × 8 tiles (0.002): shares move strongly, but the drift dies away:
+  rms β 0.33 per octave over k = 2^11 … 2^15 and 0.016 over 2^17 … 2^21; the biggest tiles fall from
+  +0.03 … +0.57 to |β| ≤ 0.007 (still ~10σ), small tiles to −0.01 … −0.09.
+So universality is asymptotic, not exact at finite k: pre-asymptotic corrections are large at small scales
+and decay with k (by ~20× over six octaves at scale 0.002), consistent with faster-decaying local pieces
+such as bulb-root horns (T ~ k^−3) inside small tiles.  The weak-convergence form (U) survives; an exact
+finite-k form F(k) · w(U) does not.
+
 ## 6. Reproducing
 
 ```
