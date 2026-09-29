@@ -589,6 +589,28 @@ finite-k form F(k) · w(U) does not.
   previous paragraphs, two more digits by direct measurement stays ~10× over the 1–2 GPU-day budget; one
   more digit (±3e-10, measuring to 2^26–2^28 where double is validated) fits in about a day.
 
+*Deep runs: batch overlap and a CPU tail.*  Two engine changes, results bit-identical throughout:
+- `--overlap K` runs K batches at once in host threads with their own non-blocking streams (balanced batches
+  after a probe).  Alone it gave 1.09× (depth 8, 2^20) and 1.23× (depth 8, 2^26), but made the deep run 2×
+  slower: its time is single long orbits, which get slower still when they share SMs.
+- The CPU tail: once at most MANDELBROT_CUDA_CPU_TAIL (default 1024) parked orbits remain, they are finished
+  on the host's CPU threads (a core steps a sequential orbit ~40× faster than a lone GPU lane) and written
+  back by a finish kernel.
+
+| run | before | CPU tail | CPU tail + overlap 4 |
+|---|---|---|---|
+| depth 5, max_iter 2^33, octaves to 2^32 | 1776 s | 95.5 s | 57.5 s |
+| depth 8, max_iter 2^26 | 203.4 s | 157.2 s | 158.0 s |
+| depth 8, max_iter 2^20 | 38.4 s | 38.0 s | |
+
+Deep runs are no longer latency-bound, which changes the two-digit budget.  The cheapest split is
+μ = A(2^20) + [A(2^32) − A(2^20)] − T(2^32), with the middle term paired on the same samples (its variance
+comes only from samples between the thresholds: σ ≈ 3.5e-9 at depth 8, against 2.0e-8 for A itself), and
+T(2^32) ≈ 6e-10 from a model to ~5%.  A(2^20) to 2e-11 needs ~43 H200-hours as before; the paired deep
+difference to 1.5e-11 needs ~6 more depth levels over depth 8, ~1400 × a depth-8 deep run (a few minutes)
+≈ 100 H200-hours.  So two digits is ~6–7 GPU-days (down from ~12), still above the 1–2 day budget, while
+one more digit (±3e-10) is a few GPU-hours.
+
 ## 6. Reproducing
 
 ```
