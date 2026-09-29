@@ -386,9 +386,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     static const int blocks_per_sm = env_int("MANDELBROT_CUDA_BLOCKS_PER_SM", 8),
                      min_blocks_env = env_int("MANDELBROT_CUDA_MIN_BLOCKS", 0),  // Override task.min_blocks
                      block = 256,
-                     // Steps before parking.  At the first leaf Newton step, so that Newton runs in the overflow
-                     // pass, with all lanes of a warp at once, instead of one lane stalling the rest.
-                     budget_steps = env_int("MANDELBROT_CUDA_BUDGET", 1 << 14),
+                     budget_env = env_int("MANDELBROT_CUDA_BUDGET", -1),
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0),
                      park = env_int("MANDELBROT_CUDA_PARK", 8),  // Room to park n / park orbits
                      chunk = env_int("MANDELBROT_CUDA_CHUNK", 16),  // Items per claim
@@ -406,6 +404,11 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     // Register budget: 65536 / (256 · min_blocks) per thread
     const int min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
     const int grid = blocks_per_sm * num_sms(), threads = grid * block;
+    // Steps before parking: the task's park_steps (its first Newton step, so that Newton runs in the rounds with
+    // all lanes of a warp at once), overridden by MANDELBROT_CUDA_BUDGET, else 2^14
+    int64_t budget_steps = int64_t(1) << 14;
+    if constexpr (requires { task.park_steps; }) if (task.park_steps > 0) budget_steps = task.park_steps;
+    if (budget_env > 0) budget_steps = budget_env;
     const int32_t budget = int32_t(std::max<int64_t>(1, budget_steps / task.burst));
     if (timing)
       engine_detail::launch_orbit_kernel<Task, true>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,

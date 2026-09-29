@@ -127,11 +127,11 @@ int main(const int argc, const char** argv) {
     program.add_argument("--batch").help("target leaves per batch (0: 2^26 on the GPU, 2^22 on the CPU)")
         .scan<'i', int64_t>().default_value(int64_t(0));
     program.add_argument("--first-newton").help("first Newton certificate attempt for leaf samples")
-        .scan<'i', int64_t>().default_value(int64_t(16384));
+        .scan<'i', int64_t>().default_value(int64_t(8192));
     program.add_argument("--center-max-iter").help("iteration cap for cell centers").scan<'i', int64_t>()
         .default_value(int64_t(1) << 14);
     program.add_argument("--newton-max-period").help("largest period Newton tries for leaf samples")
-        .scan<'i', int>().default_value(1024);
+        .scan<'i', int>().default_value(256);
     program.add_argument("--newton-iters").help("Newton iterations per certificate attempt").scan<'i', int>()
         .default_value(30);
     program.add_argument("--center-first-newton").help("first Newton attempt for cell centers")
@@ -152,7 +152,7 @@ int main(const int argc, const char** argv) {
     program.add_argument("--overlap").help("batches in flight at once on the GPU").scan<'i', int>().default_value(1);
     program.add_argument("--leaf-stats").help("report two-phase allocation gains (needs --m 16)")
         .default_value(false).implicit_value(true);
-    program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(64));
+    program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(128));
     program.parse_args(argc, argv);
 
     TreeParams p;

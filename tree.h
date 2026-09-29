@@ -39,16 +39,16 @@ struct TreeParams {
   int64_t max_iter = 1 << 20;
   uint64_t seed = 1;
   vector<int64_t> ks;        // Thresholds 2^-k, increasing, at most 31
-  int64_t first_newton = 16384;  // First Newton certificate attempt for leaf samples (later diverges less)
+  int64_t first_newton = 8192;   // First Newton certificate attempt for leaf samples (and the GPU parking step)
   int64_t center_max_iter = 1 << 14;  // Iteration cap for cell centers (long orbits rarely certify a cell)
   int64_t center_first_newton = 8192; // First Newton interior certificate attempt for cell centers
   int center_max_period = 256;        // Largest period Newton tries for cell centers
-  int newton_max_period = 1024;       // Largest period Newton tries for leaf samples
+  int newton_max_period = 256;        // Largest period Newton tries for leaf samples
   int newton_iters = 30;             // Newton iterations per certificate attempt for leaf samples
   double newton_close2 = INFINITY;   // Leaf Newton gives up unless |f^p(w) - w|^2 < this after one iteration
   double newton_tol = 1e-10;         // Leaf Newton converges when |step| < this · |w| (-1: 1e-14)
   double newton_margin = 1e-6;       // Leaf Newton certifies when |λ|^2 < 1 - this (-1: 1e-9)
-  int64_t burst = 64;                // Orbit steps per run call (finished lanes refill between bursts)
+  int64_t burst = 128;               // Orbit steps per run call (finished lanes refill between bursts)
   int center_min_blocks = 2, sample_min_blocks = 3;  // GPU register budgets (H200: centers spill beyond 2)
   string prec = "double";    // Leaf orbits: double, float, or compare (float), compareNN (double rounded to NN
                              // bits, NN ∈ {30, 36, 42, 48}), comparedd (double-double), each paired with double
