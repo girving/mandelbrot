@@ -55,6 +55,10 @@ struct CenterTask {
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ bool pending(const State& o) const { return o.status >= 4 && o.status <= 6; }
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period); }
+  // Settle work, for sorting settles (engine.h): Newton's period, or the most for Brent's period recovery
+  __host__ __device__ int settle_key(const State& o) const {
+    return o.status == 4 ? o.atom_candidate(max_period) : o.status == 5 ? 511 : 0;
+  }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     const EscapeDE e = o.result();
     uint32_t s = kUncertified;
@@ -165,6 +169,10 @@ template<class T> struct SampleTask {
   __host__ __device__ bool pending(const State& o) const { return o.pending(); }
   __host__ __device__ bool immediate(const State& o) const { return o.immediate(); }
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton); }
+  // Settle work, for sorting settles (engine.h): Newton's candidate period
+  __host__ __device__ int settle_key(const State& o) const {
+    return o.status != 4 ? 0 : o.candidate && o.n >= max_period ? int(o.candidate) : int(o.atom_candidate(max_period));
+  }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
     for (int k = 0; k < K; k++) b |= uint32_t(o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;
@@ -186,6 +194,8 @@ const int kMaxSeries = 4 * 32 + 1;
 // consecutive leaves at a time
 const int64_t kLeafChunk = 32, kLeafTile = 32 * kLeafChunk;
 
+struct alignas(16) Bits4 { uint32_t x, y, z, w; };  // Four samples' bits, one 16-byte load on GPUs
+
 struct ReduceChunk {
   const uint32_t* a;
   const uint32_t* b;
@@ -193,32 +203,66 @@ struct ReduceChunk {
   int64_t leaves;
   Series series[kMaxSeries];
   int64_t* out;  // [(chunk * S + series) * 3 + {s, q, p}], with ceil(leaves / kLeafTile) * 32 chunks
-  __host__ __device__ int value(const Series e, const int64_t i) const {
-    const uint32_t x = e.swap ? b[i] : a[i];
-    switch (e.kind) {
-      case kArea: return (x >> e.k) & 1;
-      case kDiff: return int((x >> e.k) & 1) - int((x >> (e.k + 1)) & 1);
-      case kDelta: return int(((e.swap ? a[i] : b[i]) >> e.k) & 1) - int((x >> e.k) & 1);
-      default: return a[i] != b[i];
-    }
+
+  template<int kind> __host__ __device__ static int value(const uint32_t x, const uint32_t y, const int k) {
+    if constexpr (kind == kArea) return (x >> k) & 1;
+    else if constexpr (kind == kDiff) return int((x >> k) & 1) - int((x >> (k + 1)) & 1);
+    else if constexpr (kind == kDelta) return int((y >> k) & 1) - int((x >> k) & 1);
+    else return x != y;
   }
-  __host__ __device__ void operator()(const int64_t c) const {
-    const int64_t l0 = c / 32 * kLeafTile + c % 32;
-    for (int e = 0; e < S; e++) {
-      int64_t s = 0, q = 0, p = 0;
-      for (int64_t l = l0; l < l0 + kLeafTile && l < leaves; l += 32) {
-        int64_t total = 0;
-        for (int g = 0; g < m / ss; g++) {
-          int64_t cg = 0;
-          for (int t = 0; t < ss; t++) cg += value(series[e], l * m + g * ss + t);
+
+  // Sums of one series over this chunk's leaves, specialized by kind, with a vectorized path for 16 samples per
+  // leaf in strata of 4
+  template<int kind> __host__ __device__ void sums(const Series e, const int64_t l0, int64_t* o) const {
+    const uint32_t* x = e.swap ? b : a;
+    const uint32_t* y = e.swap ? a : b;
+    const int k = e.k;
+    int64_t s = 0, q = 0, p = 0;
+    const int64_t hi = l0 + kLeafTile < leaves ? l0 + kLeafTile : leaves;
+    if (m == 16 && ss == 4) {
+      for (int64_t l = l0; l < hi; l += 32) {
+        const Bits4* xv = reinterpret_cast<const Bits4*>(x + 16 * l);
+        const Bits4* yv = kind >= kDelta ? reinterpret_cast<const Bits4*>(y + 16 * l) : nullptr;
+        int total = 0;
+        for (int g = 0; g < 4; g++) {
+          const Bits4 u = xv[g], v = kind >= kDelta ? yv[g] : Bits4{0, 0, 0, 0};
+          const int cg = value<kind>(u.x, v.x, k) + value<kind>(u.y, v.y, k) + value<kind>(u.z, v.z, k) +
+                         value<kind>(u.w, v.w, k);
           total += cg;
           q += cg * cg;
         }
         s += total;
         p += total * total;
       }
+    } else {
+      for (int64_t l = l0; l < hi; l += 32) {
+        int64_t total = 0;
+        for (int g = 0; g < m / ss; g++) {
+          int64_t cg = 0;
+          for (int t = 0; t < ss; t++) {
+            const int64_t i = l * m + g * ss + t;
+            cg += value<kind>(x[i], kind >= kDelta ? y[i] : 0, k);
+          }
+          total += cg;
+          q += cg * cg;
+        }
+        s += total;
+        p += total * total;
+      }
+    }
+    o[0] = s; o[1] = q; o[2] = p;
+  }
+
+  __host__ __device__ void operator()(const int64_t c) const {
+    const int64_t l0 = c / 32 * kLeafTile + c % 32;
+    for (int e = 0; e < S; e++) {
       int64_t* o = out + (c * S + e) * 3;
-      o[0] = s; o[1] = q; o[2] = p;
+      switch (series[e].kind) {
+        case kArea: sums<kArea>(series[e], l0, o); break;
+        case kDiff: sums<kDiff>(series[e], l0, o); break;
+        case kDelta: sums<kDelta>(series[e], l0, o); break;
+        default: sums<kFlips>(series[e], l0, o); break;
+      }
     }
   }
 };
