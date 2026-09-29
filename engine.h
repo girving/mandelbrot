@@ -201,37 +201,70 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
 orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32_t budget,
              typename Task::State* overflow, int64_t* overflow_items, const int64_t overflow_cap,
-             uint64_t* counters, const int32_t chunk) {
+             uint64_t* counters) {
   // Lanes stay in the loop until their whole warp is out of work, and reconverge before each burst, so that
   // lanes refilling at different times do not split the warp into groups that each step half empty.
-  // Item indices fit in 32 bits (n < 2^31), which saves registers.
-  typename Task::State o;
-  int32_t end = 0, i = -1, bursts = 0;  // i = current item or -1
-  int64_t j = 0, pos = 0;  // pos = scramble(j - 1).  64 bits: pos + stride can exceed 2^31.
+  //
+  // Refills come from a per-warp queue in shared memory: the warp claims 32 items and starts them all at once,
+  // one per lane, so that lanes finishing in different bursts copy a started orbit instead of each running
+  // start (a few hundred instructions: sample placement, hashing, the cardioid test) with the rest of the warp
+  // idle.  Item indices fit in 32 bits (n < 2^31), which saves registers.
+  typedef typename Task::State State;
+  __shared__ alignas(16) unsigned char queue_bytes[256 * sizeof(State)];
+  __shared__ int32_t queue_items[256];
+  const int lane = int(threadIdx.x & 31);
+  State* const queue = reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u);
+  int32_t* const qitems = queue_items + (threadIdx.x & ~31u);
+  unsigned ready = 0;      // Queue slots holding started orbits (warp-uniform)
+  bool exhausted = false;  // No items left to claim (warp-uniform)
+  State o;
+  int32_t i = -1, bursts = 0;  // i = current item or -1
   uint64_t it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
   const long long t0 = timing ? clock64() : 0;
-  bool done = true, out = false;
+  bool done = true;
   for (;;) {
-    // Finish and refill until this lane has a running orbit or runs out of work
-    while (done && !out) {
-      if (i >= 0) { task.finish(o, i); it += task.iters(o); }
-      if (j == end) {
-        j = int64_t(atomic_fetch_add(counters, uint64_t(chunk)));
-        if (j >= n) { out = true; i = -1; break; }
-        end = int32_t(min(j + chunk, n));
-        pos = scramble(j, stride, n);
-      } else {
-        pos += stride;  // scramble(j) from scramble(j - 1), without a 64-bit modulus
-        if (pos >= n) pos -= n;
+    if (done && i >= 0) { task.finish(o, i); it += task.iters(o); i = -1; }
+    // Refill idle lanes from the queue, restocking it when empty
+    for (unsigned need = __ballot_sync(0xffffffff, done); need && (ready || !exhausted);) {
+      if (!ready) {
+        uint64_t j0 = 0;
+        if (!lane) j0 = atomic_fetch_add(counters, uint64_t(32));
+        j0 = __shfl_sync(0xffffffff, j0, 0);
+        const int64_t j = int64_t(j0) + lane;
+        bool started = false;
+        if (j < n) {
+          // Started in place, so that no second state occupies registers
+          const int32_t k = int32_t(scramble(j, stride, n));
+          State& q = queue[lane];
+          if (task.start(q, k)) {  // Decided at once
+            task.finish(q, k);
+            it += task.iters(q);
+          } else {
+            qitems[lane] = k;
+            started = true;
+          }
+        }
+        exhausted = int64_t(j0) + 32 >= n;
+        ready = __ballot_sync(0xffffffff, started);
+        __syncwarp();
+        continue;
       }
-      i = int32_t(pos);
-      j++;
-      bursts = 0;
-      done = task.start(o, i);
+      // The r-th idle lane takes the r-th ready slot
+      const int r = __popc(need & ((1u << lane) - 1)), avail = __popc(ready);
+      if (((need >> lane) & 1) && r < avail) {
+        const int slot = int(__fns(ready, 0, r + 1));
+        o = queue[slot];
+        i = qitems[slot];
+        done = false;
+        bursts = 0;
+      }
+      const int used = min(__popc(need), avail);
+      ready = used < avail ? ready & ~((1u << __fns(ready, 0, used + 1)) - 1) : 0;
+      need = __ballot_sync(0xffffffff, done);
+      __syncwarp();
     }
-    if (__all_sync(0xffffffff, out)) break;
-    __syncwarp();
-    if (!out) {
+    if (__all_sync(0xffffffff, done)) break;  // Out of work
+    if (!done) {
       if constexpr (timing) {
         const unsigned mask = __activemask();
         const bool leader = (threadIdx.x & 31) == __ffs(mask) - 1;
@@ -265,6 +298,7 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
         }
       }
     }
+    __syncwarp();
   }
   atomic_add(counters + 1, it);
   atomic_max(counters + 3, it);
@@ -282,10 +316,9 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
 template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks, const int blocks, const Task& task,
                                                            const int64_t n, const int64_t stride, const int32_t budget,
                                                            typename Task::State* overflow, int64_t* items,
-                                                           const int64_t cap, uint64_t* counters,
-                                                           const int32_t chunk) {
+                                                           const int64_t cap, uint64_t* counters) {
 #define LAUNCH(b) orbit_kernel<Task, timing, b><<<blocks, 256, 0, stream()>>>(task, n, stride, budget, overflow, \
-                                                                             items, cap, counters, chunk)
+                                                                             items, cap, counters)
   switch (min_blocks) {
     case 1: LAUNCH(1); break;
     case 2: LAUNCH(2); break;
@@ -409,7 +442,6 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                      budget_env = env_int("MANDELBROT_CUDA_BUDGET", -1),
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0),
                      park = env_int("MANDELBROT_CUDA_PARK", 8),  // Room to park n / park orbits
-                     chunk = env_int("MANDELBROT_CUDA_CHUNK", 16),  // Items per claim
                      // Finish on CPU threads once this few orbits remain: a lone GPU lane steps a sequential
                      // orbit ~40× slower than a CPU core, so late rounds of a few long orbits idle the GPU.
                      cpu_tail = env_int("MANDELBROT_CUDA_CPU_TAIL", 1024);
@@ -432,10 +464,10 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int32_t budget = int32_t(std::max<int64_t>(1, budget_steps / task.burst));
     if (timing)
       engine_detail::launch_orbit_kernel<Task, true>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
-                                                     cap, counters.p, chunk);
+                                                     cap, counters.p);
     else
       engine_detail::launch_orbit_kernel<Task, false>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
-                                                      cap, counters.p, chunk);
+                                                      cap, counters.p);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
     // Rounds: settle pending orbits together, then resume the rest until they are done or pending again

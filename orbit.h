@@ -275,38 +275,12 @@ template<class T> struct Orbit {
     return c;
   }
 
-  // Newton's start for period p: the orbit point among z_n, ..., z_{n+p-1} that returns closest after p steps.
-  // Orbits of parameters near the boundary of a component (|λ| near 1) approach their cycle slowly, and are
-  // still far from it at the first Newton steps; Newton converges from the best-returning point much more often
-  // than from z_n (leaf-like orbits certified only after 2^16 steps: 78% at step 8192, against 36%).  3p steps.
-  // Returns false if the orbit leaves |z| ≤ 4 (Newton would fail).
-  __host__ __device__ bool newton_start(const int p, T& wx, T& wy) const {
-    typedef typename OrbitParam<T>::type P;
-    T ux = zx, uy = zy, uy2 = uy * uy, ur2 = T(0), vx = zx, vy = zy, vy2 = uy2, vr2 = T(0);
-    for (int k = 0; k < p; k++) {
-      orbit_step(vx, vy, vy2, vr2, x, y);
-      if (vr2 > P(16)) return false;
-    }
-    T best = T(INFINITY);
-    wx = zx; wy = zy;
-    for (int j = 0; j < p; j++) {
-      const T ex = vx - ux, ey = vy - uy, e = ex * ex + ey * ey;
-      if (e < best) { best = e; wx = ux; wy = uy; }
-      orbit_step(ux, uy, uy2, ur2, x, y);
-      orbit_step(vx, vy, vy2, vr2, x, y);
-      if (vr2 > P(16)) return false;
-    }
-    return true;
-  }
-
-  // Newton from newton_start, on the atom-domain candidate and, with nw.best_return, if that fails, on the
+  // Newton at the current point, on the atom-domain candidate and, with nw.best_return, if that fails, on the
   // best return (atom domains need not match components near their boundaries).  If it certifies an attracting cycle, set the
   // minimal period (or 33).
   __host__ __device__ bool newton(const int max_period, const NewtonOptions& nw) {
     if (!candidate || n < max_period) candidate = atom_candidate(max_period);  // Final once n ≥ max_period
-    T wx, wy;
-    if (!(candidate <= max_period && newton_start(int(candidate), wx, wy) &&
-          attracting_cycle(x, y, wx, wy, int(candidate), nw))) {
+    if (!(candidate <= max_period && attracting_cycle(x, y, zx, zy, int(candidate), nw))) {
       if (!nw.best_return) return false;
       const int q = best_return(max_period);
       if (!(q && q != candidate && attracting_cycle(x, y, zx, zy, q, nw))) return false;
