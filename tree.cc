@@ -351,11 +351,19 @@ vector<GroupSums> reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const v
   const int S = int(series.size());
   slow_assert(S <= kMaxSeries);
   const int64_t chunks = (leaves + kLeafTile - 1) / kLeafTile * 32;
+  static const bool timing = env_int("MANDELBROT_REDUCE_TIMING", 0);
+  const auto t0 = std::chrono::steady_clock::now();
   Mem<int64_t> out(chunks * S * 3, p.cuda);
   ReduceChunk r{a.p, b ? b->p : nullptr, p.m, p.strata * p.strata, S, leaves, {}, out.p};
   for (int e = 0; e < S; e++) r.series[e] = series[e];
   for_each(chunks, r, p.cuda);
+  if (timing) { int64_t x; out.to_host(&x, 1); }  // Wait for the pass
+  const auto t1 = std::chrono::steady_clock::now();
   const auto h = sum_chunks(out, chunks, S * 3, p.cuda);
+  if (timing)
+    print("      reduce: %d leaves, %d series: chunks %.1f ms, sums %.1f ms", leaves, S,
+          1e3 * std::chrono::duration<double>(t1 - t0).count(),
+          1e3 * std::chrono::duration<double>(std::chrono::steady_clock::now() - t1).count());
   vector<GroupSums> g(S);
   for (int e = 0; e < S; e++) g[e] = GroupSums{h[3 * e], h[3 * e + 1], h[3 * e + 2]};
   return g;
