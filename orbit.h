@@ -434,9 +434,9 @@ ORBIT_COLD __host__ __device__ static double interior_distance_exact(const doubl
 ORBIT_COLD __host__ __device__ static double interior_distance(const double x, const double y, const double wx,
                                                            const double wy, const int p) {
   if (!attracting_cycle(x, y, wx, wy, p)) return 0;
-  for (int q = 1; q <= p; q++)
+  for (int q = 1; q < p; q++)
     if (p % q == 0 && attracting_cycle(x, y, wx, wy, q)) return interior_distance_exact(x, y, wx, wy, q);
-  return 0;
+  return interior_distance_exact(x, y, wx, wy, p);  // attracting_cycle(p) succeeded above
 }
 
 // Classification with distance estimates, for certifying whole cells.  Exterior: log2 of the Green's function
