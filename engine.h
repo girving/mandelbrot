@@ -207,8 +207,8 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 
 // Counters: [0: next item claim, 1: iterations, 2: active warps, 3: drain flag, 4: ring pushes, 5: settles alone
 // (a full ring), 6: orbits dumped to the CPU tail, 7-12 with timing: cycles inside run, total cycles, lane steps,
-// warp steps, cycles settling popped orbits, cycles idle].
-constexpr int kCounters = 13;
+// warp steps, cycles settling popped orbits, cycles idle, 13-15 with timing: cycles refilling, pushing, finishing].
+constexpr int kCounters = 16;
 
 // An orbit and its item, as the settle rings hold them
 template<class State> struct Parked {
@@ -298,7 +298,8 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
   int32_t i = -1;  // Current item, or -1
   bool done = true, items_out = false, active = true;  // items_out and active are warp-uniform
   uint64_t it = 0, pushes = 0, alone = 0;
-  uint64_t run_cycles = 0, lane_steps = 0, warp_steps = 0, settle_cycles = 0, idle_cycles = 0;
+  uint64_t run_cycles = 0, lane_steps = 0, warp_steps = 0, settle_cycles = 0, idle_cycles = 0, refill_cycles = 0,
+           push_cycles = 0, finish_cycles = 0;
   const long long t0 = timing ? clock64() : 0;
   if (!lane) atomic_add(counters + 2, 1);
 
@@ -406,7 +407,9 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
       }
       break;
     }
+    const long long f0 = timing ? clock64() : 0;
     queue.refill(done, o, i, restock);
+    if constexpr (timing) refill_cycles += clock64() - f0;
     if (__all_sync(0xffffffff, done)) {
       // Idle: out of items with the rings empty for now.  Leave the active count, and wait until a ring has
       // work (rejoining before popping it), everything is done, or the drain begins.
@@ -445,6 +448,7 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
       }
     }
     __syncwarp();
+    const long long u0 = timing ? clock64() : 0;
     // Pending orbits go onto the ring for their settle key; if it is full, the lane settles alone
     const bool pend = !done ? false : i >= 0 && task.pending(o);
     int key = 0;
@@ -459,10 +463,12 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
       if (pushed) { i = -1; pushes++; }
       else { done = task.settle(o); alone++; }
     }
+    const long long u1 = timing ? clock64() : 0;
     // Finished orbits
     const bool fin = done && i >= 0;
     finish(fin, o, i);
     if (fin) i = -1;
+    if constexpr (timing) { push_cycles += u1 - u0; finish_cycles += clock64() - u1; }
   }
   flush();
   atomic_add(counters + 1, it);
@@ -475,6 +481,9 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
     atomic_add(counters + 10, warp_steps);
     atomic_add(counters + 11, settle_cycles);
     atomic_add(counters + 12, idle_cycles);
+    atomic_add(counters + 13, refill_cycles);
+    atomic_add(counters + 14, push_cycles);
+    atomic_add(counters + 15, finish_cycles);
   }
 }
 
@@ -643,9 +652,10 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       print("    cuda run (%s): %d items, %d threads, %.1f ms, %.3g it/s; %d ring pushes, %d settled alone, "
             "%d to the CPU tail", typeid(Task).name(), n, grid * 256, ms, double(h[1]) / (ms * 1e-3), h[4], h[5],
             stats.cpu_tail);
-      print("      thread cycles: %.1f%% in run, %.1f%% settling popped orbits, %.1f%% idle; "
-            "lane steps / warp steps %.1f%%", 100 * double(h[7]) / cycles, 100 * double(h[11]) / cycles,
-            100 * double(h[12]) / cycles, 100.0 * double(h[9]) / double(h[10]));
+      print("      thread cycles: %.1f%% in run, %.1f%% refilling (%.1f%% settling popped orbits), %.1f%% pushing, "
+            "%.1f%% finishing, %.1f%% idle; lane steps / warp steps %.1f%%", 100 * double(h[7]) / cycles,
+            100 * double(h[13]) / cycles, 100 * double(h[11]) / cycles, 100 * double(h[14]) / cycles,
+            100 * double(h[15]) / cycles, 100 * double(h[12]) / cycles, 100.0 * double(h[9]) / double(h[10]));
     }
     cuda_check(cudaEventDestroy(e0)); cuda_check(cudaEventDestroy(e1));
 #else
