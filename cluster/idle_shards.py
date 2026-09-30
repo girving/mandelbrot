@@ -136,6 +136,17 @@ spec:
 
 
 def main():
+    # Transient kubectl failures (an expired token, API hiccups) should not end a long run: wait and retry
+    while True:
+        try:
+            return loop()
+        except (RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            print(f'{time.strftime("%H:%M:%S")} kubectl failed ({e}); retrying in 5 minutes '
+                  f'(refresh the token with: kubectl auth whoami)', flush=True)
+            time.sleep(300)
+
+
+def loop():
     runs = json.load(open(sys.argv[1]))
     todo = [(run, s) for run in runs for s in range(run['shards'])]
     shard_name = lambda run, s: f'irving-mandelbrot-{run["name"]}-s{s}'
