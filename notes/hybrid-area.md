@@ -675,6 +675,22 @@ The two estimates, 2.718e-6 and 2.697e-6, differ by 1.5σ of the added noise.  P
 2^4 … 2^6 samples, so at depth 6 some octaves have 0 or 1 escape and their std errors mean little; the
 production run's ~4^8× more samples leave plenty.
 
+*Double vs double-double at depth 8 (`--prec comparedd --flip-stats`, max_iter 2^32, two seeds, 4 shards
+each, ~5 H200-hours per seed).*  Of 2.07e10 samples, 2.59e7 (0.13%) flip, and all but ~140 per seed escape in
+both precisions at different steps: rounding re-randomizes the escape times of long orbits completely (log2
+of the escape-time ratio spreads flat out to ±4 octaves; ~77% of the orbits escaping near 2^20 cross a
+different threshold).  The ratio histogram is symmetric: 12,796,019 earlier vs 12,798,619 later (+0.5σ,
+χ² 5.8/16 over mirrored quarter-octave bins) for seed 1, and 12,799,700 vs 12,797,156 (−0.5σ, χ² 7.1/16) for
+seed 2.  Seed 1's A_dd − A_double was +(2–9)e-9 at 2^20 … 2^26 (2–3σ, correlated across k), but seed 2 gives
+−(0.2–5)e-9 there, so it was a fluctuation.  The two-seed means are consistent with zero at every k: largest
++9.7e-10 ± 3.6e-10 at 2^26 (2.7σ, the largest of 19 correlated values), −(1–2)e-10 ± (1–2)e-10 at 2^27 …
+2^31.  Stalls cancel too: double escaped where double-double hit max_iter 56 and 74 times, the reverse 62
+and 65.  One sample per seed was interior in double and escaped in double-double (5.7e-12 each).  Interior
+there includes exact floating-point cycles, which say nothing about c, so these are double orbits stuck in
+a cycle rather than false Newton certificates.  So there is no evidence of a precision bias, but the bound is
+only ≈ 3e-9 at 2^20 and 3e-10 at 2^30 (2σ), far above 3e-11: two digits rest on the symmetry, and a direct
+check at that level is out of reach.
+
 ## 6. Reproducing
 
 ```
