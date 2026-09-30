@@ -59,8 +59,29 @@ struct CenterTask {
   __host__ __device__ int settle_key(const State& o) const {
     return o.status == 4 ? o.atom_candidate(max_period) : o.status == 5 ? 511 : 0;
   }
-  __host__ __device__ void finish(const State& o, const int64_t i) const {
-    const EscapeDE e = o.result();
+  __host__ __device__ void finish(const State& o, const int64_t i) const { finish(o.result(), i); }
+
+  // Compact finish input, which the GPU engine buffers so that a warp finishes 32 cells at once (the distance
+  // bound and Harnack's logarithms are a few hundred instructions).  Escaped: |z|^2, dz/dc, step, and exponent.
+  // Otherwise dexp = -1, with the distance, log2 g, and steps.
+  struct Record { double a, b, c; int32_t n, dexp; };
+  __host__ __device__ Record record(const State& o) const {
+    if (o.status == 7) return {o.cx, o.dx, o.dy, int32_t(o.n), o.dexp};
+    return {o.r.dist, o.r.e.log2g, 0, int32_t(o.r.e.steps), -1};
+  }
+  __host__ __device__ void finish_record(const Record& c, const int64_t i) const {
+    if (c.dexp >= 0) {
+      finish(escaped(c.n, c.a, c.b, c.c, c.dexp), i);
+    } else {
+      EscapeDE e;
+      e.e.steps = c.n;
+      e.e.log2g = c.b;
+      e.dist = c.a;
+      finish(e, i);
+    }
+  }
+
+  __host__ __device__ void finish(const EscapeDE& e, const int64_t i) const {
     uint32_t s = kUncertified;
     if (e.dist > 0 && r * safety <= e.dist) {
       if (e.e.steps < 0) {
@@ -458,6 +479,7 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     const Level level{d ? cells.p : nullptr, p.base, cell0};
     const double w = (p.x1 - p.x0) / double(p.base << d), h = (p.y1 - p.y0) / double(p.base << d);
     Mem<uint32_t> status(n, p.cuda);
+    slow_assert(p.center_max_iter < (int64_t(1) << 31), "CenterTask::Record needs 32-bit steps");
     CenterTask task{p.burst, p.center_min_blocks, level, p.x0, p.y0, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
                     p.center_first_newton, p.center_max_period, K, {},
                     status.p};
