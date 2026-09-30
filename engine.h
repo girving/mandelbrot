@@ -176,15 +176,16 @@ static inline uint64_t next_pow2(const uint64_t x) {
 
 #ifdef __CUDACC__
 namespace engine_detail {
-// An IntRing holding 0, ..., count - 1
-__global__ static void int_ring_reset(const IntRing r, const int64_t count) {
-  for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < int64_t(r.cap); i += int64_t(blockDim.x) * gridDim.x) {
+// An IntRing holding 0, ..., count - 1 (kernels in this header are templates, so that each program has one copy)
+template<class Ring> __global__ void int_ring_reset(const Ring r, const int64_t count) {
+  for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < int64_t(r.cap);
+       i += int64_t(blockDim.x) * gridDim.x) {
     r.slots[i] = int32_t(i);
     r.seq[i] = uint64_t(i) + (i < count);
     if (!i) { r.ends[0] = 0; r.ends[1] = uint64_t(count); *r.avail = count; }
   }
 }
-__global__ static void set_int64(int64_t* p, const int64_t v) { *p = v; }
+template<class I> __global__ void set_int(I* p, const I v) { *p = v; }
 // out[i] = the value at position pos[i] of queue key[i]
 template<class T> __global__ void queues_gather(const Queues<T> q, const int32_t* key, const uint64_t* pos,
                                                 const int64_t n, T* out) {
@@ -207,7 +208,8 @@ struct IntRingMem : public Noncopyable {
   }
   void reset(const int64_t count = 0) {
     slow_assert(uint64_t(count) <= cap);
-    engine_detail::int_ring_reset<<<int(std::min<uint64_t>(1024, (cap + 255) / 256)), 256, 0, stream()>>>(ring(), count);
+    engine_detail::int_ring_reset<<<int(std::min<uint64_t>(1024, (cap + 255) / 256)), 256, 0, stream()>>>(ring(),
+                                                                                                         count);
     cuda_check(cudaGetLastError());
   }
   IntRing ring() const { return {slots.p, seq.p, ends.p, avail.p, cap}; }
@@ -242,7 +244,7 @@ template<class T> struct QueuesMem : public Noncopyable {
     ends.zero();
     avail.zero();
     cuda_check(cudaMemsetAsync(table.p, 0xff, keys * entries * sizeof(uint64_t), stream()));
-    engine_detail::set_int64<<<1, 1, 0, stream()>>>(space.p, bound);
+    engine_detail::set_int<int64_t><<<1, 1, 0, stream()>>>(space.p, bound);
     free.reset(segments);
   }
 
