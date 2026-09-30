@@ -691,6 +691,21 @@ a cycle rather than false Newton certificates.  So there is no evidence of a pre
 only ≈ 3e-9 at 2^20 and 3e-10 at 2^30 (2σ), far above 3e-11: two digits rest on the symmetry, and a direct
 check at that level is out of reach.
 
+*Deep part: depth scaling with double-double and roulette.*  Single H200s, `--prec dd`, octaves 2^22 …
+2^32, roulette from 2^23 with stride 2 (the paired difference A(2^22) − A(2^32), summing octave variances):
+
+| depth | time | iterations | samples | A(2^22) − A(2^32) | err² · time |
+|---|---|---|---|---|---|
+| 8 | 1235 s | 2.94e13 | 2.07e10 | 6.540e-7 ± 2.68e-9 | 8.9e-15 |
+| 9 | 4493 s | 1.14e14 | 6.93e10 | 6.523e-7 ± 1.33e-9 | 7.9e-15 |
+| 10 | 15411 s | 4.44e14 | 2.34e11 | 6.519e-7 ± 6.6e-10 | 6.8e-15 |
+
+err² · time improves only 1.12× and 1.17× per level (1.9× for the shallow part): variance falls 4× per level,
+but time rises 3.4–3.6×, in proportion to iterations.  So time is no longer latency: it is every leaf sample's
+orbit below 2^22 (1400–1900 steps on average, in double-double at ~2.9e10 it/s), although only samples
+escaping past 2^22 contribute.  Deep leaf samples are plain Monte Carlo: the tree certifies nothing near
+them, so depth buys only more samples.  At depth 10's efficiency, 1.5e-11 would take ~8,000 H200-hours.
+
 ## 6. Reproducing
 
 ```
