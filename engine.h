@@ -193,7 +193,8 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 
 // Counters: [0: next claim, 1: iterations, 2: parked, 3: max iterations of one thread, 4-7 with timing: cycles
 // inside run, total cycles, active lanes at run calls, warp lanes at run calls, 8: next resume claim,
-// 9: iterations in rounds, 10-11 with timing: lane steps and warp steps, 12: parked in this round].
+// 9: iterations in rounds, 10-11 with timing: lane steps and warp steps, 12: parked in this round, 13-16 with
+// timing: resume_kernel's cycles inside run, total cycles, lane steps and warp steps].
 
 // Per-warp queue of ready orbits in shared memory, restocked 32 at a time (one per lane), so that lanes going idle
 // in different bursts copy a ready orbit instead of each preparing one (starting a sample: a few hundred
@@ -411,13 +412,14 @@ template<class Task> __global__ void settle_kernel(const Task task, typename Tas
 
 // Resume parked orbits (skipping finished ones) with persistent warp-synchronous threads like orbit_kernel's,
 // until done or pending again, when they park into next
-template<class Task> __global__ void resume_kernel(const Task task, const typename Task::State* parked,
+template<class Task, bool timing> __global__ void resume_kernel(const Task task, const typename Task::State* parked,
                                                    const int64_t* items, const int64_t count,
                                                    typename Task::State* next, int64_t* next_items, const int64_t cap,
                                                    uint64_t* counters) {
   typename Task::State o;
   int64_t i = -1;
-  uint64_t it = 0;
+  uint64_t it = 0, run_cycles = 0, lane_steps = 0, warp_steps = 0;
+  const long long t0 = timing ? clock64() : 0;
   bool done = true, out = false;
   for (;;) {
     while (done && !out) {
@@ -433,7 +435,16 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
     if (__all_sync(0xffffffff, out)) break;
     __syncwarp();
     if (!out) {
+      const unsigned mask = timing ? __activemask() : 0;
+      const int64_t p0 = timing ? task.progress(o) : 0;
+      const long long r0 = timing ? clock64() : 0;
       done = task.run(o);
+      if constexpr (timing) {
+        run_cycles += clock64() - r0;
+        const unsigned steps = unsigned(task.progress(o) - p0), longest = __reduce_max_sync(mask, steps);
+        lane_steps += steps;
+        if ((threadIdx.x & 31) == __ffs(mask) - 1) warp_steps += uint64_t(32) * longest;
+      }
       if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
       if (done && task.pending(o)) {
         const int64_t k = int64_t(atomic_fetch_add(counters + 12, 1));
@@ -449,6 +460,12 @@ template<class Task> __global__ void resume_kernel(const Task task, const typena
   }
   atomic_add(counters + 1, it);
   atomic_add(counters + 9, it);
+  if constexpr (timing) {
+    atomic_add(counters + 13, run_cycles);
+    atomic_add(counters + 14, uint64_t(clock64() - t0));
+    atomic_add(counters + 15, lane_steps);
+    atomic_add(counters + 16, warp_steps);
+  }
 }
 
 // Finish orbits whose states were completed on the host (CPU tail), skipping finished ones (item -1)
@@ -495,7 +512,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / park));
     Mem<O> parked(cap, true), next(cap, true);
     Mem<int64_t> items(cap, true), next_items(cap, true);
-    Mem<uint64_t> counters(13, true);
+    Mem<uint64_t> counters(17, true);
     counters.zero();
     cudaEvent_t e0, e1, e2;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
@@ -584,8 +601,12 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       const auto r1 = std::chrono::steady_clock::now();
       cuda_check(cudaMemsetAsync(counters.p + 8, 0, sizeof(uint64_t), stream()));
       cuda_check(cudaMemsetAsync(counters.p + 12, 0, sizeof(uint64_t), stream()));
-      engine_detail::resume_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
-                                                                   next_items.p, cap, counters.p);
+      if (timing)
+        engine_detail::resume_kernel<Task, true><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
+                                                                            next_items.p, cap, counters.p);
+      else
+        engine_detail::resume_kernel<Task, false><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
+                                                                             next_items.p, cap, counters.p);
       cuda_check(cudaGetLastError());
       const int64_t was = count;
       count = std::min<int64_t>(cap, int64_t(counters.get(12)));
@@ -599,8 +620,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       std::swap(items.p, next_items.p);
     }
     cuda_check(cudaEventRecord(e2, stream()));
-    uint64_t h[13];
-    counters.to_host(h, 13);
+    uint64_t h[17];
+    counters.to_host(h, 17);
     stats.iters = int64_t(h[1]) + cpu_iters;
     if (timing) {
       float main_ms, over_ms;
@@ -613,6 +634,9 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
             "lane steps / warp steps %.1f%%; rounds %.3g it/s", double(h[1] - h[9]) / (main_ms * 1e-3),
             100.0 * double(h[4]) / double(h[5]), 100.0 * double(h[6]) / double(h[7]),
             100.0 * double(h[10]) / double(h[11]), over_ms > 0 ? double(h[9]) / (over_ms * 1e-3) : 0.0);
+      if (h[14])
+        print("      resume: %.1f%% of thread cycles in run, lane steps / warp steps %.1f%%, %.3g thread cycles",
+              100.0 * double(h[13]) / double(h[14]), 100.0 * double(h[15]) / double(h[16]), double(h[14]));
     }
     cuda_check(cudaEventDestroy(e0)); cuda_check(cudaEventDestroy(e1)); cuda_check(cudaEventDestroy(e2));
 #else
