@@ -237,6 +237,12 @@ template<class State> struct WarpQueue {
   }
 };
 
+// A task's compact finish record (Task::Record, with record and finish_record), or char if it has none
+template<class Task> struct RecordOf { typedef char type; };
+template<class Task> requires requires { typename Task::Record; } struct RecordOf<Task> {
+  typedef typename Task::Record type;
+};
+
 // Persistent threads.  Orbits that are pending or have run `budget` bursts are parked (if room) and finished in
 // rounds of settle_kernel and resume_kernel.
 template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
@@ -247,11 +253,30 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
   // lanes refilling at different times do not split the warp into groups that each step half empty.  Refills
   // come from a WarpQueue, restocked by claiming 32 items and starting them in place (so that no second state
   // occupies registers); items decided at once (the cardioid) finish there.
+  //
+  // Tasks with a Record buffer their finishes the same way: done lanes store compact records, and the warp
+  // finishes 32 at once (when the buffer would overflow, and at the end), instead of finishing a few lanes per
+  // burst with the rest idle.  Only if the buffer fits in static shared memory alongside the queue.
   typedef typename Task::State State;
+  typedef typename RecordOf<Task>::type Record;
+  constexpr bool buffered = requires { typename Task::Record; } &&
+                            256 * (sizeof(State) + sizeof(Record) + 8) <= 48 * 1024;
   __shared__ alignas(16) unsigned char queue_bytes[256 * sizeof(State)];
   __shared__ int32_t queue_items[256];
+  __shared__ alignas(16) unsigned char record_bytes[buffered ? 256 * sizeof(Record) : 16];
+  __shared__ int32_t record_items[buffered ? 256 : 1];
   const int lane = int(threadIdx.x & 31);
   WarpQueue<State> queue{reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u), queue_items + (threadIdx.x & ~31u)};
+  [[maybe_unused]] Record* const records = reinterpret_cast<Record*>(record_bytes) + (buffered ? threadIdx.x & ~31u : 0);
+  [[maybe_unused]] int32_t* const ritems = record_items + (buffered ? threadIdx.x & ~31u : 0);
+  [[maybe_unused]] int records_n = 0;  // Buffered records (warp-uniform)
+  const auto flush = [&]() {
+    if constexpr (buffered) {
+      if (lane < records_n) task.finish_record(records[lane], ritems[lane]);
+      records_n = 0;
+      __syncwarp();
+    }
+  };
   State o;
   int32_t i = -1, bursts = 0;  // i = current item or -1
   uint64_t it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
@@ -275,7 +300,26 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
     return int64_t(j0) + 32 >= n;
   };
   for (;;) {
-    if (done && i >= 0) { task.finish(o, i); it += task.iters(o); i = -1; }
+    if constexpr (buffered) {
+      const bool has = done && i >= 0;
+      const unsigned m = __ballot_sync(0xffffffff, has);
+      if (m) {
+        if (records_n + __popc(m) > 32) flush();
+        if (has) {
+          const int r = records_n + __popc(m & ((1u << lane) - 1));
+          records[r] = task.record(o);
+          ritems[r] = i;
+          it += task.iters(o);
+          i = -1;
+        }
+        records_n += __popc(m);
+        __syncwarp();
+      }
+    } else if (done && i >= 0) {
+      task.finish(o, i);
+      it += task.iters(o);
+      i = -1;
+    }
     queue.refill(done, o, i, bursts, restock);
     if (__all_sync(0xffffffff, done)) break;  // Out of work
     if (!done) {
@@ -314,6 +358,7 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
     }
     __syncwarp();
   }
+  flush();
   atomic_add(counters + 1, it);
   atomic_max(counters + 3, it);
   if constexpr (timing) {
