@@ -17,14 +17,16 @@ namespace {
 // [y0 + iy h_d, ...]
 struct Cell { int32_t ix, iy; };
 
-// Cells of one level: explicit, or implicitly base grid cells [cell0, cell0 + n) in row-major order
+// Cells of one level: explicit, or implicitly base grid cells [cell0, cell0 + n) in row-major order over this
+// shard's rows (row r of the shard is base row r · shards + shard)
 struct Level {
   const Cell* cells;
   int64_t base, cell0;
+  int shard, shards;
   __host__ __device__ Cell at(const int64_t i) const {
     if (cells) return cells[i];
     const int64_t j = cell0 + i;
-    return Cell{int32_t(j % base), int32_t(j / base)};
+    return Cell{int32_t(j % base), int32_t(j / base * shards + shard)};
   }
 };
 
@@ -485,7 +487,7 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
   int64_t n_leaves = 0;
   for (int d = 0; d <= p.depth; d++) {
     slow_assert(n < (int64_t(1) << 31), "level %d of a batch has %d cells; lower --batch", d, n);
-    const Level level{d ? cells.p : nullptr, p.base, cell0};
+    const Level level{d ? cells.p : nullptr, p.base, cell0, p.shard, p.shards};
     const double w = (p.x1 - p.x0) / double(p.base << d), h = (p.y1 - p.y0) / double(p.base << d);
     Mem<uint32_t> status(n, p.cuda);
     slow_assert(p.center_max_iter < (int64_t(1) << 31), "CenterTask::Record needs 32-bit steps");
@@ -615,6 +617,8 @@ TreeResult empty_like(const TreeResult& R) {
   return Rb;
 }
 
+}  // namespace
+
 // R += Rb (integer sums, so the order of batches does not matter)
 void merge(TreeResult& R, const TreeResult& Rb) {
   for (size_t i = 0; i < R.certified.size(); i++) R.certified[i] += Rb.certified[i];
@@ -630,6 +634,8 @@ void merge(TreeResult& R, const TreeResult& Rb) {
   R.tree_secs += Rb.tree_secs; R.center_kernel_secs += Rb.center_kernel_secs; R.sample_secs += Rb.sample_secs;
   R.reduce_secs += Rb.reduce_secs;
 }
+
+namespace {
 
 }  // namespace
 
@@ -674,6 +680,21 @@ double TreeResult::variance(const vector<GroupSums>& sums, const int k) const {
   return 4 * a * a * (double(g.q) - double(g.p) / G) / (ss * ss * G * (G - 1));  // 4: doubled estimate
 }
 
+// A result with no cells yet, sized for p
+TreeResult empty_result(const TreeParams& p) {
+  const int K = p.ks.size();
+  TreeResult R;
+  R.p = p;
+  R.certified.assign((p.depth + 1) * K, 0);
+  R.exact.assign(p.depth + 1, 0);
+  R.area.resize(K); R.diff.resize(K); R.float_area.resize(K); R.delta.resize(K);
+  slow_assert(!p.leaf_stats || (p.m == 16 && !p.prec.starts_with("compare")), "leaf_stats needs m = 16, no compare");
+  if (p.leaf_stats) R.alloc.assign(int64_t(K) * 108, 0);
+  slow_assert(p.tiles >= 0 && p.tiles <= 64, "tiles must be in [0, 64]");
+  if (p.tiles) { R.tile_diff.resize(int64_t(p.tiles) * p.tiles * K); R.tile_cert.assign(int64_t(p.tiles) * p.tiles * K, 0); }
+  return R;
+}
+
 TreeResult run_tree(const TreeParams& p) {
   const int K = p.ks.size();
   slow_assert(0 < K && K <= 31, "need 1 to 31 thresholds, got %d", K);
@@ -686,17 +707,11 @@ TreeResult run_tree(const TreeParams& p) {
               "need m a multiple of strata^2 with at least 2 groups for variance estimates");
   slow_assert((p.base << p.depth) < (int64_t(1) << 31), "grid too fine for 32-bit cell coordinates");
 
-  TreeResult R;
-  R.p = p;
-  R.certified.assign((p.depth + 1) * K, 0);
-  R.exact.assign(p.depth + 1, 0);
-  R.area.resize(K); R.diff.resize(K); R.float_area.resize(K); R.delta.resize(K);
-  slow_assert(!p.leaf_stats || (p.m == 16 && !p.prec.starts_with("compare")), "leaf_stats needs m = 16, no compare");
-  if (p.leaf_stats) R.alloc.assign(int64_t(K) * 108, 0);
-  slow_assert(p.tiles >= 0 && p.tiles <= 64, "tiles must be in [0, 64]");
-  if (p.tiles) { R.tile_diff.resize(int64_t(p.tiles) * p.tiles * K); R.tile_cert.assign(int64_t(p.tiles) * p.tiles * K, 0); }
+  TreeResult R = empty_result(p);
   const auto t0 = std::chrono::steady_clock::now();
-  const int64_t rows = p.rows < 0 ? p.base : std::min(p.rows, p.base);
+  const int64_t all_rows = p.rows < 0 ? p.base : std::min(p.rows, p.base);
+  slow_assert(0 <= p.shard && p.shard < p.shards, "bad shard %d of %d", p.shard, p.shards);
+  const int64_t rows = p.shard < all_rows ? (all_rows - p.shard + p.shards - 1) / p.shards : 0;  // This shard's
 
   // Batches are runs of base cells in row-major order, sized adaptively for about p.batch leaves (and fewer
   // than 2^31 samples).  On the GPU, p.overlap batches run at once in host threads with their own streams, so
@@ -738,6 +753,100 @@ TreeResult run_tree(const TreeParams& p) {
     for (auto& t : pool) t.join();
   }
   R.secs = secs_since(t0);
+  return R;
+}
+
+namespace {
+
+// The parameters a result depends on (everything but the shard and how the work was scheduled)
+string fingerprint(const TreeParams& p) {
+  string f = tfm::format("base %d box %.17g %.17g %.17g %.17g depth %d safety %.17g m %d strata %d max_iter %d "
+                         "seed %d first_newton %d center_max_iter %d center_first_newton %d center_hint_newton %d "
+                         "center_max_period %d newton_max_period %d newton_iters %d newton_close2 %.17g "
+                         "newton_repel2 %.17g newton_tol %.17g newton_margin %.17g prec %s rows %d leaf_stats %d "
+                         "tiles %d ks", p.base, p.x0, p.x1, p.y0, p.y1, p.depth, p.safety, p.m, p.strata, p.max_iter,
+                         p.seed, p.first_newton, p.center_max_iter, p.center_first_newton, p.center_hint_newton,
+                         p.center_max_period, p.newton_max_period, p.newton_iters, p.newton_close2, p.newton_repel2,
+                         p.newton_tol, p.newton_margin, p.prec, p.rows, int(p.leaf_stats), p.tiles);
+  for (const auto k : p.ks) f += tfm::format(" %d", k);
+  return f;
+}
+
+template<class T> void write_vec(FILE* f, const char* name, const vector<T>& v) {
+  fprintf(f, "%s %zu", name, v.size());
+  for (const auto& x : v) {
+    if constexpr (std::is_same_v<T, GroupSums>) fprintf(f, " %lld %lld %lld", (long long)x.s, (long long)x.q, (long long)x.p);
+    else fprintf(f, " %lld", (long long)x);
+  }
+  fprintf(f, "\n");
+}
+
+template<class T> void read_vec(FILE* f, const char* name, vector<T>& v, const string& path) {
+  char got[64];
+  size_t n;
+  slow_assert(fscanf(f, "%63s %zu", got, &n) == 2 && string(got) == name, "%s: expected %s", path, name);
+  slow_assert(n == v.size(), "%s: %s has %d entries, expected %d", path, name, n, v.size());
+  for (auto& x : v) {
+    long long a, b, c;
+    if constexpr (std::is_same_v<T, GroupSums>) {
+      slow_assert(fscanf(f, "%lld %lld %lld", &a, &b, &c) == 3, "%s: short %s", path, name);
+      x = GroupSums{a, b, c};
+    } else {
+      slow_assert(fscanf(f, "%lld", &a) == 1, "%s: short %s", path, name);
+      x = T(a);
+    }
+  }
+}
+
+}  // namespace
+
+void save_result(const TreeResult& R, const string& path) {
+  FILE* f = fopen(path.c_str(), "w");
+  slow_assert(f, "can't write %s", path);
+  fprintf(f, "mandelbrot tree result 1\n%s\nshard %d %d\n", fingerprint(R.p).c_str(), R.p.shard, R.p.shards);
+  write_vec(f, "certified", R.certified);
+  write_vec(f, "exact", R.exact);
+  write_vec(f, "area", R.area);
+  write_vec(f, "diff", R.diff);
+  write_vec(f, "float_area", R.float_area);
+  write_vec(f, "delta", R.delta);
+  write_vec(f, "alloc", R.alloc);
+  write_vec(f, "tile_diff", R.tile_diff);
+  write_vec(f, "tile_cert", R.tile_cert);
+  write_vec(f, "counts", vector<int64_t>{R.leaves, R.centers, R.center_iters, R.leaf_iters, R.overflow, R.flips,
+                                        R.batches});
+  fprintf(f, "secs %.17g %.17g %.17g %.17g %.17g\n", R.tree_secs, R.center_kernel_secs, R.sample_secs,
+          R.reduce_secs, R.secs);
+  slow_assert(fclose(f) == 0, "error writing %s", path);
+}
+
+TreeResult load_result(const string& path, const TreeParams& p) {
+  FILE* f = fopen(path.c_str(), "r");
+  slow_assert(f, "can't read %s", path);
+  char line[4096];
+  slow_assert(fgets(line, sizeof(line), f) && string(line) == "mandelbrot tree result 1\n", "%s: not a tree result",
+              path);
+  slow_assert(fgets(line, sizeof(line), f), "%s: no parameters", path);
+  const string want = fingerprint(p) + "\n";
+  slow_assert(string(line) == want, "%s: parameters differ:\n  file: %s  run:  %s", path, line, want);
+  TreeResult R = empty_result(p);
+  slow_assert(fscanf(f, " shard %d %d", &R.p.shard, &R.p.shards) == 2, "%s: no shard", path);
+  read_vec(f, "certified", R.certified, path);
+  read_vec(f, "exact", R.exact, path);
+  read_vec(f, "area", R.area, path);
+  read_vec(f, "diff", R.diff, path);
+  read_vec(f, "float_area", R.float_area, path);
+  read_vec(f, "delta", R.delta, path);
+  read_vec(f, "alloc", R.alloc, path);
+  read_vec(f, "tile_diff", R.tile_diff, path);
+  read_vec(f, "tile_cert", R.tile_cert, path);
+  vector<int64_t> c(7);
+  read_vec(f, "counts", c, path);
+  R.leaves = c[0]; R.centers = c[1]; R.center_iters = c[2]; R.leaf_iters = c[3]; R.overflow = c[4]; R.flips = c[5];
+  R.batches = c[6];
+  slow_assert(fscanf(f, " secs %lf %lf %lf %lf %lf", &R.tree_secs, &R.center_kernel_secs, &R.sample_secs,
+                     &R.reduce_secs, &R.secs) == 5, "%s: no secs", path);
+  fclose(f);
   return R;
 }
 

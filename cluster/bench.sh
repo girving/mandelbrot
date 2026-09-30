@@ -65,7 +65,31 @@ OUT=/data/results/bench-$(date +%Y%m%d-%H%M%S).txt
 run() { step "$*"; timeout "${RUN_TIMEOUT:-1800}" "$@" 2>&1 | tee -a "$OUT"; }
 
 run ./build/release/tree_test
-if [ -n "${RUNS:-}" ]; then
+if [ -n "${SHARDED:-}" ]; then
+  # One escape_tree run split over the node's GPUs: SHARDED is the command (options before the thresholds),
+  # SHARDS the number of GPUs, and RUN_NAME a directory under /data/results for shard results, kept across
+  # jobs so that a rerun skips shards already done.  Each shard gets its share of the CPUs for its CPU tail.
+  : "${SHARDS:=8}" "${RUN_NAME:?RUN_NAME names the sharded run}"
+  DIR=/data/results/$RUN_NAME
+  mkdir -p "$DIR"
+  set -- $SHARDED
+  prog=$1; shift
+  step "Sharded run $RUN_NAME: $SHARDS shards of $SHARDED"
+  pids=()
+  for ((s = 0; s < SHARDS; s++)); do
+    if [ -s "$DIR/shard-$s.txt" ]; then echo "shard $s already done"; continue; fi
+    CUDA_VISIBLE_DEVICES=$s MANDELBROT_THREADS=$(( $(nproc) / SHARDS )) timeout "${RUN_TIMEOUT:-1800}" \
+      $prog --shard $s/$SHARDS --save "$DIR/shard-$s.tmp" "$@" > "$DIR/shard-$s.log" 2>&1 \
+      && mv "$DIR/shard-$s.tmp" "$DIR/shard-$s.txt" &
+    pids+=($!)
+  done
+  failed=0
+  for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid" || failed=1; done
+  for ((s = 0; s < SHARDS; s++)); do echo "--- shard $s"; tail -n 12 "$DIR/shard-$s.log" || true; done
+  [ $failed = 0 ] || { echo "some shards failed; rerun to finish them"; exit 1; }
+  files=$(IFS=,; f=(); for ((s = 0; s < SHARDS; s++)); do f+=("$DIR/shard-$s.txt"); done; echo "${f[*]}")
+  run $prog --merge "$files" "$@"
+elif [ -n "${RUNS:-}" ]; then
   # Custom runs: RUNS holds one command per line, optionally prefixed by VAR=value settings
   while IFS= read -r cmd; do
     [ -n "$cmd" ] && run env $cmd

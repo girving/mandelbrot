@@ -1,0 +1,96 @@
+# One escape_tree run split over a whole 8-H200 node (cluster/bench.sh's SHARDED mode), after cluster/pvc.yaml:
+#   kubectl apply -f cluster/sharded.yaml
+#   kubectl -n research logs -f job/irving-mandelbrot-sharded
+#   kubectl -n research delete job irving-mandelbrot-sharded    # before resubmitting
+# Shard results persist in /data/results/$RUN_NAME: resubmitting the same run skips finished shards, and
+# the merge prints the report of the whole run (bit-identical to an unsharded run).  Set SHARDED, RUN_NAME,
+# and the deadlines for the run at hand.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: irving-mandelbrot-sharded
+  namespace: research
+  labels:
+    kueue.x-k8s.io/queue-name: gpu
+spec:
+  activeDeadlineSeconds: 259200  # 3 days
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: irving-mandelbrot
+        - name: work
+          emptyDir:
+            sizeLimit: 1Gi
+      initContainers:
+        # Fetch micromamba (once) and the benchmark script at COMMIT
+        - name: fetch
+          image: curlimages/curl:8.16.0
+          env:
+            - name: COMMIT
+              value: hybrid-area
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /data/bin
+              [ -x /data/bin/micromamba ] || {
+                curl -fsSL -o /data/bin/micromamba \
+                  https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-linux-64
+                chmod +x /data/bin/micromamba; }
+              # The contents API, not raw.githubusercontent.com, which serves stale files for minutes
+              curl -fsSL -H "Accept: application/vnd.github.raw" -o /work/bench.sh \
+                "https://api.github.com/repos/girving/mandelbrot/contents/cluster/bench.sh?ref=$COMMIT"
+              grep -m1 "^ENV=" /work/bench.sh
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: work, mountPath: /work }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: { cpu: "1", memory: 1Gi }
+      containers:
+        - name: main
+          image: nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu24.04
+          env:
+            - name: COMMIT
+              value: hybrid-area
+            - name: MANDELBROT_THREADS
+              value: "176"
+            - name: SHARDED  # One escape_tree command, options before the thresholds
+              value: ./build/release/escape_tree --cuda --depth 8 16384 1048568
+            - name: RUN_NAME
+              value: sharded-test
+            - name: SHARDS
+              value: "8"
+            - name: RUN_TIMEOUT  # Per shard, in seconds
+              value: "250000"
+            - name: HOME
+              value: /tmp
+          command: ["bash", "/work/bench.sh"]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: work, mountPath: /work }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # One GPU's share of an 8-GPU node (176 vCPUs, 1960 GB)
+          resources:
+            requests: { cpu: "176", memory: 1024Gi }
+            limits: { memory: 1024Gi, nvidia.com/gpu: 8 }

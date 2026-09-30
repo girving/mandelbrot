@@ -154,6 +154,12 @@ int main(const int argc, const char** argv) {
     program.add_argument("--tiles").help("resolve consecutive differences over a T × T grid of the box").scan<'i', int>()
         .default_value(0);
     program.add_argument("--tiles-out").help("file for per-tile differences: tx ty k k' D var").default_value(string(""));
+    program.add_argument("--shard").help("run only shard s/N: base rows r with r % N == s (see --save, --merge)")
+        .default_value(string("0/1"));
+    program.add_argument("--save").help("save the result's exact sums to this file (for --merge)")
+        .default_value(string(""));
+    program.add_argument("--merge").help("instead of running, merge saved shards (comma separated files; the "
+                                         "other options must match the shards')").default_value(string(""));
     program.add_argument("--overlap").help("batches in flight at once on the GPU").scan<'i', int>().default_value(2);
     program.add_argument("--leaf-stats").help("report two-phase allocation gains (needs --m 16)")
         .default_value(false).implicit_value(true);
@@ -191,12 +197,39 @@ int main(const int argc, const char** argv) {
     p.leaf_stats = program.get<bool>("--leaf-stats");
     p.tiles = program.get<int>("--tiles");
     p.overlap = program.get<int>("--overlap");
+    {
+      const auto sh = program.get<string>("--shard");
+      slow_assert(sscanf(sh.c_str(), "%d/%d", &p.shard, &p.shards) == 2 && 0 <= p.shard && p.shard < p.shards,
+                  "--shard wants s/N with 0 <= s < N, got %s", sh);
+    }
+    const auto save = program.get<string>("--save"), merge_files = program.get<string>("--merge");
     const auto tiles_out = program.get<string>("--tiles-out");
     slow_assert(!p.tiles == tiles_out.empty(), "--tiles and --tiles-out go together");
     const auto box = program.get<vector<double>>("--box");
     p.x0 = box[0]; p.x1 = box[1]; p.y0 = box[2]; p.y1 = box[3];
     slow_assert(p.x0 < p.x1 && p.y0 < p.y1, "empty box");
-    const auto R = run_tree(p);
+    TreeResult R;
+    if (merge_files.empty()) {
+      R = run_tree(p);
+    } else {
+      // Merge shards: every shard of one split, each once
+      slow_assert(p.shards == 1, "--merge and --shard go separately");
+      R = empty_result(p);
+      vector<int> seen;
+      for (size_t a = 0; a < merge_files.size();) {
+        const size_t b = std::min(merge_files.find(',', a), merge_files.size());
+        const auto S = load_result(merge_files.substr(a, b - a), p);
+        if (seen.empty()) seen.assign(S.p.shards, 0);
+        slow_assert(int(seen.size()) == S.p.shards && !seen[S.p.shard]++, "shard %d/%d repeated or mismatched",
+                    S.p.shard, S.p.shards);
+        merge(R, S);
+        R.secs = std::max(R.secs, S.secs);
+        a = b + 1;
+      }
+      for (size_t t = 0; t < seen.size(); t++) slow_assert(seen[t], "shard %d/%d missing", t, seen.size());
+      print("merged %d shards", seen.size());
+    }
+    if (!save.empty()) save_result(R, save);
     report(R);
     if (p.leaf_stats) allocation_report(R);
     if (p.tiles) {
