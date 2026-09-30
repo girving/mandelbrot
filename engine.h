@@ -398,6 +398,12 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Queues
   __shared__ int32_t queue_items[256];
   __shared__ alignas(16) unsigned char record_bytes[buffered ? 256 * sizeof(Record) : 16];
   __shared__ int32_t record_items[buffered ? 256 : 1];
+  // Outbox: pending orbits wait here, and are pushed onto the settle queues together when the warp next restocks,
+  // with their settle keys computed in parallel, instead of each push (a chain of L2 round trips) and key (Newton's
+  // candidate period, hundreds of steps) stalling the warp at the burst it stopped in.  If it fits.
+  constexpr bool outboxed = 256 * (sizeof(State) + 4 + (buffered ? sizeof(Record) + 4 : 0) + sizeof(Parked<State>)) <=
+                            48 * 1024;
+  __shared__ alignas(16) unsigned char outbox_bytes[outboxed ? 256 * sizeof(Parked<State>) : 16];
   const int lane = int(threadIdx.x & 31);
   const unsigned lanes_below = (1u << lane) - 1;
   WarpQueue<State> queue{reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u),
@@ -405,6 +411,9 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Queues
   [[maybe_unused]] Record* const records = reinterpret_cast<Record*>(record_bytes) + (buffered ? threadIdx.x & ~31u : 0);
   [[maybe_unused]] int32_t* const ritems = record_items + (buffered ? threadIdx.x & ~31u : 0);
   [[maybe_unused]] int records_n = 0;  // Buffered records (warp-uniform)
+  [[maybe_unused]] Parked<State>* const outbox =
+      reinterpret_cast<Parked<State>*>(outbox_bytes) + (outboxed ? threadIdx.x & ~31u : 0);
+  [[maybe_unused]] int outbox_n = 0;  // Orbits in the outbox (warp-uniform)
   State o;
   int32_t i = -1;  // Current item, or -1
   bool done = true, items_out = false, active = true;  // items_out and active are warp-uniform
@@ -448,6 +457,34 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Queues
   // queue (keys whose rings gained 32 more orbits); only once items run out does a warp scan every ring.
   const auto restock = [&](const unsigned need) {
     State& q = queue.slots[lane];
+    if constexpr (outboxed) {
+      if (outbox_n) {
+        // Post the outbox.  The queue is empty, so an orbit whose push fails (no space) settles here and, if it
+        // goes on, waits in its lane's queue slot.
+        const long long c0 = timing ? clock64() : 0;
+        const bool has = lane < outbox_n;
+        int key = 0;
+        if constexpr (keyed) if (has) key = task.settle_key(outbox[lane].o);
+        int batches = 0;
+        const bool pushed = rings.push(has, key, outbox[lane], batches);
+        for (; batches > 0; batches--) ripe.push_if_room(key);
+        bool fin = false, ready = false;
+        if (has && !pushed) {
+          q = outbox[lane].o;
+          fin = task.settle(q);
+          ready = !fin;
+          if (ready) queue.items[lane] = outbox[lane].item;
+          alone++;
+        }
+        finish(fin, q, has ? outbox[lane].item : -1);
+        if (has && pushed) pushes++;
+        outbox_n = 0;
+        queue.ready = __ballot_sync(0xffffffff, ready);
+        __syncwarp();
+        if constexpr (timing) push_cycles += clock64() - c0;
+        if (queue.ready) return true;
+      }
+    }
     int32_t key = -1;
     if (!lane && !ripe.pop(key)) key = -1;
     key = __shfl_sync(0xffffffff, key, 0);
@@ -497,9 +534,9 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Queues
   for (;;) {
     // Drain: hand this warp's orbits to the host
     if (items_out && uniform(counters + 3)) {
-      const bool run_mine = !done && i >= 0;
+      const bool run_mine = !done && i >= 0, boxed = outboxed && lane < outbox_n;
       const unsigned queued = queue.ready;
-      const int mine = int(run_mine) + int((queued >> lane) & 1);
+      const int mine = int(run_mine) + int((queued >> lane) & 1) + int(boxed);
       const unsigned any = __ballot_sync(0xffffffff, mine > 0);
       if (any) {
         // Warp-aggregated reservation of this warp's dump slots
@@ -514,7 +551,8 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Queues
         base = __shfl_sync(0xffffffff, base, 0);
         int at = int(base) + before;
         if (run_mine) { dump[at].o = o; dump[at].item = i; at++; }
-        if ((queued >> lane) & 1) { dump[at].o = queue.slots[lane]; dump[at].item = queue.items[lane]; }
+        if ((queued >> lane) & 1) { dump[at].o = queue.slots[lane]; dump[at].item = queue.items[lane]; at++; }
+        if constexpr (outboxed) if (boxed) dump[at] = outbox[lane];
       }
       break;
     }
@@ -561,7 +599,21 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Queues
     __syncwarp();
     const long long u0 = timing ? clock64() : 0;
     // Pending orbits go onto the ring for their settle key; if it is full, the lane settles alone
-    const bool pend = !done ? false : i >= 0 && task.pending(o);
+    bool pend = !done ? false : i >= 0 && task.pending(o);
+    if constexpr (outboxed) {
+      const unsigned m = __ballot_sync(0xffffffff, pend);
+      if (m && outbox_n + __popc(m) <= 32) {
+        if (pend) {
+          Parked<State>& b = outbox[outbox_n + __popc(m & lanes_below)];
+          b.o = o;
+          b.item = i;
+          i = -1;
+          pend = false;
+        }
+        outbox_n += __popc(m);
+        __syncwarp();
+      }
+    }
     int key = 0;
     if constexpr (keyed) if (pend) key = task.settle_key(o);
     __syncwarp();
@@ -699,7 +751,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                                                                             ripe, nullptr, counters.p, drain_warps, false)
                             : engine_detail::launch_pool_kernel<Task, false>(min_blocks, task, n, stride, rings,
                                                                              ripe, nullptr, counters.p, drain_warps, false);
-    Mem<P> dump(int64_t(grid) * 256 * 2, true);  // Each lane's running and queued orbits
+    Mem<P> dump(int64_t(grid) * 256 * 3, true);  // Each lane's running, queued, and outbox orbits
     cudaEvent_t e0, e1;
     cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1));
     cuda_check(cudaEventRecord(e0, stream()));
