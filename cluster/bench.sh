@@ -69,6 +69,8 @@ if [ -n "${SHARDED:-}" ]; then
   # One escape_tree run split over the node's GPUs: SHARDED is the command (options before the thresholds),
   # SHARDS the number of GPUs, and RUN_NAME a directory under /data/results for shard results, kept across
   # jobs so that a rerun skips shards already done.  Each shard gets its share of the CPUs for its CPU tail.
+  # With SHARD set, run only that shard (on this pod's GPU, with all its CPUs), leaving the merge to a
+  # later job without SHARD once every shard is saved (cluster/idle_shards.py).
   : "${SHARDS:=8}" "${RUN_NAME:?RUN_NAME names the sharded run}"
   DIR=/data/results/$RUN_NAME
   mkdir -p "$DIR"
@@ -76,17 +78,20 @@ if [ -n "${SHARDED:-}" ]; then
   prog=$1; shift
   step "Sharded run $RUN_NAME: $SHARDS shards of $SHARDED"
   pids=()
-  for ((s = 0; s < SHARDS; s++)); do
+  first=0 last=$((SHARDS - 1)) gpus=$SHARDS
+  if [ -n "${SHARD:-}" ]; then first=$SHARD last=$SHARD gpus=1; fi
+  for ((s = first; s <= last; s++)); do
     if [ -s "$DIR/shard-$s.txt" ]; then echo "shard $s already done"; continue; fi
-    CUDA_VISIBLE_DEVICES=$s MANDELBROT_THREADS=$(( $(nproc) / SHARDS )) timeout "${RUN_TIMEOUT:-1800}" \
+    CUDA_VISIBLE_DEVICES=$((s - first)) MANDELBROT_THREADS=$(( MANDELBROT_THREADS / gpus )) timeout "${RUN_TIMEOUT:-1800}" \
       $prog --shard $s/$SHARDS --save "$DIR/shard-$s.tmp" "$@" > "$DIR/shard-$s.log" 2>&1 \
       && mv "$DIR/shard-$s.tmp" "$DIR/shard-$s.txt" &
     pids+=($!)
   done
   failed=0
   for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid" || failed=1; done
-  for ((s = 0; s < SHARDS; s++)); do echo "--- shard $s"; tail -n 12 "$DIR/shard-$s.log" || true; done
+  for ((s = first; s <= last; s++)); do echo "--- shard $s"; tail -n 12 "$DIR/shard-$s.log" || true; done
   [ $failed = 0 ] || { echo "some shards failed; rerun to finish them"; exit 1; }
+  if [ -n "${SHARD:-}" ]; then step "Done with shard $SHARD of $RUN_NAME"; exit 0; fi
   files=$(IFS=,; f=(); for ((s = 0; s < SHARDS; s++)); do f+=("$DIR/shard-$s.txt"); done; echo "${f[*]}")
   run $prog --merge "$files" "$@"
 elif [ -n "${RUNS:-}" ]; then
