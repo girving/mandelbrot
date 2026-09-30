@@ -43,11 +43,15 @@ TEST(rings) {
   const uint64_t total = uint64_t(blocks) * 256 * per_lane;
   Mem<uint32_t> slots(keys * cap, true), seen(total, true);
   Mem<uint64_t> seq(keys * cap, true), ends(2 * keys, true), counts(2, true);
+  Mem<int64_t> avail(keys, true), space(keys, true);
+  const std::vector<int64_t> caps(keys, int64_t(cap));
+  space.from_host(caps.data(), keys);
+  avail.zero();
   ends.zero();
   seen.zero();
   counts.zero();
   for_each(keys * int64_t(cap), Init{seq.p, cap}, true);
-  const Rings<uint32_t> rings{slots.p, seq.p, ends.p, ends.p + keys, keys, cap};
+  const Rings<uint32_t> rings{slots.p, seq.p, ends.p, ends.p + keys, avail.p, space.p, keys, cap};
   stress<<<blocks, 256, 0, stream()>>>(rings, per_lane, seen.p, counts.p, total, counts.p + 1);
   cuda_check(cudaGetLastError());
   std::vector<uint32_t> h(total);
