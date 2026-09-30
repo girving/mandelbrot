@@ -1,77 +1,149 @@
-// Bounded multi-producer multi-consumer rings in device memory, one per key, with warp-cooperative batch pushes
-// and pops
+// Multi-producer multi-consumer queues in device memory, one per key, with warp-cooperative batch pushes and pops
 //
-// The GPU engine keeps orbits waiting for a settle (Newton) in one ring per settle key, so that a warp can pop 32
-// orbits with the same key and settle them together.  Every step is a fetch-and-add, never a CAS loop, since
-// thousands of warps push onto a few popular keys at once, and a contended CAS succeeds for one of them per round
-// trip.  A push reserves positions from tail, waits for its slots to be free, writes them, publishes them
-// (Vyukov's per-slot sequence numbers: slot p mod cap holds p when free for the push at position p, p + 1 once
-// written, and p + cap once popped), and adds them to avail.  A pop takes up to its want from avail (returning any
-// overshoot), claims that many positions from head, and waits for their writes (already under way: avail never
-// exceeds the reservations).  Space counts slots neither reserved nor still being popped: a push takes its
-// slots from it first (reporting a full ring rather than waiting), and a pop returns them once read, so that a
-// push waits only for pops already reading its slots, and a pop only for pushes already writing them.
+// The GPU engine keeps orbits waiting for a settle (Newton) in one queue per settle key, so that a warp can pop 32
+// orbits with the same key and settle them together.  Thousands of warps push onto a few popular keys at once,
+// so every contended step is a fetch-and-add (a contended CAS succeeds for one warp per round trip).
 //
-// All device functions are warp-collective: every lane of a converged warp calls them.
+// Queues: positions per key come from fetch-and-add on tail (pushes) and head (pops); position p of key k lives
+// in slot p mod S of segment table[k][p / S mod entries], a block of S slots taken from a shared pool by the first
+// push to reach it and returned once all S of its values are popped.  Slots are written once per segment lifetime, so
+// a push never waits for a pop, and a pop waits only for pushes already under way.  A pop takes its count from
+// avail (published values, returning any overshoot), then claims that many positions from head.  A semaphore
+// (space) bounds the values outstanding, which bounds the segments and table entries in use, so neither runs
+// out; a push finding no space reports failure instead.
+//
+// IntRing: a bounded MPMC ring of ints for at most cap outstanding values (the pool's free segments, and the
+// queue of ripe keys), so that a push's slot is always free or being read.
 #pragma once
 
 #include "cutil.h"
 #include <cstdint>
 namespace mandelbrot {
 
-template<class T> struct Rings {
-  T* slots;         // [key * cap + position mod cap]
-  uint64_t* seq;    // Sequence numbers, as slots
-  uint64_t* head;   // [key]: next position to pop
-  uint64_t* tail;   // [key]: next position to push
-  int64_t* avail;   // [key]: published values not yet taken by a pop
-  int64_t* space;   // [key]: free slots not yet reserved (initially cap)
-  int keys;
+#ifdef __CUDACC__
+// Shared state is read and written with relaxed GPU-scope operations, as volatile asm: SMs' L1 caches are not
+// coherent (a plain load can stay stale), and the compiler must not hoist loads out of spin loops
+__device__ static inline uint64_t ring_load(const uint64_t* p) {
+  uint64_t v;
+  asm volatile("ld.relaxed.gpu.global.u64 %0, [%1];" : "=l"(v) : "l"(p) : "memory");
+  return v;
+}
+__device__ static inline int64_t ring_load(const int64_t* p) {
+  return int64_t(ring_load(reinterpret_cast<const uint64_t*>(p)));
+}
+__device__ static inline uint32_t ring_load(const uint32_t* p) {
+  uint32_t v;
+  asm volatile("ld.relaxed.gpu.global.u32 %0, [%1];" : "=r"(v) : "l"(p) : "memory");
+  return v;
+}
+__device__ static inline int32_t ring_load(const int32_t* p) {
+  return int32_t(ring_load(reinterpret_cast<const uint32_t*>(p)));
+}
+__device__ static inline void ring_store(uint64_t* p, const uint64_t v) {
+  asm volatile("st.relaxed.gpu.global.u64 [%0], %1;" :: "l"(p), "l"(v) : "memory");
+}
+__device__ static inline void ring_store(int32_t* p, const int32_t v) {
+  asm volatile("st.relaxed.gpu.global.u32 [%0], %1;" :: "l"(p), "r"(v) : "memory");
+}
+__device__ static inline uint64_t ring_add(uint64_t* p, const uint64_t v) {
+  return atomicAdd(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v));
+}
+__device__ static inline int64_t ring_add(int64_t* p, const int64_t v) {
+  return int64_t(atomicAdd(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v)));
+}
+// Copy a value written by another SM, in 8- or 4-byte words
+template<class T> __device__ static inline void ring_copy(T& dst, const T* src) {
+  if constexpr (sizeof(T) % 8 == 0) {
+    const uint64_t* s = reinterpret_cast<const uint64_t*>(src);
+    uint64_t* d = reinterpret_cast<uint64_t*>(&dst);
+    for (int j = 0; j < int(sizeof(T) / 8); j++) d[j] = ring_load(s + j);
+  } else {
+    static_assert(sizeof(T) % 4 == 0);
+    const uint32_t* s = reinterpret_cast<const uint32_t*>(src);
+    uint32_t* d = reinterpret_cast<uint32_t*>(&dst);
+    for (int j = 0; j < int(sizeof(T) / 4); j++) d[j] = ring_load(s + j);
+  }
+}
+#endif  // __CUDACC__
+
+// Bounded ring of ints, lane by lane, for at most cap values outstanding.  Slot p mod cap holds sequence number p
+// when free for the push at p, p + 1 once written, and p + cap once popped (Vyukov).
+struct IntRing {
+  int32_t* slots;
+  uint64_t* seq;    // [cap], initially i
+  uint64_t* ends;   // [head, tail]
+  int64_t* avail;   // Published values not yet taken
   uint64_t cap;     // A power of 2
-  uint32_t* nonempty = nullptr;  // Optional: bit k of word k / 32 set while ring k may hold values (see any)
 
 #ifdef __CUDACC__
-  // Shared state is read and written with relaxed GPU-scope operations, as volatile asm: SMs' L1 caches are not
-  // coherent (a plain load of a head, tail, sequence number, or earlier lap's slot can stay stale), and the
-  // compiler must not hoist loads out of spin loops
-  __device__ static uint64_t load(const uint64_t* p) {
-    uint64_t v;
-    asm volatile("ld.relaxed.gpu.global.u64 %0, [%1];" : "=l"(v) : "l"(p) : "memory");
-    return v;
+  // Push v, unless the ring is half full (so that pushes in flight never exceed cap): returns whether it did
+  __device__ bool push_if_room(const int32_t v) const {
+    if (ring_load(ends + 1) - ring_load(ends) >= cap / 2) return false;
+    push(v);
+    return true;
   }
-  __device__ static int64_t load(const int64_t* p) { return int64_t(load(reinterpret_cast<const uint64_t*>(p))); }
-  __device__ static uint32_t load32(const uint32_t* p) {
-    uint32_t v;
-    asm volatile("ld.relaxed.gpu.global.u32 %0, [%1];" : "=r"(v) : "l"(p) : "memory");
-    return v;
+  __device__ void push(const int32_t v) const {
+    const uint64_t t = ring_add(ends + 1, uint64_t(1)), s = t & (cap - 1);
+    while (ring_load(seq + s) != t) {}  // At most cap outstanding: free, or its pop is reading it
+    ring_store(slots + s, v);
+    __threadfence();
+    ring_store(seq + s, t + 1);
+    __threadfence();
+    ring_add(avail, int64_t(1));
   }
-  __device__ static void store(uint64_t* p, const uint64_t v) {
-    asm volatile("st.relaxed.gpu.global.u64 [%0], %1;" :: "l"(p), "l"(v) : "memory");
+  __device__ bool pop(int32_t& v) const {
+    if (ring_load(avail) <= 0) return false;
+    if (ring_add(avail, int64_t(-1)) <= 0) {
+      ring_add(avail, int64_t(1));
+      return false;
+    }
+    const uint64_t h = ring_add(ends, uint64_t(1)), s = h & (cap - 1);
+    while (ring_load(seq + s) != h + 1) {}  // Its push is writing it
+    __threadfence();
+    v = ring_load(slots + s);
+    __threadfence();
+    ring_store(seq + s, h + cap);
+    return true;
   }
-  __device__ static uint64_t fetch_add(uint64_t* p, const uint64_t v) {
-    return atomicAdd(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v));
-  }
-  __device__ static int64_t fetch_add(int64_t* p, const int64_t v) {
-    return int64_t(atomicAdd(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v)));
-  }
-  // Copy a slot's value (written by another SM), in 8- or 4-byte words
-  __device__ static void load_value(T& dst, const T* src) {
-    if constexpr (sizeof(T) % 8 == 0) {
-      const uint64_t* s = reinterpret_cast<const uint64_t*>(src);
-      uint64_t* d = reinterpret_cast<uint64_t*>(&dst);
-      for (int j = 0; j < int(sizeof(T) / 8); j++) d[j] = load(s + j);
-    } else {
-      static_assert(sizeof(T) % 4 == 0);
-      const uint32_t* s = reinterpret_cast<const uint32_t*>(src);
-      uint32_t* d = reinterpret_cast<uint32_t*>(&dst);
-      for (int j = 0; j < int(sizeof(T) / 4); j++) d[j] = load32(s + j);
+#endif  // __CUDACC__
+};
+
+template<class T> struct Queues {
+  static constexpr int S = 32;  // Slots per segment
+  T* values;            // [segments * S]
+  uint64_t* vseq;       // [segments * S]: position + 1 once written, 0 once popped (and initially)
+  uint64_t* table;      // [keys * T]: (block << 32) | segment, or ~0 if none
+  uint32_t* consumed;   // [segments]: values popped from each segment in use
+  uint64_t* head;       // [keys]
+  uint64_t* tail;       // [keys]
+  int64_t* avail;       // [keys]: published values not yet taken by a pop
+  int64_t* space;       // Values that may still be pushed (initially the bound on outstanding values)
+  uint32_t* nonempty;   // [keys / 32]: bit k set while queue k may hold values (see any)
+  IntRing free;         // Free segments
+  int keys;
+  uint64_t entries;     // Table entries per key, a power of 2
+
+#ifdef __CUDACC__
+  // The segment holding position p of key k, allocated by the first push to reach it
+  __device__ int32_t segment(const int k, const uint64_t p, const bool push) const {
+    const uint64_t block = p / S, tag = block << 32;
+    uint64_t* e = table + uint64_t(k) * entries + (block & (entries - 1));
+    for (;;) {
+      const uint64_t v = ring_load(e);
+      if (v != ~uint64_t(0) && (v & ~uint64_t(0xffffffff)) == tag) return int32_t(v & 0xffffffff);
+      if (!push || v != ~uint64_t(0)) continue;  // Not yet allocated (pops wait for its push)
+      int32_t id;
+      while (!free.pop(id)) {}  // The space bound leaves segments to spare
+      const uint64_t old = atomicCAS(reinterpret_cast<unsigned long long*>(e), ~0ull,
+                                     static_cast<unsigned long long>(tag | uint32_t(id)));
+      if (old == ~uint64_t(0)) return id;
+      free.push(id);  // Another push allocated it first
     }
   }
-  __device__ uint64_t slot(const int key, const uint64_t pos) const { return uint64_t(key) * cap + (pos & (cap - 1)); }
 
-  // Lanes with has push v onto ring key.  Returns whether this lane's push succeeded (false if its ring was
-  // nearly full).  ripe counts, in one lane per key pushed, how many multiples of 32 that key's avail crossed:
-  // each marks 32 more values, a full batch for a warp to pop.
+  // Lanes with has push v onto queue key.  Returns whether this lane's push succeeded (false if the bound on
+  // outstanding values is reached).  ripe counts, in one lane per key pushed, how many multiples of 32 that key's
+  // avail crossed: each marks 32 more values, a full batch for a warp to pop.
   __device__ bool push(const bool has, const int key, const T& v, int& ripe) const {
     const int lane = int(threadIdx.x & 31);
     bool ok = false;
@@ -82,32 +154,28 @@ template<class T> struct Rings {
       const unsigned group = __ballot_sync(0xffffffff, has && key == k) & todo;
       const bool mine = (group >> lane) & 1;
       const int count = __popc(group), rank = __popc(group & ((1u << lane) - 1));
-      // Reserve space, then positions
       uint64_t t = ~uint64_t(0);
       if (lane == lead) {
-        if (fetch_add(space + k, -int64_t(count)) >= count) t = fetch_add(tail + k, uint64_t(count));
-        else fetch_add(space + k, int64_t(count));  // Full
+        if (ring_add(space, -int64_t(count)) >= count) t = ring_add(tail + k, uint64_t(count));
+        else ring_add(space, int64_t(count));  // No space: give it back
       }
       t = __shfl_sync(0xffffffff, t, lead);
       if (t != ~uint64_t(0)) {
         if (mine) {
-          const uint64_t pos = t + rank, s = slot(k, pos);
-          while (load(seq + s) != pos) {}  // Free once the previous lap's pop (under way) has read it
-          slots[s] = v;
+          const uint64_t p = t + rank, s = uint64_t(segment(k, p, true)) * S + (p & (S - 1));
+          values[s] = v;
           __threadfence();
-          store(seq + s, pos + 1);
+          ring_store(vseq + s, p + 1);
           ok = true;
         }
         __syncwarp();
         if (lane == lead) {
           __threadfence();
-          const int64_t a = fetch_add(avail + k, int64_t(count));
+          const int64_t a = ring_add(avail + k, int64_t(count));
           ripe = int((a + count) / 32 - a / 32);
-          if (nonempty) {
-            uint32_t* w = nonempty + k / 32;
-            const uint32_t bit = 1u << (k & 31);
-            if (!(load32(w) & bit)) atomicOr(w, bit);
-          }
+          uint32_t* w = nonempty + k / 32;
+          const uint32_t bit = 1u << (k & 31);
+          if (!(ring_load(w) & bit)) atomicOr(w, bit);
         }
       }
       todo &= ~group;
@@ -115,48 +183,58 @@ template<class T> struct Rings {
     return ok;
   }
 
-  // Pop up to want ≤ 32 values from ring key (warp-uniform) into out, one per lane: lanes below the returned
+  // Pop up to want ≤ 32 values from queue key (warp-uniform) into out, one per lane: lanes below the returned
   // count receive one
   __device__ int pop(const int key, const int want, T& out) const {
     const int lane = int(threadIdx.x & 31);
     int got = 0;
     uint64_t h = 0;
     if (!lane) {
-      const int64_t a = load(avail + key);
+      const int64_t a = ring_load(avail + key);
       if (a > 0) {
-        const int64_t take = a < want ? a : want, before = fetch_add(avail + key, -take);
+        const int64_t take = a < want ? a : want, before = ring_add(avail + key, -take);
         got = int(before >= take ? take : before > 0 ? before : 0);
-        if (got < take) fetch_add(avail + key, take - got);  // Return the overshoot
-        if (got) h = fetch_add(head + key, uint64_t(got));
-        if (nonempty && before - take <= 0) {
+        if (got < take) ring_add(avail + key, take - got);  // Return the overshoot
+        if (got) h = ring_add(head + key, uint64_t(got));
+        if (before - take <= 0) {
           // Possibly emptied it: clear its bit, then look again, since a push may have landed in between
           uint32_t* w = nonempty + key / 32;
           const uint32_t bit = 1u << (key & 31);
           atomicAnd(w, ~bit);
           __threadfence();
-          if (load(avail + key) > 0) atomicOr(w, bit);
+          if (ring_load(avail + key) > 0) atomicOr(w, bit);
         }
       }
     }
     got = __shfl_sync(0xffffffff, got, 0);
     h = __shfl_sync(0xffffffff, h, 0);
     if (lane < got) {
-      const uint64_t pos = h + lane, s = slot(key, pos);
-      while (load(seq + s) != pos + 1) {}  // Published, or about to be (avail counted it)
+      const uint64_t p = h + lane;
+      const int32_t seg = segment(key, p, false);
+      const uint64_t s = uint64_t(seg) * S + (p & (S - 1));
+      while (ring_load(vseq + s) != p + 1) {}  // Published, or its push is writing it (avail counted it)
       __threadfence();
-      load_value(out, slots + s);
+      ring_copy(out, values + s);
+      ring_store(vseq + s, 0);
       __threadfence();
-      store(seq + s, pos + cap);
+      if (atomicAdd(consumed + seg, 1u) == S - 1) {
+        // The segment's last value: return it to the pool
+        consumed[seg] = 0;
+        uint64_t* e = table + uint64_t(key) * entries + ((p / S) & (entries - 1));
+        atomicExch(reinterpret_cast<unsigned long long*>(e), ~0ull);
+        __threadfence();
+        free.push(seg);
+      }
     }
     __syncwarp();
-    if (!lane && got) fetch_add(space + key, int64_t(got));
+    if (!lane && got) ring_add(space, int64_t(got));
     return got;
   }
 
-  // Some key whose ring may hold values (with nonempty), else -1: one load per lane for up to 1024 keys
+  // Some key whose queue may hold values, else -1: one load per lane for up to 1024 keys
   __device__ int any() const {
     const int lane = int(threadIdx.x & 31);
-    const uint32_t w = lane * 32 < keys ? load32(nonempty + lane) : 0;
+    const uint32_t w = lane * 32 < keys ? ring_load(nonempty + lane) : 0;
     const unsigned has = __ballot_sync(0xffffffff, w != 0);
     if (!has) return -1;
     const int who = __ffs(has) - 1;
