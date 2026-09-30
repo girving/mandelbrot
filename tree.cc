@@ -55,7 +55,7 @@ struct CenterTask {
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   __host__ __device__ bool pending(const State& o) const { return o.status >= 4 && o.status <= 6; }
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period); }
-  // Settle work, for sorting settles (engine.h): Newton's period, or the most for Brent's period recovery
+  // Settle work, for grouping settles (engine.h): Newton's period, or the most for Brent's period recovery
   __host__ __device__ int settle_key(const State& o) const {
     return o.status == 4 ? o.atom_candidate(max_period) : o.status == 5 ? 511 : 0;
   }
@@ -171,7 +171,6 @@ template<class T> struct SampleTask {
   int64_t ks[32];
   uint32_t* bits;
   uint32_t* iters_out;  // Per-sample iterations, or null
-  int64_t park_steps;   // GPU steps before parking: the first Newton step (see run_orbits)
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
     // Item counts are below 2^31 (scramble_stride checks), so 32-bit division suffices
@@ -201,9 +200,11 @@ template<class T> struct SampleTask {
   }
   __host__ __device__ bool immediate(const State& o) const { return o.immediate() && exact_needed(o); }
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton); }
-  // Settle work, for sorting settles (engine.h): Newton's candidate period
-  __host__ __device__ int settle_key(const State& o) const {
-    return o.status != 4 ? 0 : o.candidate && o.n >= max_period ? int(o.candidate) : int(o.atom_candidate(max_period));
+  // Settle work, for grouping settles (engine.h): Newton's candidate period, cached in o for Newton to use
+  __host__ __device__ int settle_key(State& o) const {
+    if (o.status != 4) return 0;
+    if (!o.candidate || o.n < max_period) o.candidate = o.atom_candidate(max_period);
+    return int(o.candidate);
   }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
@@ -452,7 +453,7 @@ template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, con
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, p.x0, p.y0, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
                                    p.newton_margin, false, p.newton_repel2},
-                     int(p.ks.size()), {}, bits.p, iters, p.first_newton};
+                     int(p.ks.size()), {}, bits.p, iters};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;
