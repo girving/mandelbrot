@@ -31,15 +31,22 @@ template<class T> struct Rings {
   uint32_t* nonempty = nullptr;  // Optional: bit k of word k / 32 set while ring k may hold values (see any)
 
 #ifdef __CUDACC__
-  // Shared state is read and written at L2 (ld/st.cg): SMs' L1 caches are not coherent, so a cached head, tail,
-  // sequence number, or slot from an earlier lap could be stale indefinitely
+  // Shared state is read and written with relaxed GPU-scope operations, as volatile asm: SMs' L1 caches are not
+  // coherent (a plain load of a head, tail, sequence number, or earlier lap's slot can stay stale), and the
+  // compiler must not hoist loads out of spin loops
   __device__ static uint64_t load(const uint64_t* p) {
-    return __ldcg(reinterpret_cast<const unsigned long long*>(p));
+    uint64_t v;
+    asm volatile("ld.relaxed.gpu.global.u64 %0, [%1];" : "=l"(v) : "l"(p) : "memory");
+    return v;
   }
-  __device__ static int64_t load(const int64_t* p) { return __ldcg(reinterpret_cast<const long long*>(p)); }
-  __device__ static uint32_t load32(const uint32_t* p) { return __ldcg(reinterpret_cast<const unsigned*>(p)); }
+  __device__ static int64_t load(const int64_t* p) { return int64_t(load(reinterpret_cast<const uint64_t*>(p))); }
+  __device__ static uint32_t load32(const uint32_t* p) {
+    uint32_t v;
+    asm volatile("ld.relaxed.gpu.global.u32 %0, [%1];" : "=r"(v) : "l"(p) : "memory");
+    return v;
+  }
   __device__ static void store(uint64_t* p, const uint64_t v) {
-    asm volatile("st.global.cg.u64 [%0], %1;" :: "l"(p), "l"(v) : "memory");
+    asm volatile("st.relaxed.gpu.global.u64 [%0], %1;" :: "l"(p), "l"(v) : "memory");
   }
   __device__ static uint64_t fetch_add(uint64_t* p, const uint64_t v) {
     return atomicAdd(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v));
@@ -47,17 +54,17 @@ template<class T> struct Rings {
   __device__ static int64_t fetch_add(int64_t* p, const int64_t v) {
     return int64_t(atomicAdd(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v)));
   }
-  // Copy a slot's value at L2, in 8- or 4-byte words
+  // Copy a slot's value (written by another SM), in 8- or 4-byte words
   __device__ static void load_value(T& dst, const T* src) {
     if constexpr (sizeof(T) % 8 == 0) {
-      const unsigned long long* s = reinterpret_cast<const unsigned long long*>(src);
-      unsigned long long* d = reinterpret_cast<unsigned long long*>(&dst);
-      for (int j = 0; j < int(sizeof(T) / 8); j++) d[j] = __ldcg(s + j);
+      const uint64_t* s = reinterpret_cast<const uint64_t*>(src);
+      uint64_t* d = reinterpret_cast<uint64_t*>(&dst);
+      for (int j = 0; j < int(sizeof(T) / 8); j++) d[j] = load(s + j);
     } else {
       static_assert(sizeof(T) % 4 == 0);
-      const unsigned* s = reinterpret_cast<const unsigned*>(src);
-      unsigned* d = reinterpret_cast<unsigned*>(&dst);
-      for (int j = 0; j < int(sizeof(T) / 4); j++) d[j] = __ldcg(s + j);
+      const uint32_t* s = reinterpret_cast<const uint32_t*>(src);
+      uint32_t* d = reinterpret_cast<uint32_t*>(&dst);
+      for (int j = 0; j < int(sizeof(T) / 4); j++) d[j] = load32(s + j);
     }
   }
   __device__ uint64_t slot(const int key, const uint64_t pos) const { return uint64_t(key) * cap + (pos & (cap - 1)); }
