@@ -451,7 +451,7 @@ template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, con
                                  uint32_t* iters = nullptr) {
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, p.x0, p.y0, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
-                                   p.newton_margin, false, p.newton_repel2},
+                                   p.newton_margin, false, p.newton_repel2, false},
                      int(p.ks.size()), {}, bits.p, iters, p.first_newton};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);

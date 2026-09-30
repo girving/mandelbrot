@@ -111,6 +111,7 @@ struct NewtonOptions {
                               // GPUs, where most Newton attempts are on exterior orbits and fail)
   double repel2 = INFINITY;   // Give up from the second iteration once |(f^p)'(w)|^2 exceeds this: most attempts
                               // converge to a repelling cycle, and would otherwise take 5-15 iterations to fail
+  bool period = true;         // Once certified, find the minimal period if at most 32 (for results; leaves skip it)
 };
 
 // Newton's method for an attracting p-cycle of z → z^2 + c near w.  Returns true if Newton converges to a
@@ -118,10 +119,12 @@ struct NewtonOptions {
 //
 // If close2 is finite, give up after the first iteration unless |f^p(w) - w|^2 < close2: orbit points that
 // have not nearly closed up rarely converge, and failures otherwise cost the full iteration count.
+// If root is given, it receives the periodic point Newton converged to.
 template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const typename OrbitParam<T>::type x,
                                                                    const typename OrbitParam<T>::type y, T wx, T wy,
                                                                    const int p,
-                                                         const NewtonOptions nw = NewtonOptions()) {
+                                                         const NewtonOptions nw = NewtonOptions(),
+                                                         T* root = nullptr) {
   typedef OrbitTol<T> Tol;
   typedef typename OrbitParam<T>::type P;
   const double tol2 = nw.tol2 < 0 ? Tol::newton : nw.tol2, margin = nw.margin < 0 ? Tol::multiplier : nw.margin,
@@ -158,6 +161,7 @@ template<class T> ORBIT_COLD __host__ __device__ bool attracting_cycle(const typ
         ux = orbit_fma(ux, ux, t);
         uy2 = uy * uy;
       }
+      if (root) { root[0] = wx; root[1] = wy; }
       return mx * mx + my * my < P(1 - margin);
     }
   }
@@ -290,7 +294,7 @@ template<class T> struct Orbit {
       candidate = q;
     }
     int period = 0;
-    if (candidate <= 32)
+    if (candidate <= 32 && nw.period)
       for (int q = 1; q <= int(candidate); q++)
         if (int(candidate) % q == 0 && attracting_cycle(x, y, zx, zy, q)) { period = q; break; }
     candidate = period ? period : 33;  // 33: a period above 32, reported as 0
@@ -433,13 +437,25 @@ ORBIT_COLD __host__ __device__ static double interior_distance_exact(const doubl
   return 0;
 }
 
-// Interior distance at the minimal period dividing p for which Newton finds an attracting cycle
+// Interior distance at an attracting cycle of period dividing p, if Newton finds one: at its minimal period, the
+// least q | p with f^q(r) = r (to rounding) at the periodic point r Newton converged to.  (Finding it from r costs
+// p steps, where Newton for each divisor from w costs several times that, and could fail for the minimal period
+// but succeed for a multiple, which the Koebe bound must not use.)
 ORBIT_COLD __host__ __device__ static double interior_distance(const double x, const double y, const double wx,
                                                            const double wy, const int p) {
-  if (!attracting_cycle(x, y, wx, wy, p)) return 0;
-  for (int q = 1; q < p; q++)
-    if (p % q == 0 && attracting_cycle(x, y, wx, wy, q)) return interior_distance_exact(x, y, wx, wy, q);
-  return interior_distance_exact(x, y, wx, wy, p);  // attracting_cycle(p) succeeded above
+  double r[2];
+  if (!attracting_cycle(x, y, wx, wy, p, NewtonOptions(), r)) return 0;
+  int m = p;
+  double ux = r[0], uy = r[1];
+  const double tol2 = 1e-20 * (1 + r[0] * r[0] + r[1] * r[1]);
+  for (int q = 1; q < p; q++) {
+    const double t = ux * ux - uy * uy + x;
+    uy = 2 * ux * uy + y;
+    ux = t;
+    const double ex = ux - r[0], ey = uy - r[1];
+    if (p % q == 0 && ex * ex + ey * ey < tol2) { m = q; break; }
+  }
+  return interior_distance_exact(x, y, wx, wy, m);
 }
 
 // Classification with distance estimates, for certifying whole cells.  Exterior: log2 of the Green's function
