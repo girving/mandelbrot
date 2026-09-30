@@ -457,15 +457,10 @@ template<class Task> __global__ void settle_kernel(const Task task, typename Tas
 
 // Resume parked orbits (skipping finished ones) with persistent warp-synchronous threads like orbit_kernel's,
 // until done or pending again, when they park into next
-//
-// With cut, the round ends early rather than wait on its slowest orbits: once every parked orbit is claimed, a
-// warp with fewer than kCutLanes lanes still running parks those orbits (still running) into next and leaves, so
-// that the next round packs them densely alongside the newly pending ones.
-constexpr int kCutLanes = 8;
 template<class Task, bool timing> __global__ void resume_kernel(const Task task, const typename Task::State* parked,
                                                    const int64_t* items, const int64_t count,
                                                    typename Task::State* next, int64_t* next_items, const int64_t cap,
-                                                   uint64_t* counters, const bool cut) {
+                                                   uint64_t* counters) {
   typename Task::State o;
   int64_t i = -1;
   uint64_t it = 0, run_cycles = 0, lane_steps = 0, warp_steps = 0;
@@ -483,20 +478,8 @@ template<class Task, bool timing> __global__ void resume_kernel(const Task task,
       done = false;
     }
     if (__all_sync(0xffffffff, out)) break;
-    if (cut && __any_sync(0xffffffff, out) && __popc(__ballot_sync(0xffffffff, !done)) < kCutLanes) {
-      // Claims are exhausted and this warp is mostly idle: carry its running orbits to the next round
-      if (!done) {
-        const int64_t k = int64_t(atomic_fetch_add(counters + 12, 1));
-        if (k < cap) {
-          next[k] = o;
-          next_items[k] = i;
-          i = -1;
-          done = true;  // Next time round, the claim loop finds nothing and marks the lane out
-        }
-      }
-    }
     __syncwarp();
-    if (!out && !done) {  // (Lanes that could not be carried for lack of room run on)
+    if (!out) {
       const unsigned mask = timing ? __activemask() : 0;
       const int64_t p0 = timing ? task.progress(o) : 0;
       const long long r0 = timing ? clock64() : 0;
@@ -570,9 +553,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                      park = env_int("MANDELBROT_CUDA_PARK", 8),  // Room to park n / park orbits
                      // Finish on CPU threads once this few orbits remain: a lone GPU lane steps a sequential
                      // orbit ~40× slower than a CPU core, so late rounds of a few long orbits idle the GPU.
-                     cpu_tail = env_int("MANDELBROT_CUDA_CPU_TAIL", 1024),
-                     // Rounds of at least this many orbits end once warps are mostly idle (0: never)
-                     cut_min = env_int("MANDELBROT_CUDA_CUT", 2 * 2048 * num_sms());
+                     cpu_tail = env_int("MANDELBROT_CUDA_CPU_TAIL", 1024);
     const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / park));
     Mem<O> parked(cap, true), next(cap, true);
     Mem<int64_t> items(cap, true), next_items(cap, true);
@@ -663,16 +644,14 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       }
       if (timing) cuda_check(cudaStreamSynchronize(stream()));
       const auto r1 = std::chrono::steady_clock::now();
-      // Cut rounds short (see resume_kernel) only when they are large, so that each round still makes progress
-      const bool cut = cut_min > 0 && count >= cut_min;
       cuda_check(cudaMemsetAsync(counters.p + 8, 0, sizeof(uint64_t), stream()));
       cuda_check(cudaMemsetAsync(counters.p + 12, 0, sizeof(uint64_t), stream()));
       if (timing)
         engine_detail::resume_kernel<Task, true><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
-                                                                            next_items.p, cap, counters.p, cut);
+                                                                            next_items.p, cap, counters.p);
       else
         engine_detail::resume_kernel<Task, false><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
-                                                                             next_items.p, cap, counters.p, cut);
+                                                                             next_items.p, cap, counters.p);
       cuda_check(cudaGetLastError());
       const int64_t was = count;
       count = std::min<int64_t>(cap, int64_t(counters.get(12)));
