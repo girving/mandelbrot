@@ -60,6 +60,7 @@ struct TreeParams {
   bool leaf_stats = false;   // Collect pilot-allocation statistics (TreeResult::alloc; needs m = 16)
   int tiles = 0;             // Resolve consecutive differences over a tiles × tiles grid of the box (0: off)
   int overlap = 1;           // Batches in flight at once on the GPU (host threads with their own streams)
+  int shard = 0, shards = 1; // Only base rows r with r % shards == shard (for runs split across GPUs)
 };
 
 // Pilot-allocation statistics: leaves are classed by c1, the count below threshold k among their first P
@@ -104,5 +105,13 @@ struct TreeResult {
 };
 
 TreeResult run_tree(const TreeParams& p);
+
+// Sharded runs: a shard's result saved to a file (its exact sums, and the parameters that determine them),
+// loaded back (checking that the parameters match p, up to the shard), and merged.  Merging every shard of a
+// run gives exactly the unsharded result, since all sums are integers and samples are keyed by cell.
+void save_result(const TreeResult& R, const string& path);
+TreeResult load_result(const string& path, const TreeParams& p);
+void merge(TreeResult& R, const TreeResult& S);
+TreeResult empty_result(const TreeParams& p);
 
 }  // namespace mandelbrot

@@ -7,6 +7,8 @@
 #include "escape.h"
 #include "tests.h"
 #include <algorithm>
+#include <cstdio>
+#include <unistd.h>
 #include <cmath>
 #include <map>
 #include <random>
@@ -215,6 +217,36 @@ TEST(batching_invariant) {
     ASSERT_EQ(a.area[k].q, b.area[k].q);
     ASSERT_EQ(a.area[k].p, b.area[k].p);
   }
+}
+
+TEST(shards_merge_exactly) {
+  // Shards run separately, saved, loaded, and merged give exactly the unsharded result
+  auto p = small_params();
+  p.prec = "compare";
+  const auto a = run_tree(p);
+  auto m = empty_result(p);
+  p.shards = 3;
+  for (p.shard = 0; p.shard < p.shards; p.shard++) {
+    const auto path = tfm::format("/tmp/tree_test_shard_%d_%d.txt", getpid(), p.shard);
+    save_result(run_tree(p), path);
+    auto q = p;
+    q.shard = 0; q.shards = 1;
+    const auto S = load_result(path, q);
+    ASSERT_EQ(S.p.shard, p.shard);
+    merge(m, S);
+    std::remove(path.c_str());
+  }
+  ASSERT_EQ(a.certified, m.certified);
+  ASSERT_EQ(a.exact, m.exact);
+  ASSERT_EQ(a.leaves, m.leaves);
+  ASSERT_EQ(a.leaf_iters, m.leaf_iters);
+  ASSERT_EQ(a.flips, m.flips);
+  for (int k = 0; k < int(p.ks.size()); k++)
+    for (const auto v : {&TreeResult::area, &TreeResult::diff, &TreeResult::float_area, &TreeResult::delta}) {
+      ASSERT_EQ((a.*v)[k].s, (m.*v)[k].s);
+      ASSERT_EQ((a.*v)[k].q, (m.*v)[k].q);
+      ASSERT_EQ((a.*v)[k].p, (m.*v)[k].p);
+    }
 }
 
 TEST(box) {
