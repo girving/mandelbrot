@@ -28,6 +28,10 @@ __global__ void stress(const Rings<uint32_t> rings, const int per_lane, uint32_t
     uint64_t p = 0;
     if (!lane) p = Rings<uint32_t>::load(popped);
     if (__shfl_sync(0xffffffff, p, 0) >= total && __all_sync(0xffffffff, next == per_lane)) break;
+    if (step > (1u << 22)) {  // Watchdog: report instead of hanging
+      if (!lane) atomicAdd(reinterpret_cast<unsigned long long*>(full + 1), 1ull);
+      break;
+    }
   }
 }
 
@@ -42,7 +46,7 @@ TEST(rings) {
   const uint64_t cap = 64;
   const uint64_t total = uint64_t(blocks) * 256 * per_lane;
   Mem<uint32_t> slots(keys * cap, true), seen(total, true);
-  Mem<uint64_t> seq(keys * cap, true), ends(2 * keys, true), counts(2, true);
+  Mem<uint64_t> seq(keys * cap, true), ends(2 * keys, true), counts(3, true);
   Mem<int64_t> avail(keys, true), space(keys, true);
   const std::vector<int64_t> caps(keys, int64_t(cap));
   space.from_host(caps.data(), keys);
@@ -56,8 +60,18 @@ TEST(rings) {
   cuda_check(cudaGetLastError());
   std::vector<uint32_t> h(total);
   seen.to_host(h.data(), int64_t(total));
-  uint64_t c[2];
-  counts.to_host(c, 2);
+  uint64_t c[3];
+  counts.to_host(c, 3);
+  if (c[2]) {
+    std::vector<uint64_t> e(2 * keys);
+    std::vector<int64_t> av(keys), sp(keys);
+    ends.to_host(e.data(), 2 * keys);
+    avail.to_host(av.data(), keys);
+    space.to_host(sp.data(), keys);
+    print("watchdog: %d warps stopped, %d of %d popped", c[2], c[0], total);
+    for (int k = 0; k < keys; k++)
+      print("  key %d: head %d, tail %d, avail %d, space %d", k, e[k], e[keys + k], av[k], sp[k]);
+  }
   ASSERT_EQ(c[0], total);
   ASSERT_LT(uint64_t(0), c[1]) << "rings never filled";
   for (uint64_t v = 0; v < total; v++) ASSERT_EQ(h[v], 1u) << tfm::format("value %d", v);
