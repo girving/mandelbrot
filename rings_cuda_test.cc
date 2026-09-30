@@ -37,7 +37,11 @@ __global__ void stress(const Queues<uint32_t> rings, const int per_lane, uint32_
 }
 
 TEST(rings) {
-  const int keys = 7, blocks = 264, per_lane = 64;
+  // Every block must be resident at once, since warps spin until every value is popped
+  int per_sm = 0;
+  cuda_check(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&per_sm, stress, 256, 0));
+  const int keys = 7, blocks = per_sm * num_sms(), per_lane = 64;
+  print("rings: %d blocks", blocks);
   const int64_t bound = 512;
   const uint64_t total = uint64_t(blocks) * 256 * per_lane;
   QueuesMem<uint32_t> queues(keys, bound);
