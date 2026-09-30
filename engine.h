@@ -208,7 +208,7 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 // Counters: [0: next item claim, 1: iterations, 2: active warps, 3: drain flag, 4: ring pushes, 5: settles alone
 // (a full ring), 6: orbits dumped to the CPU tail, 7-12 with timing: cycles inside run, total cycles, lane steps,
 // warp steps, cycles settling popped orbits, cycles idle, 13-15 with timing: cycles refilling, pushing, finishing].
-constexpr int kCounters = 16;
+constexpr int kCounters = 18;
 
 // An orbit and its item, as the settle rings hold them
 template<class State> struct Parked {
@@ -299,7 +299,7 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
   bool done = true, items_out = false, active = true;  // items_out and active are warp-uniform
   uint64_t it = 0, pushes = 0, alone = 0;
   uint64_t run_cycles = 0, lane_steps = 0, warp_steps = 0, settle_cycles = 0, idle_cycles = 0, refill_cycles = 0,
-           push_cycles = 0, finish_cycles = 0;
+           push_cycles = 0, finish_cycles = 0, key_cycles = 0, ripe_cycles = 0;
   const long long t0 = timing ? clock64() : 0;
   if (!lane) atomic_add(counters + 2, 1);
 
@@ -453,12 +453,16 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
     const bool pend = !done ? false : i >= 0 && task.pending(o);
     int key = 0;
     if constexpr (keyed) if (pend) key = task.settle_key(o);
+    __syncwarp();
+    const long long k1 = timing ? clock64() : 0;
     Parked<State> p;
     if (pend) { p.o = o; p.item = i; }
     int batches = 0;
     const bool pushed = rings.push(pend, key, p, batches);
+    const long long k2 = timing ? clock64() : 0;
     // Announce each full batch on the ripe queue (rarely more than one per warp)
     for (int dummy; __any_sync(0xffffffff, batches > 0); batches--) ripe.push(batches > 0, 0, key, dummy);
+    if constexpr (timing) { key_cycles += k1 - u0; ripe_cycles += clock64() - k2; }
     if (pend) {
       if (pushed) { i = -1; pushes++; }
       else { done = task.settle(o); alone++; }
@@ -484,6 +488,8 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
     atomic_add(counters + 13, refill_cycles);
     atomic_add(counters + 14, push_cycles);
     atomic_add(counters + 15, finish_cycles);
+    atomic_add(counters + 16, key_cycles);
+    atomic_add(counters + 17, ripe_cycles);
   }
 }
 
@@ -656,6 +662,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
             "%.1f%% finishing, %.1f%% idle; lane steps / warp steps %.1f%%", 100 * double(h[7]) / cycles,
             100 * double(h[13]) / cycles, 100 * double(h[11]) / cycles, 100 * double(h[14]) / cycles,
             100 * double(h[15]) / cycles, 100 * double(h[12]) / cycles, 100.0 * double(h[9]) / double(h[10]));
+      print("      pushing: %.1f%% settle keys, %.1f%% ripe announcements", 100 * double(h[16]) / cycles,
+            100 * double(h[17]) / cycles);
     }
     cuda_check(cudaEventDestroy(e0)); cuda_check(cudaEventDestroy(e1));
 #else
