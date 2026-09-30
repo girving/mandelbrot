@@ -53,8 +53,7 @@ struct CenterTask {
   __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, true, max_period); }
   __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
-  __host__ __device__ bool pending(const State& o) const { return (o.status >= 4 && o.status <= 6) || o.status == 9; }
-  __host__ __device__ bool immediate(const State& o) const { return o.status == 9; }
+  __host__ __device__ bool pending(const State& o) const { return o.status >= 4 && o.status <= 6; }
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period); }
   // Settle work, for sorting settles (engine.h): Newton's period, or the most for Brent's period recovery
   __host__ __device__ int settle_key(const State& o) const {
