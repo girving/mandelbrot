@@ -10,7 +10,9 @@
 // a push never waits for a pop, and a pop waits only for pushes already under way.  A pop takes its count from
 // avail (published values, returning any overshoot), then claims that many positions from head.  A semaphore
 // (space) bounds the values outstanding, which bounds the segments and table entries in use, so neither runs
-// out; a push finding no space reports failure instead.
+// out; a push finding no space reports failure instead.  (Pops claim the oldest positions, whose pushes may still
+// be allocating, so the values outstanding can each hold a segment: the pool needs one segment per value it may
+// hold, not one per S.)
 //
 // IntRing: a bounded MPMC ring of ints for at most cap outstanding values (the pool's free segments, and the
 // queue of ripe keys), so that a push's slot is always free or being read.
@@ -119,7 +121,7 @@ struct IntRing {
 };
 
 template<class T> struct Queues {
-  static constexpr int S = 32;  // Slots per segment
+  static constexpr int S = 16;  // Slots per segment
   T* values;            // [segments * S]
   uint64_t* vseq;       // [segments * S]: position + 1 once written, 0 once popped (and initially)
   uint64_t* table;      // [keys * T]: (block << 32) | segment, or ~0 if none
