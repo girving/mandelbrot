@@ -36,6 +36,12 @@ __global__ void stress(const Queues<uint32_t> rings, const int per_lane, uint32_
   }
 }
 
+__global__ void drain(const Queues<uint32_t> q) {
+  uint32_t v;
+  for (int k = 0; k < q.keys; k++) q.pop(k, 32, v);
+  if (q.any() >= 0 && !threadIdx.x) printf("stale nonempty bit\n");
+}
+
 TEST(rings) {
   // Every block must be resident at once, since warps spin until every value is popped
   int per_sm = 0;
@@ -76,6 +82,12 @@ TEST(rings) {
     ASSERT_LT(uint64_t(10 * bound), e[k]);
   }
   ASSERT_TRUE(queues.contents().empty());
+  // After a pop on each (finding it empty), no nonempty bit stays set
+  drain<<<1, 32, 0, stream()>>>(queues.queues());
+  cuda_check(cudaGetLastError());
+  uint32_t bits = 0;
+  queues.nonempty.to_host(&bits, 1);
+  ASSERT_EQ(bits, 0u);
 }
 
 }  // namespace

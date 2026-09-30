@@ -208,15 +208,21 @@ template<class T> struct Queues {
     uint64_t h = 0;
     if (!lane) {
       const int64_t a = ring_load(avail + key);
+      int64_t left = 0;
       if (a > 0) {
         const int64_t take = a < want ? a : want, before = ring_add(avail + key, -take);
         got = int(before >= take ? take : before > 0 ? before : 0);
         if (got < take) ring_add(avail + key, take - got);  // Return the overshoot
         if (got) h = ring_add(head + key, uint64_t(got));
-        if (before - take <= 0) {
-          // Possibly emptied it: clear its bit, then look again, since a push may have landed in between
-          uint32_t* w = nonempty + key / 32;
-          const uint32_t bit = 1u << (key & 31);
+        left = before - take;
+      }
+      if (left <= 0) {
+        // Possibly empty: clear its bit, then look again, since a push may have landed in between.  (A push sets
+        // the bit after adding to avail, so a pop taking that value first leaves it set: the next pop to find
+        // the queue empty clears it here.)
+        uint32_t* w = nonempty + key / 32;
+        const uint32_t bit = 1u << (key & 31);
+        if (ring_load(w) & bit) {
           atomicAnd(w, ~bit);
           __threadfence();
           if (ring_load(avail + key) > 0) atomicOr(w, bit);
