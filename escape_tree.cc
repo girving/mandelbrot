@@ -154,7 +154,7 @@ int main(const int argc, const char** argv) {
     program.add_argument("--tiles").help("resolve consecutive differences over a T × T grid of the box").scan<'i', int>()
         .default_value(0);
     program.add_argument("--tiles-out").help("file for per-tile differences: tx ty k k' D var").default_value(string(""));
-    program.add_argument("--overlap").help("batches in flight at once on the GPU").scan<'i', int>().default_value(1);
+    program.add_argument("--overlap").help("batches in flight at once on the GPU").scan<'i', int>().default_value(2);
     program.add_argument("--leaf-stats").help("report two-phase allocation gains (needs --m 16)")
         .default_value(false).implicit_value(true);
     program.add_argument("--burst").help("orbit steps per run call").scan<'i', int64_t>().default_value(int64_t(128));
