@@ -163,6 +163,9 @@ struct EmitChunk {
   }
 };
 
+// Roulette weight byte flag: the sample was killed (its exponent is in the low bits)
+constexpr uint8_t kKilled = 0x80;
+
 // A sample's outcome for --flip-stats: kind (0 escaped at step n, 1 certified interior, 2 hit max_iter) in the top
 // two bits, and n / 4 in the rest (steps below 2^32)
 __host__ __device__ static inline uint32_t outcome_code(const int kind, const int64_t n) {
@@ -190,6 +193,49 @@ template<class T> struct SampleTask {
   uint32_t* iters_out;  // Per-sample iterations, or null
   uint32_t* outcome_out;  // Per-sample outcome (outcome_code), or null
   int64_t park_steps;   // GPU steps before parking: the first Newton step (see run_orbits)
+  // Russian roulette (see TreeParams::roulette_from): at Newton steps d ≥ roulette_from, an orbit Newton did not
+  // certify goes on with probability 2^-roulette_log2 and stops otherwise (status 9, killed); rexp receives each
+  // sample's weight exponent, the roulette decisions it survived (see roulette_exponent), with kKilled set if
+  // roulette stopped it
+  int64_t roulette_from;
+  int roulette_log2, roulette_stride;
+  uint8_t* rexp;
+
+  // Whether Newton step d (one of the d_j below) is a roulette decision: every roulette_stride-th from the first at
+  // or after roulette_from
+  __host__ __device__ bool decision(const int64_t d) const {
+    if (!roulette_log2 || d < roulette_from) return false;
+    int j = 0;
+    for (int64_t e = first_newton + 8; e < d; e = 2 * (e - 8) + 8) j += e >= roulette_from;
+    return j % roulette_stride == 0;
+  }
+
+  // Roulette decisions happen at the Newton steps d_j = first_newton · 2^j + 8 (the first multiple of 8 past each
+  // doubling) with d_j ≥ roulette_from.  A sample's exponent counts those it survived, which follows from where it
+  // ended: every decision before its last step (and at it, for escapes: an orbit escaping at a Newton step faced
+  // the decision there first).
+  __host__ __device__ int roulette_exponent(const State& o) const {
+    if (!roulette_log2) return 0;
+    const bool escaped = o.status == 1 || o.status == 8;
+    int e = 0;
+    for (int64_t d = first_newton + 8; d <= o.n; d = 2 * (d - 8) + 8)
+      if (decision(d) && (d < o.n || escaped)) e++;
+    return e * roulette_log2;
+  }
+  // Whether roulette stops an orbit at Newton step n: a hash of c and n, so deterministic and independent of the
+  // orbit's future
+  __host__ __device__ bool killed(const State& o) const {
+    uint64_t bx, by;
+#ifdef __CUDA_ARCH__
+    bx = uint64_t(__double_as_longlong(double(o.x)));
+    by = uint64_t(__double_as_longlong(double(o.y)));
+#else
+    const double dx = double(o.x), dy = double(o.y);
+    memcpy(&bx, &dx, 8);
+    memcpy(&by, &dy, 8);
+#endif
+    return (mix64(seed ^ mix64(bx ^ mix64(by + uint64_t(o.n)))) & ((uint64_t(1) << roulette_log2) - 1)) != 0;
+  }
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
     // Item counts are below 2^31 (scramble_stride checks), so 32-bit division suffices
@@ -218,16 +264,29 @@ template<class T> struct SampleTask {
     return o.pending() && (o.status != 8 || exact_needed(o));
   }
   __host__ __device__ bool immediate(const State& o) const { return o.immediate() && exact_needed(o); }
-  __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton); }
+  __host__ __device__ bool settle(State& o) const {
+    const bool newton_step = o.status == 4;
+    if (o.settle(max_iter, max_period, newton)) return true;
+    if (newton_step && decision(o.n) && killed(o)) {
+      o.status = 9;  // Killed by roulette at step n: known not to have escaped by n
+      return true;
+    }
+    return false;
+  }
   // Settle work, for sorting settles (engine.h): Newton's candidate period
   __host__ __device__ int settle_key(const State& o) const {
     return o.status != 4 ? 0 : o.candidate && o.n >= max_period ? int(o.candidate) : int(o.atom_candidate(max_period));
   }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
+    // (Status 8: escaped within (n, n + 8]; status 9: killed at n, so escaped after n if ever.  Either way below
+    // 2^-k if n - k ≥ 6; roulette requires thresholds clear of its decision steps, so killed samples are unknown
+    // only past their step, where their surviving siblings' weights stand in.)
     for (int k = 0; k < K; k++)
-      b |= uint32_t(o.status == 8 ? o.n - ks[k] >= 6 : o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;
+      b |= uint32_t(o.status == 8 || o.status == 9 ? o.n - ks[k] >= 6
+                                                   : o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;
     bits[i] = b;
+    if (rexp) rexp[i] = uint8_t(roulette_exponent(o) | (o.status == 9 ? kKilled : 0));
     if (iters_out) {
       const int64_t n = o.iters();
       iters_out[i] = n < int64_t(0xffffffff) ? uint32_t(n) : 0xffffffffu;
@@ -239,8 +298,13 @@ template<class T> struct SampleTask {
 // Group sums of per-sample values over chunks of leaves, for several series at once.  Values: area (bit k of a),
 // diff (bit k minus bit k + 1 of a), delta (bit k of b minus bit k of a), or flips (a != b, into s only); with
 // swap, a and b trade places (so area of b is a series).  All sums are integers, so exact in any order.
+// With roulette, only escapes are reweighted: a sample's value at threshold k past the reference threshold r (the
+// last before any roulette decision) is bit_r - W (bit_r - bit_k), with W = 2^e for its e survived decisions, or 0
+// if roulette killed it.  Unbiased: an escape at step s between r and k survives roulette with probability 2^-e(s)
+// and then counts 2^e(s) times.  A sample that never escapes (interior, or at max_iter) counts exactly bit_r at
+// every threshold, so it adds no variance, and differences are weighted sums of escapes alone.
 enum Kind { kArea, kDiff, kDelta, kFlips };
-struct Series { int8_t kind, k; bool swap; };
+struct Series { int8_t kind, k; bool swap; int8_t ref = -1; };  // ref: the roulette reference r, or -1 if none
 const int kMaxSeries = 4 * 32 + 1;
 // Chunk t (a GPU thread) sums 32 leaves interleaved with its tile's 31 other chunks, so that a warp reads 32
 // consecutive leaves at a time
@@ -251,6 +315,7 @@ struct alignas(16) Bits4 { uint32_t x, y, z, w; };  // Four samples' bits, one 1
 struct ReduceChunk {
   const uint32_t* a;
   const uint32_t* b;
+  const uint8_t* rexp;  // Roulette weight exponents, or null
   int m, ss, S;
   int64_t leaves;
   Series series[kMaxSeries];
@@ -262,6 +327,14 @@ struct ReduceChunk {
     else if constexpr (kind == kDelta) return int((y >> k) & 1) - int((x >> k) & 1);
     else return x != y;
   }
+  // Area at threshold k with roulette (see Series), for bits x and weight byte r
+  __host__ __device__ static int64_t roulette_area(const uint32_t x, const uint8_t r, const int k, const int ref) {
+    const int bk = (x >> k) & 1;
+    if (k <= ref) return bk;
+    const int br = (x >> ref) & 1;
+    const int64_t W = r & kKilled ? 0 : int64_t(1) << (r & ~kKilled);
+    return br - W * (br - bk);
+  }
 
   // Sums of one series over this chunk's leaves, specialized by kind, with a vectorized path for 16 samples per
   // leaf in strata of 4
@@ -271,7 +344,7 @@ struct ReduceChunk {
     const int k = e.k;
     int64_t s = 0, q = 0, p = 0;
     const int64_t hi = l0 + kLeafTile < leaves ? l0 + kLeafTile : leaves;
-    if (m == 16 && ss == 4) {
+    if (m == 16 && ss == 4 && !rexp) {
       for (int64_t l = l0; l < hi; l += 32) {
         const Bits4* xv = reinterpret_cast<const Bits4*>(x + 16 * l);
         const Bits4* yv = kind >= kDelta ? reinterpret_cast<const Bits4*>(y + 16 * l) : nullptr;
@@ -293,7 +366,12 @@ struct ReduceChunk {
           int64_t cg = 0;
           for (int t = 0; t < ss; t++) {
             const int64_t i = l * m + g * ss + t;
-            cg += value<kind>(x[i], kind >= kDelta ? y[i] : 0, k);
+            if (kind <= kDiff && rexp) {
+              const int64_t v = roulette_area(x[i], rexp[i], k, e.ref);
+              cg += kind == kArea ? v : v - roulette_area(x[i], rexp[i], k + 1, e.ref);
+            } else {
+              cg += value<kind>(x[i], kind >= kDelta ? y[i] : 0, k);
+            }
           }
           total += cg;
           q += cg * cg;
@@ -475,14 +553,14 @@ struct LeafStatsChunk {
 
 // Group sums of each series over leaves, in one pass
 vector<GroupSums> reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const vector<Series>& series,
-                         const TreeParams& p, const int64_t leaves) {
+                         const TreeParams& p, const int64_t leaves, const uint8_t* rexp = nullptr) {
   const int S = int(series.size());
   slow_assert(S <= kMaxSeries);
   const int64_t chunks = (leaves + kLeafTile - 1) / kLeafTile * 32;
   static const bool timing = env_int("MANDELBROT_REDUCE_TIMING", 0);
   const auto t0 = std::chrono::steady_clock::now();
   Mem<int64_t> out(chunks * S * 3, p.cuda);
-  ReduceChunk r{a.p, b ? b->p : nullptr, p.m, p.strata * p.strata, S, leaves, {}, out.p};
+  ReduceChunk r{a.p, b ? b->p : nullptr, rexp, p.m, p.strata * p.strata, S, leaves, {}, out.p};
   for (int e = 0; e < S; e++) r.series[e] = series[e];
   for_each(chunks, r, p.cuda);
   if (timing) { int64_t x; out.to_host(&x, 1); }  // Wait for the pass
@@ -499,11 +577,12 @@ vector<GroupSums> reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const v
 
 template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, const TreeParams& p,
                                  const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow,
-                                 uint32_t* iters = nullptr, uint32_t* outcomes = nullptr) {
+                                 uint32_t* iters = nullptr, uint32_t* outcomes = nullptr, uint8_t* rexp = nullptr) {
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, p.x0, p.y0, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
                                    p.newton_margin, false, p.newton_repel2, false},
-                     int(p.ks.size()), {}, bits.p, iters, outcomes, p.first_newton};
+                     int(p.ks.size()), {}, bits.p, iters, outcomes, p.first_newton, p.roulette_from,
+                     p.roulette_from ? p.roulette_log2 : 0, p.roulette_stride, rexp};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;
@@ -512,6 +591,17 @@ template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, con
 
 double secs_since(const std::chrono::steady_clock::time_point t0) {
   return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+}
+
+// The roulette reference threshold (see Series): the last before the first roulette decision step, or -1 if none
+int roulette_reference(const TreeParams& p) {
+  if (!p.roulette_from) return -1;
+  int64_t first = p.first_newton + 8;
+  while (first < p.roulette_from) first = 2 * (first - 8) + 8;
+  int ref = -1;
+  for (int k = 0; k < int(p.ks.size()); k++)
+    if (p.ks[k] < first) ref = k;
+  return ref;
 }
 
 // One batch: base cells [cell0, cell1), with tree levels, leaf samples and reductions accumulated into Rb
@@ -592,8 +682,11 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     uint32_t* ip = p.leaf_stats ? iters.p : nullptr;
     uint32_t* op = p.flip_stats ? outcomes.p : nullptr;
     uint32_t* fop = p.flip_stats ? foutcomes.p : nullptr;
+    Mem<uint8_t> rexp(p.roulette_from ? nl * p.m : 0, p.cuda);
+    uint8_t* rp = p.roulette_from ? rexp.p : nullptr;
     Rb.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip)
-                           : sample<double>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip, op);
+                   : p.prec == "dd" ? sample<Expansion<2>>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip, op, rp)
+                                    : sample<double>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip, op, rp);
     if (compare) {
       // The alternative precision: float, or double rounded to fewer bits
       const Cell* lp = leaves.p + l0;
@@ -620,16 +713,16 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     vector<GroupSums*> into;
     GroupSums flips;
     for (int k = 0; k < K; k++) {
-      const int8_t k8 = int8_t(k);
-      series.push_back({kArea, k8, false}); into.push_back(&Rb.area[k]);
-      if (k + 1 < K) { series.push_back({kDiff, k8, false}); into.push_back(&Rb.diff[k]); }
+      const int8_t k8 = int8_t(k), ref = int8_t(roulette_reference(p));
+      series.push_back({kArea, k8, false, ref}); into.push_back(&Rb.area[k]);
+      if (k + 1 < K) { series.push_back({kDiff, k8, false, ref}); into.push_back(&Rb.diff[k]); }
       if (compare) {
         series.push_back({kArea, k8, true}); into.push_back(&Rb.float_area[k]);
         series.push_back({kDelta, k8, false}); into.push_back(&Rb.delta[k]);
       }
     }
     if (compare) { series.push_back({kFlips, 0, false}); into.push_back(&flips); }
-    const auto sums = reduce(bits, compare ? &fbits : nullptr, series, p, nl);
+    const auto sums = reduce(bits, compare ? &fbits : nullptr, series, p, nl, p.roulette_from ? rexp.p : nullptr);
     for (size_t e = 0; e < sums.size(); e++) *into[e] += sums[e];
     Rb.flips += flips.s;
     if (p.tiles) {
@@ -746,6 +839,22 @@ TreeResult empty_result(const TreeParams& p) {
   slow_assert(p.tiles >= 0 && p.tiles <= 64, "tiles must be in [0, 64]");
   if (p.tiles) { R.tile_diff.resize(int64_t(p.tiles) * p.tiles * K); R.tile_cert.assign(int64_t(p.tiles) * p.tiles * K, 0); }
   slow_assert(!p.flip_stats || p.prec.starts_with("compare"), "flip_stats needs a compare precision");
+  if (p.roulette_from) {
+    slow_assert((p.prec == "double" || p.prec == "dd") && !p.tiles && !p.leaf_stats,
+                "roulette needs prec double or dd, no tiles or leaf stats");
+    slow_assert(p.first_newton % 8 == 0 && 1 <= p.roulette_log2 && p.roulette_log2 <= 4, "bad roulette settings");
+    slow_assert(p.roulette_stride >= 1, "roulette stride must be positive");
+    int decisions = 0, j = 0;
+    for (int64_t d = p.first_newton + 8; d <= p.max_iter; d = 2 * (d - 8) + 8)
+      if (d >= p.roulette_from) decisions += j++ % p.roulette_stride == 0;
+    slow_assert(decisions * p.roulette_log2 <= 24, "roulette weights up to 2^%d overflow the sums (at most 2^24)",
+                decisions * p.roulette_log2);
+    slow_assert(roulette_reference(p) >= 0, "roulette needs a threshold before its first decision step");
+    for (const auto k : p.ks)
+      for (int64_t d = p.first_newton + 8; d <= p.max_iter; d = 2 * (d - 8) + 8)
+        slow_assert(d < p.roulette_from || std::abs(d - k) >= 8,
+                    "threshold %d is within 8 steps of roulette decision step %d", k, d);
+  }
   if (p.flip_stats) R.flip_stats.assign(flip_stats_size(K), 0);
   return R;
 }
@@ -754,7 +863,7 @@ TreeResult run_tree(const TreeParams& p) {
   const int K = p.ks.size();
   slow_assert(0 < K && K <= 31, "need 1 to 31 thresholds, got %d", K);
   slow_assert(p.max_iter < kOrbitNever, "max_iter %d needs a -DMANDELBROT_ORBIT64 build", p.max_iter);
-  slow_assert(p.prec == "double" || p.prec == "float" || p.prec == "compare" || p.prec == "compare30" ||
+  slow_assert(p.prec == "double" || p.prec == "dd" || p.prec == "float" || p.prec == "compare" || p.prec == "compare30" ||
               p.prec == "compare36" || p.prec == "compare42" || p.prec == "compare48" || p.prec == "comparedd",
               "bad prec %s", p.prec);
   const int ss = p.strata * p.strata;
@@ -819,11 +928,12 @@ string fingerprint(const TreeParams& p) {
                          "seed %d first_newton %d center_max_iter %d center_first_newton %d center_hint_newton %d "
                          "center_max_period %d newton_max_period %d newton_iters %d newton_close2 %.17g "
                          "newton_repel2 %.17g newton_tol %.17g newton_margin %.17g prec %s rows %d leaf_stats %d "
-                         "tiles %d flip_stats %d ks", p.base, p.x0, p.x1, p.y0, p.y1, p.depth, p.safety, p.m, p.strata, p.max_iter,
+                         "tiles %d flip_stats %d roulette %d %d %d ks", p.base, p.x0, p.x1, p.y0, p.y1, p.depth, p.safety, p.m, p.strata, p.max_iter,
                          p.seed, p.first_newton, p.center_max_iter, p.center_first_newton, p.center_hint_newton,
                          p.center_max_period, p.newton_max_period, p.newton_iters, p.newton_close2, p.newton_repel2,
                          p.newton_tol, p.newton_margin, p.prec, p.rows, int(p.leaf_stats), p.tiles,
-                         int(p.flip_stats));
+                         int(p.flip_stats), p.roulette_from, p.roulette_from ? p.roulette_log2 : 0,
+                         p.roulette_from ? p.roulette_stride : 0);
   for (const auto k : p.ks) f += tfm::format(" %d", k);
   return f;
 }

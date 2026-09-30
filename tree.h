@@ -52,8 +52,9 @@ struct TreeParams {
   double newton_margin = 1e-6;       // Leaf Newton certifies when |λ|^2 < 1 - this (-1: 1e-9)
   int64_t burst = 128;               // Orbit steps per run call (finished lanes refill between bursts)
   int center_min_blocks = 2, sample_min_blocks = 3;  // GPU register budgets (H200: centers spill beyond 2)
-  string prec = "double";    // Leaf orbits: double, float, or compare (float), compareNN (double rounded to NN
-                             // bits, NN ∈ {30, 36, 42, 48}), comparedd (double-double), each paired with double
+  string prec = "double";    // Leaf orbits: double, dd (double-double), float, or compare (float), compareNN
+                             // (double rounded to NN bits, NN ∈ {30, 36, 42, 48}), comparedd (double-double), each
+                             // paired with double
   bool cuda = false;
   int64_t batch = 1 << 22;   // Target leaves per batch
   int64_t rows = -1;         // Only the first `rows` base rows (for tests), or -1 for all
@@ -62,6 +63,14 @@ struct TreeParams {
   int overlap = 1;           // Batches in flight at once on the GPU (host threads with their own streams)
   int shard = 0, shards = 1; // Only base rows r with r % shards == shard (for runs split across GPUs)
   bool flip_stats = false;   // With compare: classify the samples whose classifications differ (TreeResult::flip_stats)
+  // Russian roulette for long leaf orbits (0: off): at every roulette_stride-th Newton step d ≥ roulette_from
+  // (d = first_newton · 2^j + 8), an orbit not yet decided goes on with probability 2^-roulette_log2, weighted by
+  // 2^roulette_log2 from then on, and stops otherwise.  Unbiased, with integer weights; thresholds must be at
+  // least 8 steps from every decision step.  Keeping 1/2 every other octave (stride 2) balances cost against
+  // variance: an octave's escapes fall like 2^-j, so its added variance falls like 2^-j/2, as does its cost.
+  int64_t roulette_from = 0;
+  int roulette_log2 = 1;
+  int roulette_stride = 1;
 };
 
 // Pilot-allocation statistics: leaves are classed by c1, the count below threshold k among their first P
