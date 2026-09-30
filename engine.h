@@ -691,7 +691,8 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     IntRingMem& ripe_mem = *ripe_cache;
     Mem<uint64_t> counters(engine_detail::kCounters, true);
     counters.zero();
-    const auto rings = queues.queues();
+    auto rings = queues.queues();
+    if (env_int("MANDELBROT_NO_SPACE", 0)) rings.space = nullptr;  // Experiment: no bound on outstanding orbits
     const auto ripe = ripe_mem.ring();
     const int drain_warps = cpu_tail > 0 ? std::max(1, cpu_tail / 32) : -1;
     const int grid = timing ? engine_detail::launch_pool_kernel<Task, true>(min_blocks, task, n, stride, rings,

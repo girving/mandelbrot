@@ -173,7 +173,7 @@ template<class T> struct Queues {
       const int count = __popc(group), rank = __popc(group & ((1u << lane) - 1));
       uint64_t t = ~uint64_t(0);
       if (lane == lead) {
-        if (ring_add(space, -int64_t(count)) >= count) t = ring_add(tail + k, uint64_t(count));
+        if (!space || ring_add(space, -int64_t(count)) >= count) t = ring_add(tail + k, uint64_t(count));
         else ring_add(space, int64_t(count));  // No space: give it back
       }
       t = __shfl_sync(0xffffffff, t, lead);
@@ -250,7 +250,7 @@ template<class T> struct Queues {
       }
     }
     __syncwarp();
-    if (!lane && got) ring_add(space, int64_t(got));
+    if (!lane && got && space) ring_add(space, int64_t(got));
     return got;
   }
 
