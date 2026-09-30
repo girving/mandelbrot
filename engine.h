@@ -39,6 +39,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <thread>
 #include <type_traits>
 #include <typeinfo>
@@ -173,29 +174,47 @@ static inline uint64_t next_pow2(const uint64_t x) {
   return p;
 }
 
-// Device storage for an IntRing of capacity cap, empty, or holding 0, ..., count - 1
+#ifdef __CUDACC__
+namespace engine_detail {
+// An IntRing holding 0, ..., count - 1
+__global__ static void int_ring_reset(const IntRing r, const int64_t count) {
+  for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < int64_t(r.cap); i += int64_t(blockDim.x) * gridDim.x) {
+    r.slots[i] = int32_t(i);
+    r.seq[i] = uint64_t(i) + (i < count);
+    if (!i) { r.ends[0] = 0; r.ends[1] = uint64_t(count); *r.avail = count; }
+  }
+}
+__global__ static void set_int64(int64_t* p, const int64_t v) { *p = v; }
+// out[i] = the value at position pos[i] of queue key[i]
+template<class T> __global__ void queues_gather(const Queues<T> q, const int32_t* key, const uint64_t* pos,
+                                                const int64_t n, T* out) {
+  for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += int64_t(blockDim.x) * gridDim.x) {
+    const uint64_t p = pos[i], x = q.table[uint64_t(key[i]) * q.entries + ((p / Queues<T>::S) & (q.entries - 1))];
+    out[i] = q.values[(x & 0xffffffff) * Queues<T>::S + p % Queues<T>::S];
+  }
+}
+}  // namespace engine_detail
+
+// Device storage for an IntRing of capacity cap; reset(count) makes it hold 0, ..., count - 1
 struct IntRingMem : public Noncopyable {
   const uint64_t cap;
   Mem<int32_t> slots;
   Mem<uint64_t> seq, ends;
   Mem<int64_t> avail;
-  IntRingMem(const uint64_t cap, const int64_t count = 0)
+  explicit IntRingMem(const uint64_t cap)
     : cap(cap), slots(int64_t(cap), true), seq(int64_t(cap), true), ends(2, true), avail(1, true) {
-    slow_assert(cap && !(cap & (cap - 1)) && uint64_t(count) <= cap);
-    std::vector<int32_t> v(cap);
-    std::vector<uint64_t> q(cap);
-    for (uint64_t i = 0; i < cap; i++) { v[i] = int32_t(i); q[i] = i + (int64_t(i) < count); }
-    slots.from_host(v.data(), int64_t(cap));
-    seq.from_host(q.data(), int64_t(cap));
-    const uint64_t e[2] = {0, uint64_t(count)};
-    ends.from_host(e, 2);
-    avail.from_host(&count, 1);
+    slow_assert(cap && !(cap & (cap - 1)));
+  }
+  void reset(const int64_t count = 0) {
+    slow_assert(uint64_t(count) <= cap);
+    engine_detail::int_ring_reset<<<int(std::min<uint64_t>(1024, (cap + 255) / 256)), 256, 0, stream()>>>(ring(), count);
+    cuda_check(cudaGetLastError());
   }
   IntRing ring() const { return {slots.p, seq.p, ends.p, avail.p, cap}; }
 };
 
 // Device storage for Queues: keys queues with at most bound values outstanding, with segments and table entries
-// to spare
+// to spare.  Allocated once and reset (on the device) for each use.
 template<class T> struct QueuesMem : public Noncopyable {
   static constexpr int S = Queues<T>::S;
   const int keys;
@@ -211,15 +230,20 @@ template<class T> struct QueuesMem : public Noncopyable {
     : keys(keys), bound(bound), segments(bound + 256), entries(next_pow2(4 * bound / S)),
       values(segments * S, true), vseq(segments * S, true), table(keys * int64_t(entries), true),
       ends(2 * keys, true), consumed(segments, true), nonempty((keys + 31) / 32, true), avail(keys, true),
-      space(1, true), free(next_pow2(uint64_t(segments)), segments) {
+      space(1, true), free(next_pow2(uint64_t(segments))) {
+    reset();
+  }
+
+  // Empty every queue, with every segment free
+  void reset() {
     vseq.zero();
     consumed.zero();
     nonempty.zero();
     ends.zero();
     avail.zero();
-    space.from_host(&bound, 1);
-    const std::vector<uint64_t> none(keys * entries, ~uint64_t(0));
-    table.from_host(none.data(), keys * int64_t(entries));
+    cuda_check(cudaMemsetAsync(table.p, 0xff, keys * entries * sizeof(uint64_t), stream()));
+    engine_detail::set_int64<<<1, 1, 0, stream()>>>(space.p, bound);
+    free.reset(segments);
   }
 
   Queues<T> queues() const {
@@ -227,22 +251,30 @@ template<class T> struct QueuesMem : public Noncopyable {
             free.ring(), keys, entries};
   }
 
-  // Every value still queued, once the kernels using the queues have finished
+  // Every value still queued, once the kernels using the queues have finished (gathered on the device)
   std::vector<T> contents() const {
-    std::vector<uint64_t> e(2 * keys), t(keys * entries);
+    std::vector<uint64_t> e(2 * keys);
     ends.to_host(e.data(), 2 * keys);
-    table.to_host(t.data(), keys * int64_t(entries));
-    std::vector<T> v(segments * S), all;
-    values.to_host(v.data(), segments * S);
+    std::vector<int32_t> key;
+    std::vector<uint64_t> pos;
     for (int k = 0; k < keys; k++)
-      for (uint64_t p = e[k]; p < e[keys + k]; p++) {
-        const uint64_t x = t[k * entries + ((p / S) & (entries - 1))];
-        slow_assert(x != ~uint64_t(0) && x >> 32 == p / S, "queue %d position %d has no segment", k, p);
-        all.push_back(v[(x & 0xffffffff) * S + p % S]);
-      }
+      for (uint64_t p = e[k]; p < e[keys + k]; p++) { key.push_back(k); pos.push_back(p); }
+    const int64_t n = int64_t(key.size());
+    std::vector<T> all(n);
+    if (!n) return all;
+    Mem<int32_t> dk(n, true);
+    Mem<uint64_t> dp(n, true);
+    Mem<T> out(n, true);
+    dk.from_host(key.data(), n);
+    dp.from_host(pos.data(), n);
+    engine_detail::queues_gather<<<int(std::min<int64_t>(1024, (n + 255) / 256)), 256, 0, stream()>>>(
+        queues(), dk.p, dp.p, n, out.p);
+    cuda_check(cudaGetLastError());
+    out.to_host(all.data(), n);
     return all;
   }
 };
+#endif  // __CUDACC__
 
 namespace engine_detail {
 
@@ -645,8 +677,16 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                      cpu_tail = env_int("MANDELBROT_CUDA_CPU_TAIL", 1024);
     constexpr bool keyed = requires(O& o) { task.settle_key(o); };
     const int keys = keyed ? kSettleKeys : 1, min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
-    QueuesMem<P> queues(keys, kSettleBound);
-    IntRingMem ripe_mem(next_pow2(2 * uint64_t(kSettleBound) / 32 + 4096));  // Ripe keys, about one per 32 queued
+    // Settle queues and the ripe queue (about one key per 32 queued), allocated once per thread and reset per run
+    static thread_local std::unique_ptr<QueuesMem<P>> queues_cache[2];
+    static thread_local std::unique_ptr<IntRingMem> ripe_cache;
+    auto& queues_ptr = queues_cache[keyed];
+    if (!queues_ptr) queues_ptr.reset(new QueuesMem<P>(keys, kSettleBound));
+    else queues_ptr->reset();
+    if (!ripe_cache) ripe_cache.reset(new IntRingMem(next_pow2(2 * uint64_t(kSettleBound) / 32 + 4096)));
+    ripe_cache->reset();
+    QueuesMem<P>& queues = *queues_ptr;
+    IntRingMem& ripe_mem = *ripe_cache;
     Mem<uint64_t> counters(engine_detail::kCounters, true);
     counters.zero();
     const auto rings = queues.queues();
