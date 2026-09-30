@@ -134,6 +134,9 @@ int main(const int argc, const char** argv) {
         .scan<'i', int>().default_value(256);
     program.add_argument("--newton-iters").help("Newton iterations per certificate attempt").scan<'i', int>()
         .default_value(30);
+    program.add_argument("--center-hint-newton")
+        .help("first Newton attempt for cells whose parent's center was interior (0: --center-first-newton)")
+        .scan<'i', int64_t>().default_value(int64_t(0));
     program.add_argument("--center-first-newton").help("first Newton attempt for cell centers")
         .scan<'i', int64_t>().default_value(int64_t(8192));
     program.add_argument("--newton-repel").help("leaf Newton gives up from its second iteration once |λ(w)| exceeds this")
@@ -174,6 +177,7 @@ int main(const int argc, const char** argv) {
     p.newton_max_period = program.get<int>("--newton-max-period");
     p.burst = program.get<int64_t>("--burst");
     p.center_first_newton = program.get<int64_t>("--center-first-newton");
+    p.center_hint_newton = program.get<int64_t>("--center-hint-newton");
     p.center_max_period = program.get<int>("--center-max-period");
     p.newton_iters = program.get<int>("--newton-iters");
     p.newton_tol = program.get<double>("--newton-tol");

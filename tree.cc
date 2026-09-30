@@ -28,8 +28,10 @@ struct Level {
   }
 };
 
-// Center classification.  status[i] = kUncertified, or the below-threshold mask of a certified cell.
-const uint32_t kUncertified = 0xffffffff;
+// Center classification.  status[i] = kUncertified, kUncertifiedInterior (the center is interior, but too
+// near its component's boundary to certify the cell), or the below-threshold mask of a certified cell.
+const uint32_t kUncertified = 0xffffffff, kUncertifiedInterior = 0xfffffffe;
+__host__ __device__ static inline bool certified(const uint32_t s) { return s < kUncertifiedInterior; }
 
 struct CenterTask {
   typedef OrbitDE State;
@@ -44,10 +46,13 @@ struct CenterTask {
   int K;
   int64_t ks[32];
   uint32_t* status;
+  const uint8_t* hints;  // Per cell: its parent's center was interior (or null)
+  int64_t hint_newton;   // First Newton step for hinted cells (0: first_newton): they are mostly interior
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
     const Cell c = level.at(i);
-    return o.start(x0 + (c.ix + 0.5) * w, y0 + (c.iy + 0.5) * h, first_newton, true);
+    const int64_t first = hint_newton && hints && hints[i] ? hint_newton : first_newton;
+    return o.start(x0 + (c.ix + 0.5) * w, y0 + (c.iy + 0.5) * h, first, true);
   }
   // Newton, Brent's period recovery, and cardioid/disk distances are deferred, like SampleTask's Newton
   __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst, true, max_period); }
@@ -82,7 +87,7 @@ struct CenterTask {
   }
 
   __host__ __device__ void finish(const EscapeDE& e, const int64_t i) const {
-    uint32_t s = kUncertified;
+    uint32_t s = e.e.steps < 0 && e.dist > 0 ? kUncertifiedInterior : kUncertified;
     if (e.dist > 0 && r * safety <= e.dist) {
       if (e.e.steps < 0) {
         s = K == 32 ? 0xffffffff : (1u << K) - 1;  // Interior: below every threshold
@@ -118,7 +123,7 @@ struct CountChunk {
     const int64_t hi = (c + 1) * kChunk < n ? (c + 1) * kChunk : n;
     for (int64_t i = c * kChunk; i < hi; i++) {
       const uint32_t s = status[i];
-      if (s == kUncertified) { o[0]++; continue; }
+      if (!certified(s)) { o[0]++; continue; }
       o[1]++;
       for (int k = 0; k < K; k++) o[2 + k] += (s >> k) & 1;
     }
@@ -133,11 +138,12 @@ struct EmitChunk {
   const int64_t* offsets;  // Per chunk: number of uncertified cells in earlier chunks
   bool children;
   Cell* out;
+  uint8_t* hints;  // With children: whether each child's parent center was interior
   __host__ __device__ void operator()(const int64_t c) const {
     int64_t j = offsets[c];
     const int64_t hi = (c + 1) * kChunk < n ? (c + 1) * kChunk : n;
     for (int64_t i = c * kChunk; i < hi; i++) {
-      if (status[i] != kUncertified) continue;
+      if (certified(status[i])) continue;
       const Cell a = level.at(i);
       if (children) {
         Cell* o = out + 4 * j;
@@ -145,6 +151,8 @@ struct EmitChunk {
         o[1] = {2 * a.ix + 1, 2 * a.iy};
         o[2] = {2 * a.ix, 2 * a.iy + 1};
         o[3] = {2 * a.ix + 1, 2 * a.iy + 1};
+        const uint8_t hint = status[i] == kUncertifiedInterior;
+        for (int q = 0; q < 4; q++) hints[4 * j + q] = hint;
       } else {
         out[j] = a;
       }
@@ -320,7 +328,7 @@ struct TileCountChunk {
     const int64_t hi = (c + 1) * kTileChunk < n ? (c + 1) * kTileChunk : n;
     for (int64_t i = c * kTileChunk; i < hi; i++) {
       const uint32_t s = status[i];
-      if (s == kUncertified || !s) continue;
+      if (!certified(s) || !s) continue;
       const Cell a = level.at(i);
       int64_t* ot = o + tile_of(a.ix, a.iy, grid, T) * K;
       for (int k = 0; k < K; k++) ot[k] += weight * ((s >> k) & 1);
@@ -473,6 +481,7 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
   const auto t1 = std::chrono::steady_clock::now();
   int64_t n = cell1 - cell0;
   Mem<Cell> cells(0, p.cuda), leaves(0, p.cuda);
+  Mem<uint8_t> hints(0, p.cuda);
   int64_t n_leaves = 0;
   for (int d = 0; d <= p.depth; d++) {
     slow_assert(n < (int64_t(1) << 31), "level %d of a batch has %d cells; lower --batch", d, n);
@@ -482,7 +491,7 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     slow_assert(p.center_max_iter < (int64_t(1) << 31), "CenterTask::Record needs 32-bit steps");
     CenterTask task{p.burst, p.center_min_blocks, level, p.x0, p.y0, w, h, 0.5 * std::hypot(w, h), p.safety, std::min(p.max_iter, p.center_max_iter),
                     p.center_first_newton, p.center_max_period, K, {},
-                    status.p};
+                    status.p, d ? hints.p : nullptr, p.center_hint_newton};
     for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
     const auto stats = run_orbits(task, n, p.cuda);
     Rb.center_kernel_secs += stats.secs;
@@ -516,12 +525,14 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     doffsets.from_host(offsets.data(), chunks);
     const bool last = d == p.depth;
     Mem<Cell> next(last ? uncertified : 4 * uncertified, p.cuda);
-    for_each(chunks, EmitChunk{status.p, level, n, doffsets.p, !last, next.p}, p.cuda);
+    Mem<uint8_t> next_hints(last ? 0 : 4 * uncertified, p.cuda);
+    for_each(chunks, EmitChunk{status.p, level, n, doffsets.p, !last, next.p, next_hints.p}, p.cuda);
     if (last) {
       std::swap(leaves.p, next.p); std::swap(leaves.n, next.n);
       n_leaves = uncertified;
     } else {
       std::swap(cells.p, next.p); std::swap(cells.n, next.n);
+      std::swap(hints.p, next_hints.p); std::swap(hints.n, next_hints.n);
       n = 4 * uncertified;
     }
   }
