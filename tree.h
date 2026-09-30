@@ -61,6 +61,7 @@ struct TreeParams {
   int tiles = 0;             // Resolve consecutive differences over a tiles × tiles grid of the box (0: off)
   int overlap = 1;           // Batches in flight at once on the GPU (host threads with their own streams)
   int shard = 0, shards = 1; // Only base rows r with r % shards == shard (for runs split across GPUs)
+  bool flip_stats = false;   // With compare: classify the samples whose classifications differ (TreeResult::flip_stats)
 };
 
 // Pilot-allocation statistics: leaves are classed by c1, the count below threshold k among their first P
@@ -89,6 +90,7 @@ struct TreeResult {
   vector<int64_t> alloc;              // With leaf_stats: [alloc_index(k, pi, c1, {N, S, W2, Wp})]
   vector<GroupSums> tile_diff;        // With tiles: [tile * K + k] leaf sums of the k, k + 1 difference
   vector<int64_t> tile_cert;          // With tiles: [tile * K + k] area certified below k, in finest cells
+  vector<int64_t> flip_stats;         // With flip_stats: see FlipChunk in tree.cc (flip_stats_size(K) entries)
   int64_t leaves = 0, centers = 0, center_iters = 0, leaf_iters = 0, overflow = 0, flips = 0, batches = 0;
   double tree_secs = 0, center_kernel_secs = 0, sample_secs = 0, reduce_secs = 0, secs = 0;
 
@@ -105,6 +107,9 @@ struct TreeResult {
 };
 
 TreeResult run_tree(const TreeParams& p);
+
+// Size of TreeResult::flip_stats for K thresholds
+constexpr int flip_stats_size(const int K) { return 9 + 9 * K + 33 + 34 * 2; }
 
 // Sharded runs: a shard's result saved to a file (its exact sums, and the parameters that determine them),
 // loaded back (checking that the parameters match p, up to the shard), and merged.  Merging every shard of a

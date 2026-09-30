@@ -163,6 +163,13 @@ struct EmitChunk {
   }
 };
 
+// A sample's outcome for --flip-stats: kind (0 escaped at step n, 1 certified interior, 2 hit max_iter) in the top
+// two bits, and n / 4 in the rest (steps below 2^32)
+__host__ __device__ static inline uint32_t outcome_code(const int kind, const int64_t n) {
+  const int64_t q = n / 4 < (int64_t(1) << 30) - 1 ? n / 4 : (int64_t(1) << 30) - 1;
+  return uint32_t(kind) << 30 | uint32_t(q);
+}
+
 // Leaf samples: sample i is sample i % m of leaf i / m, placed by counter-based randomness keyed by the
 // leaf's coordinates, so that it does not depend on processing order
 template<class T> struct SampleTask {
@@ -181,6 +188,7 @@ template<class T> struct SampleTask {
   int64_t ks[32];
   uint32_t* bits;
   uint32_t* iters_out;  // Per-sample iterations, or null
+  uint32_t* outcome_out;  // Per-sample outcome (outcome_code), or null
   int64_t park_steps;   // GPU steps before parking: the first Newton step (see run_orbits)
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
@@ -224,6 +232,7 @@ template<class T> struct SampleTask {
       const int64_t n = o.iters();
       iters_out[i] = n < int64_t(0xffffffff) ? uint32_t(n) : 0xffffffffu;
     }
+    if (outcome_out) outcome_out[i] = outcome_code(o.status == 1 || o.status == 8 ? 0 : o.status == 2 ? 1 : 2, o.n);
   }
 };
 
@@ -305,6 +314,38 @@ struct ReduceChunk {
         case kDiff: sums<kDiff>(series[e], l0, o); break;
         case kDelta: sums<kDelta>(series[e], l0, o); break;
         default: sums<kFlips>(series[e], l0, o); break;
+      }
+    }
+  }
+};
+
+// Flip statistics (compare mode, --flip-stats), over chunks of samples whose classifications differ between the
+// precisions (a: double, b: the alternative).  Layout (flip_stats_size): [9] flips by outcome pair (kind_a · 3 +
+// kind_b, kinds as outcome_code), [9 · K] their net contributions to A_b(k) - A_a(k) (in samples), [33] flips with
+// both escaped by the ratio of escape steps (bins of a quarter octave of n_b / n_a, centered, clamped at ±4
+// octaves), [34 · 2] flips with both escaped by the octave of n_a and whether b escaped later.
+const int64_t kFlipChunk = 1 << 16;
+struct FlipChunk {
+  const uint32_t *a, *b, *oa, *ob;
+  int64_t n;
+  int K;
+  int64_t* out;
+  __host__ __device__ void operator()(const int64_t c) const {
+    const int S = flip_stats_size(K);
+    int64_t* o = out + c * S;
+    for (int j = 0; j < S; j++) o[j] = 0;
+    const int64_t hi = (c + 1) * kFlipChunk < n ? (c + 1) * kFlipChunk : n;
+    for (int64_t i = c * kFlipChunk; i < hi; i++) {
+      if (a[i] == b[i]) continue;
+      const int ka = int(oa[i] >> 30), kb = int(ob[i] >> 30), cat = ka * 3 + kb;
+      o[cat]++;
+      for (int k = 0; k < K; k++) o[9 + cat * K + k] += int((b[i] >> k) & 1) - int((a[i] >> k) & 1);
+      if (!ka && !kb) {
+        const double na = 4.0 * (oa[i] & 0x3fffffff) + 2, nb = 4.0 * (ob[i] & 0x3fffffff) + 2;
+        const int bin = int(std::floor(4 * std::log2(nb / na) + 16.5));
+        o[9 + 9 * K + (bin < 0 ? 0 : bin > 32 ? 32 : bin)]++;
+        const int oct = int(std::log2(na));
+        o[9 + 9 * K + 33 + 2 * (oct < 0 ? 0 : oct > 33 ? 33 : oct) + (nb > na)]++;
       }
     }
   }
@@ -458,11 +499,11 @@ vector<GroupSums> reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const v
 
 template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, const TreeParams& p,
                                  const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow,
-                                 uint32_t* iters = nullptr) {
+                                 uint32_t* iters = nullptr, uint32_t* outcomes = nullptr) {
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, p.x0, p.y0, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
                                    p.newton_margin, false, p.newton_repel2, false},
-                     int(p.ks.size()), {}, bits.p, iters, p.first_newton};
+                     int(p.ks.size()), {}, bits.p, iters, outcomes, p.first_newton};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;
@@ -546,19 +587,29 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     const int64_t nl = std::min(max_leaves, n_leaves - l0);
     const auto t2 = std::chrono::steady_clock::now();
     Mem<uint32_t> bits(nl * p.m, p.cuda), fbits(compare ? nl * p.m : 0, p.cuda),
-                  iters(p.leaf_stats ? nl * p.m : 0, p.cuda);
+                  iters(p.leaf_stats ? nl * p.m : 0, p.cuda), outcomes(p.flip_stats ? nl * p.m : 0, p.cuda),
+                  foutcomes(p.flip_stats ? nl * p.m : 0, p.cuda);
     uint32_t* ip = p.leaf_stats ? iters.p : nullptr;
+    uint32_t* op = p.flip_stats ? outcomes.p : nullptr;
+    uint32_t* fop = p.flip_stats ? foutcomes.p : nullptr;
     Rb.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip)
-                           : sample<double>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip);
+                           : sample<double>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip, op);
     if (compare) {
       // The alternative precision: float, or double rounded to fewer bits
       const Cell* lp = leaves.p + l0;
-      Rb.leaf_iters += p.prec == "compare30" ? sample<Rounded<30>>(lp, nl, p, w, h, fbits, Rb.overflow)
-                    : p.prec == "compare36" ? sample<Rounded<36>>(lp, nl, p, w, h, fbits, Rb.overflow)
-                    : p.prec == "compare42" ? sample<Rounded<42>>(lp, nl, p, w, h, fbits, Rb.overflow)
-                    : p.prec == "compare48" ? sample<Rounded<48>>(lp, nl, p, w, h, fbits, Rb.overflow)
-                    : p.prec == "comparedd" ? sample<Expansion<2>>(lp, nl, p, w, h, fbits, Rb.overflow)
-                                            : sample<float>(lp, nl, p, w, h, fbits, Rb.overflow);
+      Rb.leaf_iters += p.prec == "compare30" ? sample<Rounded<30>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
+                    : p.prec == "compare36" ? sample<Rounded<36>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
+                    : p.prec == "compare42" ? sample<Rounded<42>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
+                    : p.prec == "compare48" ? sample<Rounded<48>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
+                    : p.prec == "comparedd" ? sample<Expansion<2>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
+                                            : sample<float>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop);
+    }
+    if (p.flip_stats) {
+      const int64_t samples = nl * p.m, chunks = (samples + kFlipChunk - 1) / kFlipChunk, S = flip_stats_size(K);
+      Mem<int64_t> fout(chunks * S, p.cuda);
+      for_each(chunks, FlipChunk{bits.p, fbits.p, outcomes.p, foutcomes.p, samples, K, fout.p}, p.cuda);
+      const auto h = sum_chunks(fout, chunks, S, p.cuda);
+      for (int64_t j = 0; j < S; j++) Rb.flip_stats[j] += h[j];
     }
     Rb.sample_secs += secs_since(t2);
 
@@ -614,6 +665,7 @@ TreeResult empty_like(const TreeResult& R) {
   Rb.float_area.resize(R.float_area.size()); Rb.delta.resize(R.delta.size());
   Rb.alloc.assign(R.alloc.size(), 0);
   Rb.tile_diff.resize(R.tile_diff.size()); Rb.tile_cert.assign(R.tile_cert.size(), 0);
+  Rb.flip_stats.assign(R.flip_stats.size(), 0);
   return Rb;
 }
 
@@ -629,6 +681,7 @@ void merge(TreeResult& R, const TreeResult& Rb) {
   for (size_t i = 0; i < R.alloc.size(); i++) R.alloc[i] += Rb.alloc[i];
   for (size_t i = 0; i < R.tile_diff.size(); i++) R.tile_diff[i] += Rb.tile_diff[i];
   for (size_t i = 0; i < R.tile_cert.size(); i++) R.tile_cert[i] += Rb.tile_cert[i];
+  for (size_t i = 0; i < R.flip_stats.size(); i++) R.flip_stats[i] += Rb.flip_stats[i];
   R.leaves += Rb.leaves; R.centers += Rb.centers; R.center_iters += Rb.center_iters; R.leaf_iters += Rb.leaf_iters;
   R.overflow += Rb.overflow; R.flips += Rb.flips; R.batches += Rb.batches;
   R.tree_secs += Rb.tree_secs; R.center_kernel_secs += Rb.center_kernel_secs; R.sample_secs += Rb.sample_secs;
@@ -692,6 +745,8 @@ TreeResult empty_result(const TreeParams& p) {
   if (p.leaf_stats) R.alloc.assign(int64_t(K) * 108, 0);
   slow_assert(p.tiles >= 0 && p.tiles <= 64, "tiles must be in [0, 64]");
   if (p.tiles) { R.tile_diff.resize(int64_t(p.tiles) * p.tiles * K); R.tile_cert.assign(int64_t(p.tiles) * p.tiles * K, 0); }
+  slow_assert(!p.flip_stats || p.prec.starts_with("compare"), "flip_stats needs a compare precision");
+  if (p.flip_stats) R.flip_stats.assign(flip_stats_size(K), 0);
   return R;
 }
 
@@ -764,10 +819,11 @@ string fingerprint(const TreeParams& p) {
                          "seed %d first_newton %d center_max_iter %d center_first_newton %d center_hint_newton %d "
                          "center_max_period %d newton_max_period %d newton_iters %d newton_close2 %.17g "
                          "newton_repel2 %.17g newton_tol %.17g newton_margin %.17g prec %s rows %d leaf_stats %d "
-                         "tiles %d ks", p.base, p.x0, p.x1, p.y0, p.y1, p.depth, p.safety, p.m, p.strata, p.max_iter,
+                         "tiles %d flip_stats %d ks", p.base, p.x0, p.x1, p.y0, p.y1, p.depth, p.safety, p.m, p.strata, p.max_iter,
                          p.seed, p.first_newton, p.center_max_iter, p.center_first_newton, p.center_hint_newton,
                          p.center_max_period, p.newton_max_period, p.newton_iters, p.newton_close2, p.newton_repel2,
-                         p.newton_tol, p.newton_margin, p.prec, p.rows, int(p.leaf_stats), p.tiles);
+                         p.newton_tol, p.newton_margin, p.prec, p.rows, int(p.leaf_stats), p.tiles,
+                         int(p.flip_stats));
   for (const auto k : p.ks) f += tfm::format(" %d", k);
   return f;
 }
@@ -813,6 +869,7 @@ void save_result(const TreeResult& R, const string& path) {
   write_vec(f, "alloc", R.alloc);
   write_vec(f, "tile_diff", R.tile_diff);
   write_vec(f, "tile_cert", R.tile_cert);
+  write_vec(f, "flip_stats", R.flip_stats);
   write_vec(f, "counts", vector<int64_t>{R.leaves, R.centers, R.center_iters, R.leaf_iters, R.overflow, R.flips,
                                         R.batches});
   fprintf(f, "secs %.17g %.17g %.17g %.17g %.17g\n", R.tree_secs, R.center_kernel_secs, R.sample_secs,
@@ -840,6 +897,7 @@ TreeResult load_result(const string& path, const TreeParams& p) {
   read_vec(f, "alloc", R.alloc, path);
   read_vec(f, "tile_diff", R.tile_diff, path);
   read_vec(f, "tile_cert", R.tile_cert, path);
+  read_vec(f, "flip_stats", R.flip_stats, path);
   vector<int64_t> c(7);
   read_vec(f, "counts", c, path);
   R.leaves = c[0]; R.centers = c[1]; R.center_iters = c[2]; R.leaf_iters = c[3]; R.overflow = c[4]; R.flips = c[5];
