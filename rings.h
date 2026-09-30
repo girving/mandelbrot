@@ -32,9 +32,12 @@ template<class T> struct Rings {
   }
 
   // Lanes with has push v onto ring key.  Returns whether this lane's push succeeded (false if its ring was full).
-  __device__ bool push(const bool has, const int key, const T& v) const {
+  // ripe counts, in one lane per key pushed, how many multiples of 32 that key's tail crossed: each marks 32 more
+  // values, a full batch for a warp to pop.
+  __device__ bool push(const bool has, const int key, const T& v, int& ripe) const {
     const int lane = int(threadIdx.x & 31);
     bool ok = false;
+    ripe = 0;
     for (unsigned todo = __ballot_sync(0xffffffff, has); todo;) {
       // Lanes pushing the same key as the lowest remaining one, as a group
       const int lead = __ffs(todo) - 1, k = __shfl_sync(0xffffffff, key, lead);
@@ -57,6 +60,7 @@ template<class T> struct Rings {
         bool won = false;
         if (lane == lead) won = cas(tail + k, t, t + count);
         if (__shfl_sync(0xffffffff, won, lead)) {
+          if (lane == lead) ripe = int((t + count) / 32 - t / 32);
           if (mine) {
             slots[slot(k, pos)] = v;
             __threadfence();
