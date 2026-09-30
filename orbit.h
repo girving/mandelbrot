@@ -490,8 +490,7 @@ struct OrbitDE {
   int32_t dexp, min_key;  // min_key: the minimum of |z_j|^2 over j ≤ n (orbit_key), for atom_candidate
   // 0 running, 1 done (result in r), 7 escaped (at step n with |z|^2 = cx; result() computes the distance), and
   // with defer, stopped for settle: 4 Newton step due, 5 Brent fired, 6 cardioid or period 2 disk (whose
-  // interior distance settle computes), 9 a fast block overflowed (settle redoes it step by step, for all such
-  // lanes of a GPU warp together rather than each stalling the rest)
+  // interior distance settle computes)
   int32_t status;
   EscapeDE r;  // Result, once done
 
@@ -543,19 +542,6 @@ struct OrbitDE {
   // detected by run: Newton, then Brent's period recovery, then the checkpoint.  Also the cardioid/disk start.
   // Returns true if done.
   __host__ __device__ bool settle(const int64_t max_iter, const int max_period = 4096) {
-    if (status == 9) {
-      // A fast block overflowed: redo it step by step, as run's careful path does
-      status = 0;
-      double zy2 = zy * zy, r2 = fma(zx, zx, zy2);
-      const double unit = std::ldexp(1.0, int(-(dexp < 2000 ? dexp : 2000))), big = 18446744073709551616.0;
-      for (const orbit_int block = n + 8; n < block; n++) {
-        if (r2 > big) { cx = r2; status = 7; return true; }
-        step(zx, zy, zy2, r2, dx, dy, unit);
-        const int32_t key = orbit_key(r2);
-        min_key = key < min_key ? key : min_key;
-      }
-      return false;  // |z|^2 landed exactly on 2^64: go on (skipping this block's end checks)
-    }
     if (status == 6) {
       const bool disk = (x + 1) * (x + 1) + y * y <= 1.0 / 16;
       r.e = {-1, -INFINITY, disk ? 2 : 1, 0};
@@ -647,7 +633,6 @@ struct OrbitDE {
           n += 8;
         } else {
           zx = zx0; zy = zy0; zy2 = zy20; r2 = r20; dx = dx0; dy = dy0; min_key = min0;
-          if (defer) { status = 9; goto finish; }
           careful = true;
         }
       }
