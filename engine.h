@@ -165,7 +165,7 @@ struct RunStats {
 
 // Settle keys (Task::settle_key), and the bound on orbits waiting in settle queues at once
 constexpr int kSettleKeys = 512;
-constexpr int64_t kSettleBound = 1 << 16;
+constexpr int64_t kSettleBound = 1 << 15;
 
 static inline uint64_t next_pow2(const uint64_t x) {
   uint64_t p = 1;
@@ -208,7 +208,7 @@ template<class T> struct QueuesMem : public Noncopyable {
   IntRingMem free;
 
   QueuesMem(const int keys, const int64_t bound)
-    : keys(keys), bound(bound), segments(bound / S + 2 * keys + 64), entries(next_pow2(bound / S + 2)),
+    : keys(keys), bound(bound), segments(bound + 256), entries(next_pow2(4 * bound / S)),
       values(segments * S, true), vseq(segments * S, true), table(keys * int64_t(entries), true),
       ends(2 * keys, true), consumed(segments, true), nonempty((keys + 31) / 32, true), avail(keys, true),
       space(1, true), free(next_pow2(uint64_t(segments)), segments) {
