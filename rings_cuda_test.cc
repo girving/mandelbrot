@@ -1,6 +1,7 @@
 // Stress test of the device settle queues: every warp pushes values onto queues chosen by a hash and pops from
 // queues in turn, concurrently, with a bound on outstanding values small enough that pushes often fail and
 // segments recycle many times.  Every value must be popped exactly once.
+#define MANDELBROT_RING_DEBUG
 
 #include "engine.h"
 #include "rings.h"
@@ -58,6 +59,9 @@ TEST(rings) {
     print("watchdog: %d warps stopped, %d of %d popped", c[2], c[0], total);
     for (int k = 0; k < keys; k++) print("  key %d: head %d, tail %d, avail %d", k, e[k], e[keys + k], av[k]);
   }
+  unsigned long long stuck[8];
+  cuda_check(cudaMemcpyFromSymbol(stuck, ring_stuck, sizeof(stuck)));
+  for (int j = 0; j < 8; j++) if (stuck[j]) print("stuck in spin %d: %d lanes", j, stuck[j]);
   ASSERT_EQ(c[0], total);
   ASSERT_LT(uint64_t(0), c[1]) << "pushes never failed";
   for (uint64_t v = 0; v < total; v++) ASSERT_EQ(h[v], 1u) << tfm::format("value %d", v);

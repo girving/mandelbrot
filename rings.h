@@ -64,6 +64,16 @@ template<class T> __device__ static inline void ring_copy(T& dst, const T* src) 
     for (int j = 0; j < int(sizeof(T) / 4); j++) d[j] = ring_load(s + j);
   }
 }
+
+// Spin loops: with -DMANDELBROT_RING_DEBUG, give up after 2^24 iterations, counting where in ring_stuck
+#ifdef MANDELBROT_RING_DEBUG
+__device__ unsigned long long ring_stuck[8];
+#define RING_SPIN(where, cond) \
+  for (uint32_t spins_ = 0; (cond); spins_++) \
+    if (spins_ == (1u << 24)) { atomicAdd(ring_stuck + (where), 1ull); break; }
+#else
+#define RING_SPIN(where, cond) while (cond) {}
+#endif
 #endif  // __CUDACC__
 
 // Bounded ring of ints, lane by lane, for at most cap values outstanding.  Slot p mod cap holds sequence number p
@@ -84,7 +94,7 @@ struct IntRing {
   }
   __device__ void push(const int32_t v) const {
     const uint64_t t = ring_add(ends + 1, uint64_t(1)), s = t & (cap - 1);
-    while (ring_load(seq + s) != t) {}  // At most cap outstanding: free, or its pop is reading it
+    RING_SPIN(0, ring_load(seq + s) != t);  // At most cap outstanding: free, or its pop is reading it
     ring_store(slots + s, v);
     __threadfence();
     ring_store(seq + s, t + 1);
@@ -98,7 +108,7 @@ struct IntRing {
       return false;
     }
     const uint64_t h = ring_add(ends, uint64_t(1)), s = h & (cap - 1);
-    while (ring_load(seq + s) != h + 1) {}  // Its push is writing it
+    RING_SPIN(1, ring_load(seq + s) != h + 1);  // Its push is writing it
     __threadfence();
     v = ring_load(slots + s);
     __threadfence();
@@ -128,12 +138,17 @@ template<class T> struct Queues {
   __device__ int32_t segment(const int k, const uint64_t p, const bool push) const {
     const uint64_t block = p / S, tag = block << 32;
     uint64_t* e = table + uint64_t(k) * entries + (block & (entries - 1));
+#ifdef MANDELBROT_RING_DEBUG
+    for (uint32_t spins = 0;; spins++) {
+      if (spins == (1u << 24)) { atomicAdd(ring_stuck + (push ? 2 : 3), 1ull); return 0; }
+#else
     for (;;) {
+#endif
       const uint64_t v = ring_load(e);
       if (v != ~uint64_t(0) && (v & ~uint64_t(0xffffffff)) == tag) return int32_t(v & 0xffffffff);
       if (!push || v != ~uint64_t(0)) continue;  // Not yet allocated (pops wait for its push)
       int32_t id;
-      while (!free.pop(id)) {}  // The space bound leaves segments to spare
+      RING_SPIN(4, !free.pop(id));  // The space bound leaves segments to spare
       const uint64_t old = atomicCAS(reinterpret_cast<unsigned long long*>(e), ~0ull,
                                      static_cast<unsigned long long>(tag | uint32_t(id)));
       if (old == ~uint64_t(0)) return id;
@@ -212,7 +227,7 @@ template<class T> struct Queues {
       const uint64_t p = h + lane;
       const int32_t seg = segment(key, p, false);
       const uint64_t s = uint64_t(seg) * S + (p & (S - 1));
-      while (ring_load(vseq + s) != p + 1) {}  // Published, or its push is writing it (avail counted it)
+      RING_SPIN(5, ring_load(vseq + s) != p + 1);  // Published, or its push is writing it (avail counted it)
       __threadfence();
       ring_copy(out, values + s);
       ring_store(vseq + s, 0);
