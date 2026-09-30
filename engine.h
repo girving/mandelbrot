@@ -263,9 +263,9 @@ template<class Task> requires requires { typename Task::Record; } struct RecordO
 //
 // Refills: a WarpQueue restocked, in order of preference, by popping a full batch (32 orbits with the same
 // settle key, announced on the ripe queue by the push that completed it) and settling it, by claiming 32 items
-// and starting them, or, once items run out, by popping whatever the fullest ring holds (at most as many as
-// there are idle lanes, so that busy warps do not hoard the last orbits).  Scanning the rings for the fullest
-// costs a load per key, so only warps out of items do it.
+// and starting them, or, once items run out, by popping whatever a nonempty ring holds (at most as many as
+// there are idle lanes, so that busy warps do not hoard the last orbits), found through the rings' nonempty
+// mask.
 //
 // Finishes: tasks with a Record store compact records, and the warp finishes 32 at once, instead of a few lanes
 // per burst with the rest idle (only if the buffer fits in static shared memory alongside the queue).
@@ -339,7 +339,7 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
     int32_t key = -1;
     if (ripe.pop(0, 1, key)) key = __shfl_sync(0xffffffff, key, 0);
     else key = -1;
-    if (key < 0 && items_out) key = rings.fullest(1);
+    if (key < 0 && items_out) key = rings.any();
     if (key >= 0) {
       Parked<State> p;
       const int got = rings.pop(key, items_out ? min(__popc(need), 32) : 32, p);
@@ -416,13 +416,13 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
       bool leave = false;
       for (unsigned sleep = 1000;; sleep = min(2 * sleep, 64000u)) {
         if (uniform(counters + 3)) break;
-        if (rings.fullest(1) >= 0) {
+        if (rings.any() >= 0) {
           if (!lane) atomic_add(counters + 2, 1);
           active = true;
           break;
         }
         const uint64_t a = uniform(counters + 2);
-        if (!a && rings.fullest(1) < 0) { leave = true; break; }
+        if (!a && rings.any() < 0) { leave = true; break; }
         if (a <= uint64_t(drain_warps) && !lane) atomicExch(reinterpret_cast<unsigned long long*>(counters + 3), 1ull);
         __nanosleep(sleep);  // Backing off, so that idle warps' scans do not load the rings the rest are using
       }
@@ -566,7 +566,9 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                                                                         engine_detail::InitSeq{seq.p, kRingCap});
     engine_detail::for_each_kernel<<<8 * num_sms(), 256, 0, stream()>>>(int64_t(ripe_cap),
                                                                         engine_detail::InitSeq{ripe_seq.p, ripe_cap});
-    const Rings<P> rings{slots.p, seq.p, ends.p, ends.p + keys, keys, kRingCap};
+    Mem<uint32_t> nonempty((keys + 31) / 32, true);
+    nonempty.zero();
+    const Rings<P> rings{slots.p, seq.p, ends.p, ends.p + keys, keys, kRingCap, nonempty.p};
     const Rings<int32_t> ripe{ripe_slots.p, ripe_seq.p, ripe_ends.p, ripe_ends.p + 1, 1, ripe_cap};
     const int drain_warps = cpu_tail > 0 ? std::max(1, cpu_tail / 32) : -1;
     const int grid = timing ? engine_detail::launch_pool_kernel<Task, true>(min_blocks, task, n, stride, rings,

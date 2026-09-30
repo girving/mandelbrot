@@ -21,6 +21,7 @@ template<class T> struct Rings {
   uint64_t* tail;  // [key]: next position to push
   int keys;
   uint64_t cap;    // A power of 2
+  uint32_t* nonempty = nullptr;  // Optional: bit k of word k / 32 set while ring k may hold values (see any)
 
 #ifdef __CUDACC__
   __device__ static uint64_t load(const uint64_t* p) { return *reinterpret_cast<const volatile uint64_t*>(p); }
@@ -67,6 +68,11 @@ template<class T> struct Rings {
             store(seq + slot(k, pos), pos + 1);
             ok = true;
           }
+          if (nonempty && lane == lead) {
+            uint32_t* w = nonempty + k / 32;
+            const uint32_t bit = 1u << (k & 31);
+            if (!(*reinterpret_cast<volatile uint32_t*>(w) & bit)) atomicOr(w, bit);
+          }
           break;
         }
       }
@@ -105,25 +111,28 @@ template<class T> struct Rings {
         __threadfence();
         store(seq + slot(key, pos), pos + cap);
       }
+      if (nonempty && !lane && load(tail + key) == h + got) {
+        // Emptied it: clear its bit, then look again, since a push may have landed in between
+        uint32_t* w = nonempty + key / 32;
+        const uint32_t bit = 1u << (key & 31);
+        atomicAnd(w, ~bit);
+        __threadfence();
+        if (load(tail + key) != load(head + key)) atomicOr(w, bit);
+      }
       return got;
     }
   }
 
-  // The key whose ring holds the most values, if at least least (else -1).  Counts include pushes in progress.
-  __device__ int fullest(const uint64_t least) const {
+  // Some key whose ring may hold values (with nonempty), else -1: one load per lane for up to 1024 keys
+  __device__ int any() const {
     const int lane = int(threadIdx.x & 31);
-    unsigned best = 0;
-    int best_key = -1;
-    for (int k = lane; k < keys; k += 32) {
-      const uint64_t c = load(tail + k) - load(head + k);
-      const unsigned cu = unsigned(c < 0xffffffff ? c : 0xffffffff);
-      if (cu > best) { best = cu; best_key = k; }
-    }
-    const unsigned most = __reduce_max_sync(0xffffffff, best);
-    if (most < least || !most) return -1;
-    const int who = __ffs(__ballot_sync(0xffffffff, best == most)) - 1;
-    return __shfl_sync(0xffffffff, best_key, who);
+    const uint32_t w = lane * 32 < keys ? *reinterpret_cast<const volatile uint32_t*>(nonempty + lane) : 0;
+    const unsigned has = __ballot_sync(0xffffffff, w != 0);
+    if (!has) return -1;
+    const int who = __ffs(has) - 1;
+    return who * 32 + __ffs(__shfl_sync(0xffffffff, w, who)) - 1;
   }
+
 #endif  // __CUDACC__
 };
 
