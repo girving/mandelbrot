@@ -171,6 +171,7 @@ template<class T> struct SampleTask {
   int64_t ks[32];
   uint32_t* bits;
   uint32_t* iters_out;  // Per-sample iterations, or null
+  bool key_settles;     // Experiment: group settles by Newton's period (else all under one key)
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
     // Item counts are below 2^31 (scramble_stride checks), so 32-bit division suffices
@@ -202,7 +203,7 @@ template<class T> struct SampleTask {
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton); }
   // Settle work, for grouping settles (engine.h): Newton's candidate period, cached in o for Newton to use
   __host__ __device__ int settle_key(State& o) const {
-    if (o.status != 4) return 0;
+    if (o.status != 4 || !key_settles) return 0;
     if (!o.candidate || o.n < max_period) o.candidate = o.atom_candidate(max_period);
     return int(o.candidate);
   }
@@ -453,7 +454,7 @@ template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, con
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, p.x0, p.y0, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
                                    p.newton_margin, false, p.newton_repel2},
-                     int(p.ks.size()), {}, bits.p, iters};
+                     int(p.ks.size()), {}, bits.p, iters, !env_int("MANDELBROT_NO_SETTLE_KEYS", 0)};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;
