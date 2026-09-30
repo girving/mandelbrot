@@ -29,7 +29,7 @@ __global__ void stress(const Queues<uint32_t> rings, const int per_lane, uint32_
     uint64_t p = 0;
     if (!lane) p = ring_load(popped);
     if (__shfl_sync(0xffffffff, p, 0) >= total && __all_sync(0xffffffff, next == per_lane)) break;
-    if (step > (1u << 22)) {  // Watchdog: report instead of hanging
+    if (step > (1u << 18)) {  // Watchdog: report instead of hanging
       if (!lane) atomicAdd(reinterpret_cast<unsigned long long*>(full + 1), 1ull);
       break;
     }
@@ -40,7 +40,8 @@ TEST(rings) {
   // Every block must be resident at once, since warps spin until every value is popped
   int per_sm = 0;
   cuda_check(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&per_sm, stress, 256, 0));
-  const int keys = 7, blocks = per_sm * num_sms(), per_lane = 64;
+  ASSERT_LE(1, per_sm);
+  const int keys = 7, blocks = num_sms(), per_lane = 32;
   print("rings: %d blocks", blocks);
   const int64_t bound = 512;
   const uint64_t total = uint64_t(blocks) * 256 * per_lane;

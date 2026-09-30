@@ -65,12 +65,12 @@ template<class T> __device__ static inline void ring_copy(T& dst, const T* src) 
   }
 }
 
-// Spin loops: with -DMANDELBROT_RING_DEBUG, give up after 2^24 iterations, counting where in ring_stuck
+// Spin loops: with -DMANDELBROT_RING_DEBUG, give up after 2^20 iterations, counting where in ring_stuck
 #ifdef MANDELBROT_RING_DEBUG
 __device__ unsigned long long ring_stuck[8];
 #define RING_SPIN(where, cond) \
   for (uint32_t spins_ = 0; (cond); spins_++) \
-    if (spins_ == (1u << 24)) { atomicAdd(ring_stuck + (where), 1ull); break; }
+    if (spins_ == (1u << 20)) { atomicAdd(ring_stuck + (where), 1ull); break; }
 #else
 #define RING_SPIN(where, cond) while (cond) {}
 #endif
@@ -140,7 +140,7 @@ template<class T> struct Queues {
     uint64_t* e = table + uint64_t(k) * entries + (block & (entries - 1));
 #ifdef MANDELBROT_RING_DEBUG
     for (uint32_t spins = 0;; spins++) {
-      if (spins == (1u << 24)) { atomicAdd(ring_stuck + (push ? 2 : 3), 1ull); return 0; }
+      if (spins == (1u << 20)) { atomicAdd(ring_stuck + (push ? 2 : 3), 1ull); return 0; }
 #else
     for (;;) {
 #endif
