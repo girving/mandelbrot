@@ -17,7 +17,8 @@ __global__ void stress(const Rings<uint32_t> rings, const int per_lane, uint32_t
     const bool has = next < per_lane;
     const uint32_t v = gid * uint32_t(per_lane) + uint32_t(next);
     const int key = int(mix64(v) % uint64_t(rings.keys));
-    const bool ok = rings.push(has, key, v);
+    int ripe;
+    const bool ok = rings.push(has, key, v, ripe);
     if (ok) next++;
     if (has && !ok) atomicAdd(reinterpret_cast<unsigned long long*>(full), 1ull);
     uint32_t w = 0;
