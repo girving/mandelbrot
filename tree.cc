@@ -928,12 +928,14 @@ string fingerprint(const TreeParams& p) {
                          "seed %d first_newton %d center_max_iter %d center_first_newton %d center_hint_newton %d "
                          "center_max_period %d newton_max_period %d newton_iters %d newton_close2 %.17g "
                          "newton_repel2 %.17g newton_tol %.17g newton_margin %.17g prec %s rows %d leaf_stats %d "
-                         "tiles %d flip_stats %d roulette %d %d %d ks", p.base, p.x0, p.x1, p.y0, p.y1, p.depth, p.safety, p.m, p.strata, p.max_iter,
+                         "tiles %d flip_stats %d", p.base, p.x0, p.x1, p.y0, p.y1, p.depth, p.safety, p.m, p.strata, p.max_iter,
                          p.seed, p.first_newton, p.center_max_iter, p.center_first_newton, p.center_hint_newton,
                          p.center_max_period, p.newton_max_period, p.newton_iters, p.newton_close2, p.newton_repel2,
                          p.newton_tol, p.newton_margin, p.prec, p.rows, int(p.leaf_stats), p.tiles,
-                         int(p.flip_stats), p.roulette_from, p.roulette_from ? p.roulette_log2 : 0,
-                         p.roulette_from ? p.roulette_stride : 0);
+                         int(p.flip_stats));
+  // (Only when on, so results saved before roulette existed still load)
+  if (p.roulette_from) f += tfm::format(" roulette %d %d %d", p.roulette_from, p.roulette_log2, p.roulette_stride);
+  f += " ks";
   for (const auto k : p.ks) f += tfm::format(" %d", k);
   return f;
 }
