@@ -166,8 +166,19 @@ template<class T> struct SampleTask {
   __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
   __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
-  __host__ __device__ bool pending(const State& o) const { return o.pending(); }
-  __host__ __device__ bool immediate(const State& o) const { return o.immediate(); }
+  // An escaped fast block (status 8, restored to its start n) needs the exact escape step only if some threshold
+  // depends on it: escaping at a step in (n, n + 8] puts g below 2^-k for all of them if n - k ≥ 6 and for none
+  // if n - k ≤ -3 (escaped_below).  Otherwise finish classifies it as is, skipping the step-by-step redo (its
+  // iteration count is then n, up to 7 short).
+  __host__ __device__ bool exact_needed(const State& o) const {
+    for (int k = 0; k < K; k++)
+      if (o.n >= ks[k] - 2 && o.n <= ks[k] + 5) return true;
+    return false;
+  }
+  __host__ __device__ bool pending(const State& o) const {
+    return o.pending() && (o.status != 8 || exact_needed(o));
+  }
+  __host__ __device__ bool immediate(const State& o) const { return o.immediate() && exact_needed(o); }
   __host__ __device__ bool settle(State& o) const { return o.settle(max_iter, max_period, newton); }
   // Settle work, for sorting settles (engine.h): Newton's candidate period
   __host__ __device__ int settle_key(const State& o) const {
@@ -175,7 +186,8 @@ template<class T> struct SampleTask {
   }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
     uint32_t b = 0;
-    for (int k = 0; k < K; k++) b |= uint32_t(o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;
+    for (int k = 0; k < K; k++)
+      b |= uint32_t(o.status == 8 ? o.n - ks[k] >= 6 : o.status != 1 || escaped_below(o.n, double(o.cx), ks[k])) << k;
     bits[i] = b;
     if (iters_out) {
       const int64_t n = o.iters();
