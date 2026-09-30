@@ -667,6 +667,14 @@ double-double alone, so deep runs can combine the two.  On CPU, double-double is
 here, 1.45× of it from more iterations: double settles slow interior orbits once they fall into an exact
 floating-point cycle, which takes double-double longer to reach.
 
+On one H200 (depth 6, `--prec dd`, octaves 2^20 … 2^32, roulette from 2^21 with stride 2): 855.6 s → 148.7 s
+(5.75×), with iterations 3.83e12 → 1.81e12 and throughput 2.3e9 → 7.2e9 it/s, since the long orbits that
+left lanes idle are mostly gone.  The paired deep difference A(2^20) − A(2^32) has std err 1.57e-8 → 2.16e-8
+(summing octave variances: a sample escapes in one octave only), so variance 1.88× and err² · time 3.1× better.
+The two estimates, 2.718e-6 and 2.697e-6, differ by 1.5σ of the added noise.  Past 2^28 single escapes weigh
+2^4 … 2^6 samples, so at depth 6 some octaves have 0 or 1 escape and their std errors mean little; the
+production run's ~4^8× more samples leave plenty.
+
 ## 6. Reproducing
 
 ```
