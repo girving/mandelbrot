@@ -570,12 +570,22 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
     const int keys = keyed ? kSettleKeys : 1, min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
     Mem<P> slots(keys * int64_t(kRingCap), true);
     Mem<uint64_t> seq(keys * int64_t(kRingCap), true), ends(2 * keys, true), counters(engine_detail::kCounters, true);
+    Mem<int64_t> avail(keys, true), space(keys, true);
     // The ripe queue: a key per 32 orbits pushed, so at most keys · kRingCap / 32 at once
     constexpr uint64_t ripe_cap = kSettleKeys * kRingCap / 32;
     Mem<int32_t> ripe_slots(ripe_cap, true);
     Mem<uint64_t> ripe_seq(ripe_cap, true), ripe_ends(2, true);
+    Mem<int64_t> ripe_avail(1, true), ripe_space(1, true);
     ends.zero();
     ripe_ends.zero();
+    avail.zero();
+    ripe_avail.zero();
+    {
+      const std::vector<int64_t> caps(keys, int64_t(kRingCap));
+      space.from_host(caps.data(), keys);
+      const int64_t rc = int64_t(ripe_cap);
+      ripe_space.from_host(&rc, 1);
+    }
     counters.zero();
     engine_detail::for_each_kernel<<<8 * num_sms(), 256, 0, stream()>>>(keys * int64_t(kRingCap),
                                                                         engine_detail::InitSeq{seq.p, kRingCap});
@@ -583,8 +593,9 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                                                                         engine_detail::InitSeq{ripe_seq.p, ripe_cap});
     Mem<uint32_t> nonempty((keys + 31) / 32, true);
     nonempty.zero();
-    const Rings<P> rings{slots.p, seq.p, ends.p, ends.p + keys, keys, kRingCap, nonempty.p};
-    const Rings<int32_t> ripe{ripe_slots.p, ripe_seq.p, ripe_ends.p, ripe_ends.p + 1, 1, ripe_cap};
+    const Rings<P> rings{slots.p, seq.p, ends.p, ends.p + keys, avail.p, space.p, keys, kRingCap, nonempty.p};
+    const Rings<int32_t> ripe{ripe_slots.p, ripe_seq.p, ripe_ends.p, ripe_ends.p + 1, ripe_avail.p, ripe_space.p, 1,
+                              ripe_cap};
     const int drain_warps = cpu_tail > 0 ? std::max(1, cpu_tail / 32) : -1;
     const int grid = timing ? engine_detail::launch_pool_kernel<Task, true>(min_blocks, task, n, stride, rings,
                                                                             ripe, nullptr, counters.p, drain_warps, false)
