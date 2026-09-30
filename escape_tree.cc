@@ -12,6 +12,33 @@ namespace {
 // Areas in fixed point, or with 11 significant digits for small boxes, whose areas %.10f would truncate
 string area_str(const double a) { return std::abs(a) >= 0.01 ? tfm::format("%.10f", a) : tfm::format("%.10e", a); }
 
+// Samples whose classifications differ between double (a) and the alternative precision (b), by outcome pair
+void flip_report(const TreeResult& R) {
+  const auto& p = R.p;
+  const int K = p.ks.size();
+  const auto& f = R.flip_stats;
+  const double per = 2 * R.cell_area(p.depth) / p.m;  // Area of one sample (doubled for the lower half plane)
+  const char* kinds[3] = {"escaped", "interior", "max_iter"};
+  print("  flips by outcome (double → alternative): count, then A_alt(k) - A_double(k) contributions");
+  string head = "    outcome              count";
+  for (int k = 0; k < K; k++) head += tfm::format(" %10d", p.ks[k]);
+  print(head);
+  for (int c = 0; c < 9; c++) {
+    if (!f[c]) continue;
+    string line = tfm::format("    %-8s → %-8s %8d", kinds[c / 3], kinds[c % 3], f[c]);
+    for (int k = 0; k < K; k++) line += tfm::format(" %+10.2e", per * double(f[9 + c * K + k]));
+    print(line);
+  }
+  const int64_t* r = f.data() + 9 + 9 * K;
+  string ratio = "  both escaped, log2(n_alt / n_double) in quarter octaves from -4 (counts):";
+  for (int b = 0; b < 33; b++) ratio += tfm::format(" %d", r[b]);
+  print(ratio);
+  print("  both escaped, by octave of n_double: alternative escaped earlier / later");
+  for (int o = 0; o < 34; o++)
+    if (r[33 + 2 * o] || r[33 + 2 * o + 1])
+      print("    2^%-2d  %8d  %8d", o, r[33 + 2 * o], r[33 + 2 * o + 1]);
+}
+
 void report(const TreeResult& R) {
   const auto& p = R.p;
   const int K = p.ks.size();
@@ -154,6 +181,8 @@ int main(const int argc, const char** argv) {
     program.add_argument("--tiles").help("resolve consecutive differences over a T × T grid of the box").scan<'i', int>()
         .default_value(0);
     program.add_argument("--tiles-out").help("file for per-tile differences: tx ty k k' D var").default_value(string(""));
+    program.add_argument("--flip-stats").help("with a compare precision: classify samples whose classifications differ")
+        .default_value(false).implicit_value(true);
     program.add_argument("--shard").help("run only shard s/N: base rows r with r % N == s (see --save, --merge)")
         .default_value(string("0/1"));
     program.add_argument("--save").help("save the result's exact sums to this file (for --merge)")
@@ -197,6 +226,7 @@ int main(const int argc, const char** argv) {
     p.leaf_stats = program.get<bool>("--leaf-stats");
     p.tiles = program.get<int>("--tiles");
     p.overlap = program.get<int>("--overlap");
+    p.flip_stats = program.get<bool>("--flip-stats");
     {
       const auto sh = program.get<string>("--shard");
       slow_assert(sscanf(sh.c_str(), "%d/%d", &p.shard, &p.shards) == 2 && 0 <= p.shard && p.shard < p.shards,
@@ -232,6 +262,7 @@ int main(const int argc, const char** argv) {
     if (!save.empty()) save_result(R, save);
     report(R);
     if (p.leaf_stats) allocation_report(R);
+    if (p.flip_stats) flip_report(R);
     if (p.tiles) {
       FILE* f = fopen(tiles_out.c_str(), "w");
       slow_assert(f, "can't open %s", tiles_out);
