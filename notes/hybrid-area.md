@@ -611,6 +611,35 @@ difference to 1.5e-11 needs ~6 more depth levels over depth 8, ~1400 × a depth-
 ≈ 100 H200-hours.  So two digits is ~6–7 GPU-days (down from ~12), still above the 1–2 day budget, while
 one more digit (±3e-10) is a few GPU-hours.
 
+*GPU engine: utilization (2026-09-29).*  Depth 8 at 2^20 went 24.9 → 14.1 s and depth 9 84.8 → 47.3 s, with
+estimates bit-identical throughout (1.5065945640, 1.5065945785).  Sampling now runs at ~1.3e12 iterations/s,
+~35% of the H200's FP64 peak (9 flops per step, FMA counted as 2); `Orbit::run` alone reaches 21.3 Tflop/s
+(63%), against 27 for a bare FMA loop.  The changes, by effect:
+- The atom-domain candidate is recomputed at the first Newton step (from z_0, same arithmetic), not tracked
+  by selects every step (27% of a step); `Orbit::run` became a tight loop of 8-step fast blocks with the rare
+  checks behind one branch.
+- Refills come from a per-warp shared-memory queue of started samples (32 started at once): a lane's start
+  had run with the rest of its warp idle.
+- Freed device buffers stay in the stream-ordered pool: by default it returned them at each sync, so every
+  batch mapped gigabytes afresh (leaf reductions went 771 → 67 ms).
+- Parked orbits settle sorted by Newton's period (a counting sort), and leaf Newton gives up once
+  |(f^p)'(w)| > √2 (74% of attempts converge to repelling cycles, 85% of Newton iterations).
+- interior_distance takes the minimal period from the converged root instead of a Newton solve per divisor
+  (in 13 of 400k centers the old loop used a non-minimal period, where the Koebe bound does not hold).
+- Overlapped batches (`--overlap 2`, now the default) with adaptive batch sizes.
+
+Tried and dropped: Newton from the best-returning orbit point (no gain on real leaves); shorter bursts; a
+refill queue for resumed orbits (hoards work at round ends); cutting resume rounds short when warps go idle
+(a round's tail is its longest orbits' serial remainder, so carrying them adds rounds); center hints for an
+earlier first Newton (−40% center iterations, no time: center levels are bound by per-run latency, which
+overlap hides instead).  The largest experiment: a persistent engine with each lane's orbit a state machine
+and settles grouped on device queues (segmented fetch-and-add MPMC queues, stress-tested), removing the host
+rounds.  It was correct but slower (depth 8 19.6 s against 15.1 s): each queue transition is a chain of
+dependent L2 round trips that stalls its warp, and at the occupancy the registers allow (~6 warps per
+scheduler) the stalls are not hidden, where the rounds do the same transitions in bulk.  Lock-free queues
+also needed five fixes (CAS contention, hoisted spin loads, wraparound and segment-sizing deadlocks, a stale
+nonempty bit) before the stress test passed.  The code is in git (0310d03 to dd1fbc1).
+
 ## 6. Reproducing
 
 ```
