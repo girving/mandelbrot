@@ -3,9 +3,15 @@
 // The same task code runs in both places, so CPU runs are exact references for GPU runs.  A task describes
 // n independent items, each an orbit (Orbit, OrbitDE, ...) that is started, advanced in short bursts, and
 // finished.  Workers claim items in scrambled order (slow orbits cluster spatially, so consecutive claims
-// should land far apart) and refill each lane or GPU thread as soon as its orbit finishes.  On the GPU,
-// orbits that outlive a step budget are parked in an overflow buffer and finished in a second pass, so one
-// slow orbit does not hold up the whole launch while the GPU is full.
+// should land far apart) and refill each lane or GPU thread as soon as its orbit finishes.
+//
+// On the GPU, each lane's orbit is a small state machine inside one persistent kernel (pool_kernel): started
+// from a per-warp queue of ready orbits, run in bursts, then finished (through a per-warp buffer of compact
+// records if the task has them), or, when it stops for work that should run together with other lanes (a
+// Newton step), pushed onto a device ring keyed by that work (settle_key: Newton's period).  Warps pop 32
+// orbits with the same key, settle them together, and run on the ones that continue.  No host rounds or
+// barriers: the kernel ends when no items, rings, or running orbits remain, or, when few remain, hands them
+// to CPU threads, which step a sequential orbit far faster than a lone GPU lane.
 //
 // Task interface (all __host__ __device__, and the task itself trivially copyable):
 //   typedef ... State;                       // Orbit type
@@ -17,13 +23,17 @@
 //   bool pending(const State& o) const;      // run stopped with work to do together with other lanes
 //   bool settle(State& o) const;             // Do that work; true if the orbit is done
 //   int64_t burst;                           // Steps per run call
-//   int min_blocks;                          // GPU: resident 256-thread blocks per SM (1 to 4) to budget registers for
+//   int min_blocks;                          // GPU: resident 256-thread blocks per SM (1 to 4), budgeting registers
+// Optional: int settle_key(State& o) (in [0, kSettleKeys), grouping similar settles; it may cache work in o),
+// bool immediate(const State& o) (a pending orbit the lane should settle at once), and a compact finish record
+// (typedef Record, Record record(const State&), void finish_record(const Record&, int64_t i)).
 #pragma once
 
 #include "cutil.h"
 #include "debug.h"
 #include "noncopyable.h"
 #include "print.h"
+#include "rings.h"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -112,14 +122,14 @@ template<class T> struct Mem : public Noncopyable {
     if (cuda) IF_CUDA(cuda_check(cudaMemsetAsync(p, 0, n * sizeof(T), stream())));
     else memset(p, 0, n * sizeof(T));
   }
-  void to_host(T* dst, const int64_t count) const {
-    slow_assert(count <= n);
+  void to_host(T* dst, const int64_t count, const int64_t offset = 0) const {
+    slow_assert(offset + count <= n);
     if (!count) return;
     if (cuda) {
-      IF_CUDA(cuda_check(cudaMemcpyAsync(dst, p, count * sizeof(T), cudaMemcpyDeviceToHost, stream()));
+      IF_CUDA(cuda_check(cudaMemcpyAsync(dst, p + offset, count * sizeof(T), cudaMemcpyDeviceToHost, stream()));
               cuda_check(cudaStreamSynchronize(stream())));
     } else {
-      memcpy(dst, p, count * sizeof(T));
+      memcpy(dst, p + offset, count * sizeof(T));
     }
   }
   void from_host(const T* src, const int64_t count) {
@@ -148,10 +158,14 @@ template<class T> struct Mem : public Noncopyable {
 // Statistics of one run_orbits call
 struct RunStats {
   int64_t iters = 0;     // Total iterations
-  int64_t overflow = 0;  // Orbits deferred to the second pass (GPU only)
-  int64_t cpu_tail = 0;  // Parked orbits finished on CPU threads (GPU only)
+  int64_t overflow = 0;  // Orbits pushed onto settle rings (GPU only)
+  int64_t cpu_tail = 0;  // Orbits finished on CPU threads (GPU only)
   double secs = 0;
 };
+
+// Settle keys (Task::settle_key) and ring capacity per key
+constexpr int kSettleKeys = 512;
+constexpr uint64_t kRingCap = 2048;
 
 namespace engine_detail {
 
@@ -191,32 +205,33 @@ template<class Task, int L> int64_t cpu_worker(const Task& task, const int64_t n
 
 #ifdef __CUDACC__
 
-// Counters: [0: next claim, 1: iterations, 2: parked, 3: max iterations of one thread, 4-7 with timing: cycles
-// inside run, total cycles, active lanes at run calls, warp lanes at run calls, 8: next resume claim,
-// 9: iterations in rounds, 10-11 with timing: lane steps and warp steps, 12: parked in this round, 13-16 with
-// timing: resume_kernel's cycles inside run, total cycles, lane steps and warp steps].
+// Counters: [0: next item claim, 1: iterations, 2: active warps, 3: drain flag, 4: ring pushes, 5: settles alone
+// (a full ring), 6: orbits dumped to the CPU tail, 7-12 with timing: cycles inside run, total cycles, lane steps,
+// warp steps, cycles settling popped orbits, cycles idle].
+constexpr int kCounters = 13;
+
+// An orbit and its item, as the settle rings hold them
+template<class State> struct Parked {
+  State o;
+  int32_t item;
+};
 
 // Per-warp queue of ready orbits in shared memory, restocked 32 at a time (one per lane), so that lanes going idle
 // in different bursts copy a ready orbit instead of each preparing one (starting a sample: a few hundred
-// instructions of placement, hashing, and the cardioid test) with the rest of the warp waiting.  (Not for
-// resume_kernel: restocking 32 at a time hoards parked orbits in busy warps at the end of each round.)  Item
-// indices fit in 32 bits (n < 2^31), which saves registers.
+// instructions of placement, hashing, and the cardioid test; or settling a popped orbit) with the rest of the warp
+// waiting.  Item indices fit in 32 bits (n < 2^31), which saves registers.
 template<class State> struct WarpQueue {
-  State* slots;            // This warp's 32 slots
+  State* slots;        // This warp's 32 slots
   int32_t* items;
-  unsigned ready = 0;      // Slots holding ready orbits (warp-uniform)
-  bool exhausted = false;  // Nothing left to restock from (warp-uniform)
+  unsigned ready = 0;  // Slots holding ready orbits (warp-uniform)
 
-  // Give idle (done) lanes ready orbits while there are any.  restock(slot, item, filled) fills this lane's slot,
-  // setting filled if it holds a ready orbit, and returns whether the source is now exhausted (warp-uniform).
-  template<class Restock> __device__ void refill(bool& done, State& o, int32_t& i, int32_t& bursts,
-                                                 const Restock& restock) {
+  // Give idle (done) lanes ready orbits while there are any.  restock(need), warp-collective, fills slots (each
+  // lane its own) and ready, and returns false if it found no work.
+  template<class Restock> __device__ void refill(bool& done, State& o, int32_t& i, const Restock& restock) {
     const int lane = int(threadIdx.x & 31);
-    for (unsigned need = __ballot_sync(0xffffffff, done); need && (ready || !exhausted);) {
+    for (unsigned need = __ballot_sync(0xffffffff, done); need;) {
       if (!ready) {
-        bool filled = false;
-        exhausted = restock(slots[lane], items[lane], filled);
-        ready = __ballot_sync(0xffffffff, filled);
+        if (!restock(need)) return;
         __syncwarp();
         continue;
       }
@@ -227,7 +242,6 @@ template<class State> struct WarpQueue {
         o = slots[slot];
         i = items[slot];
         done = false;
-        bursts = 0;
       }
       const int used = min(__popc(need), avail);
       ready = used < avail ? ready & ~((1u << __fns(ready, 0, used + 1)) - 1) : 0;
@@ -243,22 +257,29 @@ template<class Task> requires requires { typename Task::Record; } struct RecordO
   typedef typename Task::Record type;
 };
 
-// Persistent threads.  Orbits that are pending or have run `budget` bursts are parked (if room) and finished in
-// rounds of settle_kernel and resume_kernel.
+// The engine: persistent threads, each lane's orbit a state machine (see the top of this file).  Lanes stay in
+// the loop until their warp is out of work, and reconverge before each burst, so that lanes refilling at
+// different times do not split the warp into groups that each step half empty.
+//
+// Refills: a WarpQueue restocked, in order of preference, by popping 32 orbits from the fullest settle ring and
+// settling them (while items remain, only full batches, so that settles group similar work), by claiming 32
+// items and starting them, or, once items run out, by popping whatever the fullest ring holds (at most as many
+// as there are idle lanes, so that busy warps do not hoard the last orbits).
+//
+// Finishes: tasks with a Record store compact records, and the warp finishes 32 at once, instead of a few lanes
+// per burst with the rest idle (only if the buffer fits in static shared memory alongside the queue).
+//
+// Termination: counters[2] counts active warps.  An idle warp leaves the count, and rejoins it before popping a
+// ring it saw nonempty; only active warps push.  So once the count is zero with every ring empty, nothing more
+// can arrive, and the warp exits.  Once items are out and at most drain_warps warps are active, the drain flag
+// sends every warp's orbits (running and queued) to dump and the warp home, for the host to finish on CPU
+// threads with whatever the rings still hold.
 template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
-orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32_t budget,
-             typename Task::State* overflow, int64_t* overflow_items, const int64_t overflow_cap,
-             uint64_t* counters) {
-  // Lanes stay in the loop until their whole warp is out of work, and reconverge before each burst, so that
-  // lanes refilling at different times do not split the warp into groups that each step half empty.  Refills
-  // come from a WarpQueue, restocked by claiming 32 items and starting them in place (so that no second state
-  // occupies registers); items decided at once (the cardioid) finish there.
-  //
-  // Tasks with a Record buffer their finishes the same way: done lanes store compact records, and the warp
-  // finishes 32 at once (when the buffer would overflow, and at the end), instead of finishing a few lanes per
-  // burst with the rest idle.  Only if the buffer fits in static shared memory alongside the queue.
+pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<Parked<typename Task::State>> rings,
+            Parked<typename Task::State>* dump, uint64_t* counters, const int drain_warps) {
   typedef typename Task::State State;
   typedef typename RecordOf<Task>::type Record;
+  constexpr bool keyed = requires(State& s) { task.settle_key(s); };
   constexpr bool buffered = requires { typename Task::Record; } &&
                             256 * (sizeof(State) + sizeof(Record) + 8) <= 48 * 1024;
   __shared__ alignas(16) unsigned char queue_bytes[256 * sizeof(State)];
@@ -266,10 +287,42 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
   __shared__ alignas(16) unsigned char record_bytes[buffered ? 256 * sizeof(Record) : 16];
   __shared__ int32_t record_items[buffered ? 256 : 1];
   const int lane = int(threadIdx.x & 31);
-  WarpQueue<State> queue{reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u), queue_items + (threadIdx.x & ~31u)};
+  const unsigned lanes_below = (1u << lane) - 1;
+  WarpQueue<State> queue{reinterpret_cast<State*>(queue_bytes) + (threadIdx.x & ~31u),
+                         queue_items + (threadIdx.x & ~31u)};
   [[maybe_unused]] Record* const records = reinterpret_cast<Record*>(record_bytes) + (buffered ? threadIdx.x & ~31u : 0);
   [[maybe_unused]] int32_t* const ritems = record_items + (buffered ? threadIdx.x & ~31u : 0);
   [[maybe_unused]] int records_n = 0;  // Buffered records (warp-uniform)
+  State o;
+  int32_t i = -1;  // Current item, or -1
+  bool done = true, items_out = false, active = true;  // items_out and active are warp-uniform
+  uint64_t it = 0, pushes = 0, alone = 0;
+  uint64_t run_cycles = 0, lane_steps = 0, warp_steps = 0, settle_cycles = 0, idle_cycles = 0;
+  const long long t0 = timing ? clock64() : 0;
+  if (!lane) atomic_add(counters + 2, 1);
+
+  // Finish one orbit (each lane with has), through the record buffer if any
+  const auto finish = [&](const bool has, const State& s, const int32_t item) {
+    if constexpr (buffered) {
+      const unsigned m = __ballot_sync(0xffffffff, has);
+      if (!m) return;
+      if (records_n + __popc(m) > 32) {
+        if (lane < records_n) task.finish_record(records[lane], ritems[lane]);
+        records_n = 0;
+        __syncwarp();
+      }
+      if (has) {
+        const int r = records_n + __popc(m & lanes_below);
+        records[r] = task.record(s);
+        ritems[r] = item;
+      }
+      records_n += __popc(m);
+      __syncwarp();
+    } else {
+      if (has) task.finish(s, item);
+    }
+    if (has) it += task.iters(s);
+  };
   const auto flush = [&]() {
     if constexpr (buffered) {
       if (lane < records_n) task.finish_record(records[lane], ritems[lane]);
@@ -277,107 +330,164 @@ orbit_kernel(const Task task, const int64_t n, const int64_t stride, const int32
       __syncwarp();
     }
   };
-  State o;
-  int32_t i = -1, bursts = 0;  // i = current item or -1
-  uint64_t it = 0, run_cycles = 0, active = 0, slots = 0, lane_steps = 0, warp_steps = 0;
-  const long long t0 = timing ? clock64() : 0;
-  bool done = true;
-  const auto restock = [&](State& q, int32_t& qi, bool& filled) {
+
+  // Restock the queue: settle popped orbits, else start new items (see above)
+  const auto restock = [&](const unsigned need) {
+    State& q = queue.slots[lane];
+    int key = -1;
+    if (!items_out) {
+      if constexpr (keyed) key = rings.fullest(32);
+    } else {
+      key = rings.fullest(1);
+    }
+    if (key >= 0) {
+      Parked<State> p;
+      const int got = rings.pop(key, items_out ? min(__popc(need), 32) : 32, p);
+      if (got) {
+        const long long c0 = timing ? clock64() : 0;
+        bool fin = false, ok = false;
+        if (lane < got) {
+          q = p.o;
+          fin = task.settle(q);
+          if (!fin) { queue.items[lane] = p.item; ok = true; }
+        }
+        finish(fin, q, p.item);
+        queue.ready = __ballot_sync(0xffffffff, ok);
+        if constexpr (timing) settle_cycles += clock64() - c0;
+        return true;
+      }
+    }
+    if (items_out) return false;
     uint64_t j0 = 0;
     if (!lane) j0 = atomic_fetch_add(counters, uint64_t(32));
     j0 = __shfl_sync(0xffffffff, j0, 0);
     const int64_t j = int64_t(j0) + lane;
+    bool started = false, decided = false;
+    int32_t k = -1;
     if (j < n) {
-      const int32_t k = int32_t(scramble(j, stride, n));
-      if (task.start(q, k)) {  // Decided at once
-        task.finish(q, k);
-        it += task.iters(q);
-      } else {
-        qi = k;
-        filled = true;
-      }
+      // Started in place, so that no second state occupies registers
+      k = int32_t(scramble(j, stride, n));
+      decided = task.start(q, k);
+      if (!decided) { queue.items[lane] = k; started = true; }
     }
-    return int64_t(j0) + 32 >= n;
+    finish(decided, q, k);  // Decided at once (the cardioid)
+    items_out = int64_t(j0) + 32 >= n;
+    queue.ready = __ballot_sync(0xffffffff, started);
+    return int64_t(j0) < n;
   };
+  // A counter as the whole warp sees it (lane 0's read)
+  const auto uniform = [&](const uint64_t* c) {
+    uint64_t v = 0;
+    if (!lane) v = Rings<Parked<State>>::load(c);
+    return __shfl_sync(0xffffffff, v, 0);
+  };
+
   for (;;) {
-    if constexpr (buffered) {
-      const bool has = done && i >= 0;
-      const unsigned m = __ballot_sync(0xffffffff, has);
-      if (m) {
-        if (records_n + __popc(m) > 32) flush();
-        if (has) {
-          const int r = records_n + __popc(m & ((1u << lane) - 1));
-          records[r] = task.record(o);
-          ritems[r] = i;
-          it += task.iters(o);
-          i = -1;
+    // Drain: hand this warp's orbits to the host
+    if (items_out && uniform(counters + 3)) {
+      const bool run_mine = !done && i >= 0;
+      const unsigned queued = queue.ready;
+      const int mine = int(run_mine) + int((queued >> lane) & 1);
+      const unsigned any = __ballot_sync(0xffffffff, mine > 0);
+      if (any) {
+        // Warp-aggregated reservation of this warp's dump slots
+        int total = 0, before = 0;
+        for (int l = 0; l < 32; l++) {
+          const int c = __shfl_sync(0xffffffff, mine, l);
+          if (l < lane) before += c;
+          total += c;
         }
-        records_n += __popc(m);
-        __syncwarp();
+        uint64_t base = 0;
+        if (!lane) base = atomic_fetch_add(counters + 6, uint64_t(total));
+        base = __shfl_sync(0xffffffff, base, 0);
+        int at = int(base) + before;
+        if (run_mine) { dump[at].o = o; dump[at].item = i; at++; }
+        if ((queued >> lane) & 1) { dump[at].o = queue.slots[lane]; dump[at].item = queue.items[lane]; }
       }
-    } else if (done && i >= 0) {
-      task.finish(o, i);
-      it += task.iters(o);
-      i = -1;
+      break;
     }
-    queue.refill(done, o, i, bursts, restock);
-    if (__all_sync(0xffffffff, done)) break;  // Out of work
-    if (!done) {
-      if constexpr (timing) {
-        const unsigned mask = __activemask();
-        const bool leader = (threadIdx.x & 31) == __ffs(mask) - 1;
-        if (leader) { active += __popc(mask); slots += 32; }
-        const int64_t p0 = task.progress(o);
-        const long long r0 = clock64();
-        done = task.run(o);
-        if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
-        run_cycles += clock64() - r0;
-        // Steps this lane took, against the warp's longest: idle lanes within bursts
-        const unsigned steps = unsigned(task.progress(o) - p0), longest = __reduce_max_sync(mask, steps);
-        lane_steps += steps;
-        if (leader) warp_steps += uint64_t(32) * longest;
-      } else {
-        done = task.run(o);
-        // Settles due at once (an overflowed block), for all such lanes of the warp together
-        if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
-      }
-      // Park orbits that are pending (so that lanes settle together later) or have used their step budget.
-      // Parked orbits' iterations are counted when they finish.
-      const bool pending = done && task.pending(o);
-      if (pending || (!done && ++bursts == budget)) {
-        const int64_t k = int64_t(atomic_fetch_add(counters + 2, 1));
-        if (k < overflow_cap) {
-          overflow[k] = o;
-          overflow_items[k] = i;
-          i = -1;
-          done = true;
-        } else if (pending) {
-          done = task.settle(o);  // No room: settle alone
+    queue.refill(done, o, i, restock);
+    if (__all_sync(0xffffffff, done)) {
+      // Idle: out of items with the rings empty for now.  Leave the active count, and wait until a ring has
+      // work (rejoining before popping it), everything is done, or the drain begins.
+      const long long c0 = timing ? clock64() : 0;
+      if (active && !lane) atomic_add(counters + 2, uint64_t(-1));
+      active = false;
+      bool leave = false;
+      for (;;) {
+        if (uniform(counters + 3)) break;
+        if (rings.fullest(1) >= 0) {
+          if (!lane) atomic_add(counters + 2, 1);
+          active = true;
+          break;
         }
+        const uint64_t a = uniform(counters + 2);
+        if (!a && rings.fullest(1) < 0) { leave = true; break; }
+        if (a <= uint64_t(drain_warps) && !lane) atomicExch(reinterpret_cast<unsigned long long*>(counters + 3), 1ull);
+        __nanosleep(1000);
+      }
+      if constexpr (timing) idle_cycles += clock64() - c0;
+      if (leave) break;
+      continue;
+    }
+    if (!done) {
+      const long long r0 = timing ? clock64() : 0;
+      const int64_t p0 = timing ? task.progress(o) : 0;
+      done = task.run(o);
+      // Settles due at once (an overflowed block), for all such lanes of the warp together
+      if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
+      if constexpr (timing) {
+        run_cycles += clock64() - r0;
+        const unsigned mask = __activemask(), steps = unsigned(task.progress(o) - p0),
+                       longest = __reduce_max_sync(mask, steps);
+        lane_steps += steps;
+        if ((threadIdx.x & 31) == __ffs(mask) - 1) warp_steps += uint64_t(32) * longest;
       }
     }
     __syncwarp();
+    // Pending orbits go onto the ring for their settle key; if it is full, the lane settles alone
+    const bool pend = !done ? false : i >= 0 && task.pending(o);
+    int key = 0;
+    if constexpr (keyed) if (pend) key = task.settle_key(o);
+    Parked<State> p;
+    if (pend) { p.o = o; p.item = i; }
+    const bool pushed = rings.push(pend, key, p);
+    if (pend) {
+      if (pushed) { i = -1; pushes++; }
+      else { done = task.settle(o); alone++; }
+    }
+    // Finished orbits
+    const bool fin = done && i >= 0;
+    finish(fin, o, i);
+    if (fin) i = -1;
   }
   flush();
   atomic_add(counters + 1, it);
-  atomic_max(counters + 3, it);
+  atomic_add(counters + 4, pushes);
+  atomic_add(counters + 5, alone);
   if constexpr (timing) {
-    atomic_add(counters + 4, run_cycles);
-    atomic_add(counters + 5, uint64_t(clock64() - t0));
-    atomic_add(counters + 6, active);
-    atomic_add(counters + 7, slots);
-    atomic_add(counters + 10, lane_steps);
-    atomic_add(counters + 11, warp_steps);
+    atomic_add(counters + 7, run_cycles);
+    atomic_add(counters + 8, uint64_t(clock64() - t0));
+    atomic_add(counters + 9, lane_steps);
+    atomic_add(counters + 10, warp_steps);
+    atomic_add(counters + 11, settle_cycles);
+    atomic_add(counters + 12, idle_cycles);
   }
 }
 
-// Launch orbit_kernel with register pressure chosen at run time: min_blocks resident 256-thread blocks per SM
-template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks, const int blocks, const Task& task,
-                                                           const int64_t n, const int64_t stride, const int32_t budget,
-                                                           typename Task::State* overflow, int64_t* items,
-                                                           const int64_t cap, uint64_t* counters) {
-#define LAUNCH(b) orbit_kernel<Task, timing, b><<<blocks, 256, 0, stream()>>>(task, n, stride, budget, overflow, \
-                                                                             items, cap, counters)
+// Launch pool_kernel with register pressure chosen at run time (min_blocks resident 256-thread blocks per SM),
+// on as many blocks as fit at once: the kernel's termination counts every started warp as active until it idles,
+// so blocks that could only start once others exit would do nothing
+template<class Task, bool timing> int launch_pool_kernel(const int min_blocks, const Task& task, const int64_t n,
+                                                         const int64_t stride,
+                                                         const Rings<Parked<typename Task::State>>& rings,
+                                                         Parked<typename Task::State>* dump, uint64_t* counters,
+                                                         const int drain_warps, const bool launch) {
+  int per_sm = 0;
+#define LAUNCH(b) { \
+    const auto kernel = pool_kernel<Task, timing, b>; \
+    cuda_check(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&per_sm, kernel, 256, 0)); \
+    if (launch) kernel<<<per_sm * num_sms(), 256, 0, stream()>>>(task, n, stride, rings, dump, counters, drain_warps); }
   switch (min_blocks) {
     case 1: LAUNCH(1); break;
     case 2: LAUNCH(2); break;
@@ -386,139 +496,24 @@ template<class Task, bool timing> void launch_orbit_kernel(const int min_blocks,
     default: die("MANDELBROT_CUDA_MIN_BLOCKS must be 1 to 4, got %d", min_blocks);
   }
 #undef LAUNCH
+  return per_sm * num_sms();
 }
 
-// Counting sort of parked orbits by task.settle_key (the work settle will do, in [0, kSettleKeys)) into a
-// permutation, so that each warp of settle_kernel settles similar work: settles are long serial loops (Newton over
-// the candidate period) that would otherwise run at the pace of each warp's slowest lane.  Each block ranks a tile
-// of keys in shared memory and reserves each bucket's range with one global atomic per (tile, bucket).
-constexpr int kSettleKeys = 512, kSortTile = 256 * 8;
-template<class Task> __global__ void settle_keys_kernel(const Task task, const typename Task::State* parked,
-                                                        const int64_t* items, const int64_t count, uint16_t* keys,
-                                                        uint64_t* sizes) {
-  __shared__ uint32_t hist[kSettleKeys];
-  for (int b = threadIdx.x; b < kSettleKeys; b += blockDim.x) hist[b] = 0;
-  __syncthreads();
-  for (int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; k < count; k += int64_t(blockDim.x) * gridDim.x) {
-    const int key = items[k] < 0 ? 0 : min(max(task.settle_key(parked[k]), 0), kSettleKeys - 1);
-    keys[k] = uint16_t(key);
-    atomicAdd(hist + key, 1u);
-  }
-  __syncthreads();
-  for (int b = threadIdx.x; b < kSettleKeys; b += blockDim.x)
-    if (hist[b]) atomic_add(sizes + b, uint64_t(hist[b]));
-}
-template<class Task> __global__ void settle_sort_kernel(const uint16_t* keys, const int64_t count, uint64_t* offsets,
-                                                        int32_t* perm) {
-  __shared__ uint32_t hist[kSettleKeys];
-  __shared__ uint64_t base[kSettleKeys];
-  constexpr int per = kSortTile / 256;
-  for (int64_t t0 = int64_t(blockIdx.x) * kSortTile; t0 < count; t0 += int64_t(gridDim.x) * kSortTile) {
-    for (int b = threadIdx.x; b < kSettleKeys; b += blockDim.x) hist[b] = 0;
-    __syncthreads();
-    uint32_t rank[per];
-    int key[per];
-    for (int j = 0; j < per; j++) {
-      const int64_t k = t0 + j * 256 + threadIdx.x;
-      key[j] = k < count ? keys[k] : -1;
-      if (key[j] >= 0) rank[j] = atomicAdd(hist + key[j], 1u);
-    }
-    __syncthreads();
-    for (int b = threadIdx.x; b < kSettleKeys; b += blockDim.x)
-      if (hist[b]) base[b] = atomic_fetch_add(offsets + b, uint64_t(hist[b]));
-    __syncthreads();
-    for (int j = 0; j < per; j++)
-      if (key[j] >= 0) perm[base[key[j]] + rank[j]] = int32_t(t0 + j * 256 + threadIdx.x);
-    __syncthreads();
-  }
-}
+// Every ring slot free for its first push
+struct InitSeq {
+  uint64_t* seq;
+  uint64_t cap;
+  __device__ void operator()(const int64_t i) const { seq[i] = uint64_t(i) & (cap - 1); }
+};
 
-// Settle all pending parked orbits at once (in the order perm, if given), finishing those that are done (marked by
-// item -1)
-template<class Task> __global__ void settle_kernel(const Task task, typename Task::State* parked, int64_t* items,
-                                                   const int64_t count, uint64_t* counters,
-                                                   const int32_t* perm = nullptr) {
-  uint64_t it = 0;
-  for (int64_t t = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; t < count; t += int64_t(blockDim.x) * gridDim.x) {
-    const int64_t k = perm ? perm[t] : t;
-    typename Task::State o = parked[k];
-    if (!task.pending(o)) continue;
-    if (task.settle(o)) {
-      task.finish(o, items[k]);
-      it += task.iters(o);
-      items[k] = -1;
-    } else {
-      parked[k] = o;
-    }
-  }
-  atomic_add(counters + 1, it);
-  atomic_add(counters + 9, it);
-}
-
-// Resume parked orbits (skipping finished ones) with persistent warp-synchronous threads like orbit_kernel's,
-// until done or pending again, when they park into next
-template<class Task, bool timing> __global__ void resume_kernel(const Task task, const typename Task::State* parked,
-                                                   const int64_t* items, const int64_t count,
-                                                   typename Task::State* next, int64_t* next_items, const int64_t cap,
-                                                   uint64_t* counters) {
-  typename Task::State o;
-  int64_t i = -1;
-  uint64_t it = 0, run_cycles = 0, lane_steps = 0, warp_steps = 0;
-  const long long t0 = timing ? clock64() : 0;
-  bool done = true, out = false;
-  for (;;) {
-    while (done && !out) {
-      if (i >= 0) { task.finish(o, i); it += task.iters(o); }
-      i = -1;
-      const int64_t k = int64_t(atomic_fetch_add(counters + 8, 1));
-      if (k >= count) { out = true; break; }
-      if (items[k] < 0) continue;
-      o = parked[k];
-      i = items[k];
-      done = false;
-    }
-    if (__all_sync(0xffffffff, out)) break;
-    __syncwarp();
-    if (!out) {
-      const unsigned mask = timing ? __activemask() : 0;
-      const int64_t p0 = timing ? task.progress(o) : 0;
-      const long long r0 = timing ? clock64() : 0;
-      done = task.run(o);
-      if constexpr (timing) {
-        run_cycles += clock64() - r0;
-        const unsigned steps = unsigned(task.progress(o) - p0), longest = __reduce_max_sync(mask, steps);
-        lane_steps += steps;
-        if ((threadIdx.x & 31) == __ffs(mask) - 1) warp_steps += uint64_t(32) * longest;
-      }
-      if constexpr (requires { task.immediate(o); }) if (done && task.immediate(o)) done = task.settle(o);
-      if (done && task.pending(o)) {
-        const int64_t k = int64_t(atomic_fetch_add(counters + 12, 1));
-        if (k < cap) {
-          next[k] = o;
-          next_items[k] = i;
-          i = -1;
-        } else {
-          done = task.settle(o);  // No room: settle alone
-        }
-      }
-    }
-  }
-  atomic_add(counters + 1, it);
-  atomic_add(counters + 9, it);
-  if constexpr (timing) {
-    atomic_add(counters + 13, run_cycles);
-    atomic_add(counters + 14, uint64_t(clock64() - t0));
-    atomic_add(counters + 15, lane_steps);
-    atomic_add(counters + 16, warp_steps);
-  }
-}
-
-// Finish orbits whose states were completed on the host (CPU tail), skipping finished ones (item -1)
-template<class Task> __global__ void finish_kernel(const Task task, const typename Task::State* states,
-                                                   const int64_t* items, const int64_t count) {
+// Finish orbits whose states were completed on the host (CPU tail)
+template<class Task> __global__ void finish_kernel(const Task task, const Parked<typename Task::State>* orbits,
+                                                   const int64_t count) {
   for (int64_t k = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; k < count; k += int64_t(blockDim.x) * gridDim.x)
-    if (items[k] >= 0) task.finish(states[k], items[k]);
+    task.finish(orbits[k].o, orbits[k].item);
 }
+
+template<class F> __global__ void for_each_kernel(const int64_t n, const F f);
 
 template<class F> __global__ void for_each_kernel(const int64_t n, const F f) {
   for (int64_t i = int64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < n; i += int64_t(blockDim.x) * gridDim.x)
@@ -545,145 +540,99 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
   } else {
 #ifdef __CUDACC__
     typedef typename Task::State O;
-    static const int blocks_per_sm = env_int("MANDELBROT_CUDA_BLOCKS_PER_SM", 8),
-                     min_blocks_env = env_int("MANDELBROT_CUDA_MIN_BLOCKS", 0),  // Override task.min_blocks
-                     block = 256,
-                     budget_env = env_int("MANDELBROT_CUDA_BUDGET", -1),
+    typedef engine_detail::Parked<O> P;
+    static const int min_blocks_env = env_int("MANDELBROT_CUDA_MIN_BLOCKS", 0),  // Override task.min_blocks
                      timing = env_int("MANDELBROT_CUDA_TIMING", 0),
-                     park = env_int("MANDELBROT_CUDA_PARK", 8),  // Room to park n / park orbits
-                     // Finish on CPU threads once this few orbits remain: a lone GPU lane steps a sequential
-                     // orbit ~40× slower than a CPU core, so late rounds of a few long orbits idle the GPU.
+                     // Finish on CPU threads once this few orbits remain (in about 1/32 as many warps): a lone GPU
+                     // lane steps a sequential orbit ~40× slower than a CPU core
                      cpu_tail = env_int("MANDELBROT_CUDA_CPU_TAIL", 1024);
-    const int64_t cap = std::min<int64_t>(n, std::max<int64_t>(1 << 16, n / park));
-    Mem<O> parked(cap, true), next(cap, true);
-    Mem<int64_t> items(cap, true), next_items(cap, true);
-    Mem<uint64_t> counters(17, true);
+    constexpr bool keyed = requires(O& o) { task.settle_key(o); };
+    const int keys = keyed ? kSettleKeys : 1, min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
+    Mem<P> slots(keys * int64_t(kRingCap), true);
+    Mem<uint64_t> seq(keys * int64_t(kRingCap), true), ends(2 * keys, true), counters(engine_detail::kCounters, true);
+    ends.zero();
     counters.zero();
-    cudaEvent_t e0, e1, e2;
-    cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1)); cuda_check(cudaEventCreate(&e2));
+    engine_detail::for_each_kernel<<<8 * num_sms(), 256, 0, stream()>>>(keys * int64_t(kRingCap),
+                                                                        engine_detail::InitSeq{seq.p, kRingCap});
+    const Rings<P> rings{slots.p, seq.p, ends.p, ends.p + keys, keys, kRingCap};
+    const int drain_warps = cpu_tail > 0 ? std::max(1, cpu_tail / 32) : -1;
+    const int grid = timing ? engine_detail::launch_pool_kernel<Task, true>(min_blocks, task, n, stride, rings,
+                                                                            nullptr, counters.p, drain_warps, false)
+                            : engine_detail::launch_pool_kernel<Task, false>(min_blocks, task, n, stride, rings,
+                                                                             nullptr, counters.p, drain_warps, false);
+    Mem<P> dump(int64_t(grid) * 256 * 2, true);  // Each lane's running and queued orbits
+    cudaEvent_t e0, e1;
+    cuda_check(cudaEventCreate(&e0)); cuda_check(cudaEventCreate(&e1));
     cuda_check(cudaEventRecord(e0, stream()));
-    // Register budget: 65536 / (256 · min_blocks) per thread
-    const int min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
-    const int grid = blocks_per_sm * num_sms(), threads = grid * block;
-    // Steps before parking: the task's park_steps (its first Newton step, so that Newton runs in the rounds with
-    // all lanes of a warp at once), overridden by MANDELBROT_CUDA_BUDGET, else 2^14
-    int64_t budget_steps = int64_t(1) << 14;
-    if constexpr (requires { task.park_steps; }) if (task.park_steps > 0) budget_steps = task.park_steps;
-    if (budget_env > 0) budget_steps = budget_env;
-    const int32_t budget = int32_t(std::max<int64_t>(1, budget_steps / task.burst));
     if (timing)
-      engine_detail::launch_orbit_kernel<Task, true>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
-                                                     cap, counters.p);
+      engine_detail::launch_pool_kernel<Task, true>(min_blocks, task, n, stride, rings, dump.p, counters.p,
+                                                    drain_warps, true);
     else
-      engine_detail::launch_orbit_kernel<Task, false>(min_blocks, grid, task, n, stride, budget, parked.p, items.p,
-                                                      cap, counters.p);
+      engine_detail::launch_pool_kernel<Task, false>(min_blocks, task, n, stride, rings, dump.p, counters.p,
+                                                     drain_warps, true);
     cuda_check(cudaGetLastError());
     cuda_check(cudaEventRecord(e1, stream()));
-    // Rounds: settle pending orbits together, then resume the rest until they are done or pending again
-    int64_t count = std::min<int64_t>(cap, int64_t(counters.get(2))), rounds = 0;
-    stats.overflow = count;
+    uint64_t h[engine_detail::kCounters];
+    counters.to_host(h, engine_detail::kCounters);
+    stats.overflow = int64_t(h[4]);
     int64_t cpu_iters = 0;
-    while (count) {
-      if (count <= cpu_tail) {
-        // Few orbits left: copy them to the host, finish them on CPU threads, and write results on the device
-        std::vector<O> h(count);
-        std::vector<int64_t> hi(count);
-        parked.to_host(h.data(), count);
-        items.to_host(hi.data(), count);
-        std::atomic<int64_t> next_k(0), iters(0);
-        std::vector<std::thread> pool;
-        for (int t = 0; t < cpu_threads(); t++)
-          pool.emplace_back([&]() {
-            int64_t it = 0;
-            for (int64_t k; (k = next_k.fetch_add(1)) < count;) {
-              if (hi[k] < 0) continue;
-              O o = h[k];
-              for (bool done = false; !done;) {
-                if (task.pending(o)) done = task.settle(o);
-                else done = task.run(o) && !task.pending(o);
-              }
-              h[k] = o;
-              it += task.iters(o);
-            }
-            iters += it;
-          });
-        for (auto& t : pool) t.join();
-        parked.from_host(h.data(), count);
-        const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
-        engine_detail::finish_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count);
-        cuda_check(cudaGetLastError());
-        cpu_iters = iters;
-        stats.cpu_tail = count;
-        break;
-      }
-      rounds++;
-      const int g = int(std::min<int64_t>(grid, (count + block - 1) / block));
-      const auto r0 = std::chrono::steady_clock::now();
-      if constexpr (requires { task.settle_key(*parked.p); }) {
-        // Sort by settle work (see settle_keys_kernel), then settle in that order
-        Mem<uint16_t> keys(count, true);
-        Mem<int32_t> perm(count, true);
-        Mem<uint64_t> sizes(engine_detail::kSettleKeys, true);
-        sizes.zero();
-        engine_detail::settle_keys_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, keys.p,
-                                                                           sizes.p);
-        uint64_t h[engine_detail::kSettleKeys];
-        sizes.to_host(h, engine_detail::kSettleKeys);
-        for (uint64_t b = 0, offset = 0; b < uint64_t(engine_detail::kSettleKeys); b++) {
-          const uint64_t size = h[b];
-          h[b] = offset;
-          offset += size;
+    if (h[3]) {
+      // Drained: finish the dumped orbits and those left in the rings on CPU threads, then write their results
+      std::vector<P> left(h[6]);
+      dump.to_host(left.data(), int64_t(h[6]));
+      {
+        std::vector<uint64_t> e(2 * keys);
+        ends.to_host(e.data(), 2 * keys);
+        std::vector<P> ring(kRingCap);
+        for (int k = 0; k < keys; k++) {
+          const uint64_t head = e[k], tail = e[keys + k];
+          if (head == tail) continue;
+          slow_assert(tail - head <= kRingCap);
+          slots.to_host(ring.data(), int64_t(kRingCap), k * int64_t(kRingCap));
+          for (uint64_t q = head; q < tail; q++) left.push_back(ring[q & (kRingCap - 1)]);
         }
-        sizes.from_host(h, engine_detail::kSettleKeys);
-        const int sg = int(std::min<int64_t>(grid, (count + engine_detail::kSortTile - 1) / engine_detail::kSortTile));
-        engine_detail::settle_sort_kernel<Task><<<sg, block, 0, stream()>>>(keys.p, count, sizes.p, perm.p);
-        engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p,
-                                                                      perm.p);
-      } else {
-        engine_detail::settle_kernel<Task><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, counters.p);
       }
-      if (timing) cuda_check(cudaStreamSynchronize(stream()));
-      const auto r1 = std::chrono::steady_clock::now();
-      cuda_check(cudaMemsetAsync(counters.p + 8, 0, sizeof(uint64_t), stream()));
-      cuda_check(cudaMemsetAsync(counters.p + 12, 0, sizeof(uint64_t), stream()));
-      if (timing)
-        engine_detail::resume_kernel<Task, true><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
-                                                                            next_items.p, cap, counters.p);
-      else
-        engine_detail::resume_kernel<Task, false><<<g, block, 0, stream()>>>(task, parked.p, items.p, count, next.p,
-                                                                             next_items.p, cap, counters.p);
-      cuda_check(cudaGetLastError());
-      const int64_t was = count;
-      count = std::min<int64_t>(cap, int64_t(counters.get(12)));
-      if (timing) {
-        const auto r2 = std::chrono::steady_clock::now();
-        print("      round %d: %d orbits, settle %.1f ms, resume %.1f ms, %d still pending", rounds, was,
-              1e3 * std::chrono::duration<double>(r1 - r0).count(), 1e3 * std::chrono::duration<double>(r2 - r1).count(),
-              count);
+      const int64_t count = int64_t(left.size());
+      std::atomic<int64_t> next_k(0), iters(0);
+      std::vector<std::thread> pool;
+      for (int t = 0; t < cpu_threads(); t++)
+        pool.emplace_back([&]() {
+          int64_t it = 0;
+          for (int64_t k; (k = next_k.fetch_add(1)) < count;) {
+            O& o = left[k].o;
+            for (bool done = false; !done;) {
+              if (task.pending(o)) done = task.settle(o);
+              else done = task.run(o) && !task.pending(o);
+            }
+            it += task.iters(o);
+          }
+          iters += it;
+        });
+      for (auto& t : pool) t.join();
+      if (count) {
+        Mem<P> back(count, true);
+        back.from_host(left.data(), count);
+        engine_detail::finish_kernel<Task><<<int(std::min<int64_t>(grid, (count + 255) / 256)), 256, 0,
+                                             stream()>>>(task, back.p, count);
+        cuda_check(cudaGetLastError());
+        cuda_sync();
       }
-      std::swap(parked.p, next.p);
-      std::swap(items.p, next_items.p);
+      cpu_iters = iters;
+      stats.cpu_tail = count;
     }
-    cuda_check(cudaEventRecord(e2, stream()));
-    uint64_t h[17];
-    counters.to_host(h, 17);
     stats.iters = int64_t(h[1]) + cpu_iters;
     if (timing) {
-      float main_ms, over_ms;
-      cuda_check(cudaEventElapsedTime(&main_ms, e0, e1));
-      cuda_check(cudaEventElapsedTime(&over_ms, e1, e2));
-      print("    cuda run (%s): %d items, %d threads, main %.1f ms, %d parked, %d rounds %.1f ms, %.3g it/s; "
-            "iterations per thread mean %.3g, max %.3g", typeid(Task).name(), n, threads, main_ms, stats.overflow, rounds, over_ms,
-            double(h[1]) / ((main_ms + over_ms) * 1e-3), double(h[1]) / threads, double(h[3]));
-      print("      main pass: %.3g it/s, %.1f%% of thread cycles in run, SIMT efficiency at run %.1f%%, "
-            "lane steps / warp steps %.1f%%; rounds %.3g it/s", double(h[1] - h[9]) / (main_ms * 1e-3),
-            100.0 * double(h[4]) / double(h[5]), 100.0 * double(h[6]) / double(h[7]),
-            100.0 * double(h[10]) / double(h[11]), over_ms > 0 ? double(h[9]) / (over_ms * 1e-3) : 0.0);
-      if (h[14])
-        print("      resume: %.1f%% of thread cycles in run, lane steps / warp steps %.1f%%, %.3g thread cycles",
-              100.0 * double(h[13]) / double(h[14]), 100.0 * double(h[15]) / double(h[16]), double(h[14]));
+      float ms;
+      cuda_check(cudaEventElapsedTime(&ms, e0, e1));
+      const double cycles = double(h[8]);
+      print("    cuda run (%s): %d items, %d threads, %.1f ms, %.3g it/s; %d ring pushes, %d settled alone, "
+            "%d to the CPU tail", typeid(Task).name(), n, grid * 256, ms, double(h[1]) / (ms * 1e-3), h[4], h[5],
+            stats.cpu_tail);
+      print("      thread cycles: %.1f%% in run, %.1f%% settling popped orbits, %.1f%% idle; "
+            "lane steps / warp steps %.1f%%", 100 * double(h[7]) / cycles, 100 * double(h[11]) / cycles,
+            100 * double(h[12]) / cycles, 100.0 * double(h[9]) / double(h[10]));
     }
-    cuda_check(cudaEventDestroy(e0)); cuda_check(cudaEventDestroy(e1)); cuda_check(cudaEventDestroy(e2));
+    cuda_check(cudaEventDestroy(e0)); cuda_check(cudaEventDestroy(e1));
 #else
     die("run_orbits: built without CUDA");
 #endif

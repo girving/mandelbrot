@@ -116,6 +116,7 @@ test('area', executable('area_test', ['area_test.cc'], dependencies: [area, arb_
 if cuda.found()
   test('series_cuda', executable('series_cuda_test', ['series_cuda_test.cc'], dependencies: [area, tests]))
   test('cuda', executable('cuda_test', ['cuda_test.cc'], dependencies: [base, tests]))
+  test('rings_cuda', executable('rings_cuda_test', ['rings_cuda_test.cc', 'engine.cc'], dependencies: [base, tests]))
   test('area_cuda', executable('area_cuda_test', ['area_cuda_test.cc'], dependencies: [area, arb_area, tests]))
 endif
 
