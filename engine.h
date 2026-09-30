@@ -163,9 +163,86 @@ struct RunStats {
   double secs = 0;
 };
 
-// Settle keys (Task::settle_key) and ring capacity per key
+// Settle keys (Task::settle_key), and the bound on orbits waiting in settle queues at once
 constexpr int kSettleKeys = 512;
-constexpr uint64_t kRingCap = 2048;
+constexpr int64_t kSettleBound = 1 << 16;
+
+static inline uint64_t next_pow2(const uint64_t x) {
+  uint64_t p = 1;
+  while (p < x) p *= 2;
+  return p;
+}
+
+// Device storage for an IntRing of capacity cap, empty, or holding 0, ..., count - 1
+struct IntRingMem : public Noncopyable {
+  const uint64_t cap;
+  Mem<int32_t> slots;
+  Mem<uint64_t> seq, ends;
+  Mem<int64_t> avail;
+  IntRingMem(const uint64_t cap, const int64_t count = 0)
+    : cap(cap), slots(int64_t(cap), true), seq(int64_t(cap), true), ends(2, true), avail(1, true) {
+    slow_assert(cap && !(cap & (cap - 1)) && uint64_t(count) <= cap);
+    std::vector<int32_t> v(cap);
+    std::vector<uint64_t> q(cap);
+    for (uint64_t i = 0; i < cap; i++) { v[i] = int32_t(i); q[i] = i + (int64_t(i) < count); }
+    slots.from_host(v.data(), int64_t(cap));
+    seq.from_host(q.data(), int64_t(cap));
+    const uint64_t e[2] = {0, uint64_t(count)};
+    ends.from_host(e, 2);
+    avail.from_host(&count, 1);
+  }
+  IntRing ring() const { return {slots.p, seq.p, ends.p, avail.p, cap}; }
+};
+
+// Device storage for Queues: keys queues with at most bound values outstanding, with segments and table entries
+// to spare
+template<class T> struct QueuesMem : public Noncopyable {
+  static constexpr int S = Queues<T>::S;
+  const int keys;
+  const int64_t bound, segments;
+  const uint64_t entries;
+  Mem<T> values;
+  Mem<uint64_t> vseq, table, ends;  // ends: [head[keys], tail[keys]]
+  Mem<uint32_t> consumed, nonempty;
+  Mem<int64_t> avail, space;
+  IntRingMem free;
+
+  QueuesMem(const int keys, const int64_t bound)
+    : keys(keys), bound(bound), segments(bound / S + 2 * keys + 64), entries(next_pow2(bound / S + 2)),
+      values(segments * S, true), vseq(segments * S, true), table(keys * int64_t(entries), true),
+      ends(2 * keys, true), consumed(segments, true), nonempty((keys + 31) / 32, true), avail(keys, true),
+      space(1, true), free(next_pow2(uint64_t(segments)), segments) {
+    vseq.zero();
+    consumed.zero();
+    nonempty.zero();
+    ends.zero();
+    avail.zero();
+    space.from_host(&bound, 1);
+    const std::vector<uint64_t> none(keys * entries, ~uint64_t(0));
+    table.from_host(none.data(), keys * int64_t(entries));
+  }
+
+  Queues<T> queues() const {
+    return {values.p, vseq.p, table.p, consumed.p, ends.p, ends.p + keys, avail.p, space.p, nonempty.p,
+            free.ring(), keys, entries};
+  }
+
+  // Every value still queued, once the kernels using the queues have finished
+  std::vector<T> contents() const {
+    std::vector<uint64_t> e(2 * keys), t(keys * entries);
+    ends.to_host(e.data(), 2 * keys);
+    table.to_host(t.data(), keys * int64_t(entries));
+    std::vector<T> v(segments * S), all;
+    values.to_host(v.data(), segments * S);
+    for (int k = 0; k < keys; k++)
+      for (uint64_t p = e[k]; p < e[keys + k]; p++) {
+        const uint64_t x = t[k * entries + ((p / S) & (entries - 1))];
+        slow_assert(x != ~uint64_t(0) && x >> 32 == p / S, "queue %d position %d has no segment", k, p);
+        all.push_back(v[(x & 0xffffffff) * S + p % S]);
+      }
+    return all;
+  }
+};
 
 namespace engine_detail {
 
@@ -276,8 +353,8 @@ template<class Task> requires requires { typename Task::Record; } struct RecordO
 // sends every warp's orbits (running and queued) to dump and the warp home, for the host to finish on CPU
 // threads with whatever the rings still hold.
 template<class Task, bool timing, int min_blocks> __global__ void __launch_bounds__(256, min_blocks)
-pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<Parked<typename Task::State>> rings,
-            const Rings<int32_t> ripe, Parked<typename Task::State>* dump, uint64_t* counters, const int drain_warps) {
+pool_kernel(const Task task, const int64_t n, const int64_t stride, const Queues<Parked<typename Task::State>> rings,
+            const IntRing ripe, Parked<typename Task::State>* dump, uint64_t* counters, const int drain_warps) {
   typedef typename Task::State State;
   typedef typename RecordOf<Task>::type Record;
   constexpr bool keyed = requires(State& s) { task.settle_key(s); };
@@ -338,8 +415,8 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
   const auto restock = [&](const unsigned need) {
     State& q = queue.slots[lane];
     int32_t key = -1;
-    if (ripe.pop(0, 1, key)) key = __shfl_sync(0xffffffff, key, 0);
-    else key = -1;
+    if (!lane && !ripe.pop(key)) key = -1;
+    key = __shfl_sync(0xffffffff, key, 0);
     if (key < 0 && items_out) key = rings.any();
     if (key >= 0) {
       Parked<State> p;
@@ -379,7 +456,7 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
   // A counter as the whole warp sees it (lane 0's read)
   const auto uniform = [&](const uint64_t* c) {
     uint64_t v = 0;
-    if (!lane) v = Rings<Parked<State>>::load(c);
+    if (!lane) v = ring_load(c);
     return __shfl_sync(0xffffffff, v, 0);
   };
 
@@ -460,8 +537,8 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
     int batches = 0;
     const bool pushed = rings.push(pend, key, p, batches);
     const long long k2 = timing ? clock64() : 0;
-    // Announce each full batch on the ripe queue (rarely more than one per warp)
-    for (int dummy; __any_sync(0xffffffff, batches > 0); batches--) ripe.push(batches > 0, 0, key, dummy);
+    // Announce each full batch on the ripe queue (dropping announcements if it is half full)
+    for (; batches > 0; batches--) ripe.push_if_room(key);
     if constexpr (timing) { key_cycles += k1 - u0; ripe_cycles += clock64() - k2; }
     if (pend) {
       if (pushed) { i = -1; pushes++; }
@@ -498,8 +575,8 @@ pool_kernel(const Task task, const int64_t n, const int64_t stride, const Rings<
 // so blocks that could only start once others exit would do nothing
 template<class Task, bool timing> int launch_pool_kernel(const int min_blocks, const Task& task, const int64_t n,
                                                          const int64_t stride,
-                                                         const Rings<Parked<typename Task::State>>& rings,
-                                                         const Rings<int32_t>& ripe,
+                                                         const Queues<Parked<typename Task::State>>& rings,
+                                                         const IntRing& ripe,
                                                          Parked<typename Task::State>* dump, uint64_t* counters,
                                                          const int drain_warps, const bool launch) {
   int per_sm = 0;
@@ -568,34 +645,12 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
                      cpu_tail = env_int("MANDELBROT_CUDA_CPU_TAIL", 1024);
     constexpr bool keyed = requires(O& o) { task.settle_key(o); };
     const int keys = keyed ? kSettleKeys : 1, min_blocks = min_blocks_env ? min_blocks_env : task.min_blocks;
-    Mem<P> slots(keys * int64_t(kRingCap), true);
-    Mem<uint64_t> seq(keys * int64_t(kRingCap), true), ends(2 * keys, true), counters(engine_detail::kCounters, true);
-    Mem<int64_t> avail(keys, true), space(keys, true);
-    // The ripe queue: a key per 32 orbits pushed, so at most keys · kRingCap / 32 at once
-    constexpr uint64_t ripe_cap = kSettleKeys * kRingCap / 32;
-    Mem<int32_t> ripe_slots(ripe_cap, true);
-    Mem<uint64_t> ripe_seq(ripe_cap, true), ripe_ends(2, true);
-    Mem<int64_t> ripe_avail(1, true), ripe_space(1, true);
-    ends.zero();
-    ripe_ends.zero();
-    avail.zero();
-    ripe_avail.zero();
-    {
-      const std::vector<int64_t> caps(keys, int64_t(kRingCap));
-      space.from_host(caps.data(), keys);
-      const int64_t rc = int64_t(ripe_cap);
-      ripe_space.from_host(&rc, 1);
-    }
+    QueuesMem<P> queues(keys, kSettleBound);
+    IntRingMem ripe_mem(next_pow2(2 * uint64_t(kSettleBound) / 32 + 4096));  // Ripe keys, about one per 32 queued
+    Mem<uint64_t> counters(engine_detail::kCounters, true);
     counters.zero();
-    engine_detail::for_each_kernel<<<8 * num_sms(), 256, 0, stream()>>>(keys * int64_t(kRingCap),
-                                                                        engine_detail::InitSeq{seq.p, kRingCap});
-    engine_detail::for_each_kernel<<<8 * num_sms(), 256, 0, stream()>>>(int64_t(ripe_cap),
-                                                                        engine_detail::InitSeq{ripe_seq.p, ripe_cap});
-    Mem<uint32_t> nonempty((keys + 31) / 32, true);
-    nonempty.zero();
-    const Rings<P> rings{slots.p, seq.p, ends.p, ends.p + keys, avail.p, space.p, keys, kRingCap, nonempty.p};
-    const Rings<int32_t> ripe{ripe_slots.p, ripe_seq.p, ripe_ends.p, ripe_ends.p + 1, ripe_avail.p, ripe_space.p, 1,
-                              ripe_cap};
+    const auto rings = queues.queues();
+    const auto ripe = ripe_mem.ring();
     const int drain_warps = cpu_tail > 0 ? std::max(1, cpu_tail / 32) : -1;
     const int grid = timing ? engine_detail::launch_pool_kernel<Task, true>(min_blocks, task, n, stride, rings,
                                                                             ripe, nullptr, counters.p, drain_warps, false)
@@ -621,18 +676,7 @@ template<class Task> RunStats run_orbits(const Task& task, const int64_t n, cons
       // Drained: finish the dumped orbits and those left in the rings on CPU threads, then write their results
       std::vector<P> left(h[6]);
       dump.to_host(left.data(), int64_t(h[6]));
-      {
-        std::vector<uint64_t> e(2 * keys);
-        ends.to_host(e.data(), 2 * keys);
-        std::vector<P> ring(kRingCap);
-        for (int k = 0; k < keys; k++) {
-          const uint64_t head = e[k], tail = e[keys + k];
-          if (head == tail) continue;
-          slow_assert(tail - head <= kRingCap);
-          slots.to_host(ring.data(), int64_t(kRingCap), k * int64_t(kRingCap));
-          for (uint64_t q = head; q < tail; q++) left.push_back(ring[q & (kRingCap - 1)]);
-        }
-      }
+      for (const auto& p : queues.contents()) left.push_back(p);
       const int64_t count = int64_t(left.size());
       std::atomic<int64_t> next_k(0), iters(0);
       std::vector<std::thread> pool;
