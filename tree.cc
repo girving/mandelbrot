@@ -700,7 +700,8 @@ TreeResult run_tree(const TreeParams& p) {
 
   // Batches are runs of base cells in row-major order, sized adaptively for about p.batch leaves (and fewer
   // than 2^31 samples).  On the GPU, p.overlap batches run at once in host threads with their own streams, so
-  // one batch's slow orbits (a few lanes stepping long orbits) overlap with the next batch's full-GPU work.
+  // that one batch's latency-bound work (tree levels, and the long-orbit tails of its rounds) overlaps another's
+  // full-GPU work.
   const int64_t total = rows * p.base, max_leaves = std::min<int64_t>(p.batch, ((int64_t(1) << 31) - 1) / p.m);
   std::mutex mu;
   int64_t next_cell = 0, cells_per_batch = std::min<int64_t>(total, 64);  // A small first batch, to estimate density
@@ -732,35 +733,8 @@ TreeResult run_tree(const TreeParams& p) {
   slow_assert(threads >= 1, "overlap must be at least 1");
   if (threads == 1) worker();
   else {
-    // Probe the density with one small batch, then split the rest into equal batches, at least two per thread and
-    // about p.batch leaves each, so that the threads' batches (and their long-orbit tails) run side by side
-    int64_t probe_cells;
-    {
-      std::lock_guard<std::mutex> lock(mu);
-      probe_cells = cells_per_batch;
-      next_cell = total;  // Workers get ranges from the plan below instead
-    }
-    TreeResult Rb = empty_like(R);
-    run_batch(p, 0, probe_cells, max_leaves, Rb);
-    merge(R, Rb);
-    const int64_t rest = total - probe_cells;
-    const double per_cell = double(Rb.leaves) / double(std::max<int64_t>(1, probe_cells));
-    const int64_t want = int64_t(std::ceil(per_cell * double(rest) / double(max_leaves)));
-    int64_t B = std::max<int64_t>(2 * threads, want);
-    B = std::min<int64_t>(std::max<int64_t>(1, rest), (B + threads - 1) / threads * threads);
-    std::atomic<int64_t> next_b(0);
-    const auto planned = [&]() {
-      for (int64_t b; (b = next_b.fetch_add(1)) < B;) {
-        const int64_t c0 = probe_cells + rest * b / B, c1 = probe_cells + rest * (b + 1) / B;
-        if (c0 == c1) continue;
-        TreeResult Rp = empty_like(R);
-        run_batch(p, c0, c1, max_leaves, Rp);
-        std::lock_guard<std::mutex> lock(mu);
-        merge(R, Rp);
-      }
-    };
     vector<std::thread> pool;
-    for (int t = 0; t < threads; t++) pool.emplace_back(planned);
+    for (int t = 0; t < threads; t++) pool.emplace_back(worker);
     for (auto& t : pool) t.join();
   }
   R.secs = secs_since(t0);
