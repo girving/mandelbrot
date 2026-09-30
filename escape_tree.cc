@@ -49,6 +49,9 @@ void report(const TreeResult& R) {
         "reduce %.1f s, %d batches)", p.base, p.depth, p.base << p.depth, p.safety, p.m, p.strata, p.max_iter, p.seed,
         p.first_newton, p.center_max_iter, p.center_first_newton, p.center_max_period, p.newton_max_period, p.newton_iters, std::sqrt(p.newton_close2), std::sqrt(p.newton_repel2), p.burst, p.prec, p.cuda ? "cuda" : "cpu", cpu_threads(), R.secs, R.tree_secs, R.center_kernel_secs, R.sample_secs,
         R.reduce_secs, R.batches);
+  if (p.roulette_from)
+    print("  roulette from Newton step %d, at every %d, keeping 2^-%d per decision", p.roulette_from, p.roulette_stride,
+          p.roulette_log2);
   print("  sampling throughput: %.3g iterations/s", double(R.leaf_iters) / R.sample_secs);
   print("  centers: %.3g cells, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations; "
         "%d orbits overflowed", double(R.centers), double(R.center_iters), double(R.leaves),
@@ -147,7 +150,7 @@ int main(const int argc, const char** argv) {
     program.add_argument("--strata").help("jitter groups of strata^2 samples").scan<'i', int>().default_value(2);
     program.add_argument("--max-iter").scan<'i', int64_t>().default_value(int64_t(1) << 20);
     program.add_argument("--seed").scan<'i', int64_t>().default_value(int64_t(1));
-    program.add_argument("--prec").help("leaf orbit precision: double, float, compare (float vs double), or "
+    program.add_argument("--prec").help("leaf orbit precision: double, dd (double-double), float, compare (float vs double), or "
                                         "compareNN (double rounded to NN ∈ {30, 36, 42, 48} bits vs double), or comparedd (double-double vs double)")
         .default_value(string("double"));
     program.add_argument("--cuda").help("run on the GPU").default_value(false).implicit_value(true);
@@ -181,6 +184,12 @@ int main(const int argc, const char** argv) {
     program.add_argument("--tiles").help("resolve consecutive differences over a T × T grid of the box").scan<'i', int>()
         .default_value(0);
     program.add_argument("--tiles-out").help("file for per-tile differences: tx ty k k' D var").default_value(string(""));
+    program.add_argument("--roulette-from").help("Russian roulette for leaf orbits from this Newton step on (0: off)")
+        .scan<'i', int64_t>().default_value(int64_t(0));
+    program.add_argument("--roulette-log2").help("roulette keeps an orbit with probability 2^-this per decision")
+        .scan<'i', int>().default_value(1);
+    program.add_argument("--roulette-stride").help("roulette at every stride-th Newton step from --roulette-from")
+        .scan<'i', int>().default_value(1);
     program.add_argument("--flip-stats").help("with a compare precision: classify samples whose classifications differ")
         .default_value(false).implicit_value(true);
     program.add_argument("--shard").help("run only shard s/N: base rows r with r % N == s (see --save, --merge)")
@@ -227,6 +236,9 @@ int main(const int argc, const char** argv) {
     p.tiles = program.get<int>("--tiles");
     p.overlap = program.get<int>("--overlap");
     p.flip_stats = program.get<bool>("--flip-stats");
+    p.roulette_from = program.get<int64_t>("--roulette-from");
+    p.roulette_log2 = program.get<int>("--roulette-log2");
+    p.roulette_stride = program.get<int>("--roulette-stride");
     {
       const auto sh = program.get<string>("--shard");
       slow_assert(sscanf(sh.c_str(), "%d/%d", &p.shard, &p.shards) == 2 && 0 <= p.shard && p.shard < p.shards,

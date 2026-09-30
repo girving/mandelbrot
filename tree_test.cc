@@ -249,6 +249,41 @@ TEST(shards_merge_exactly) {
     }
 }
 
+TEST(roulette_unbiased) {
+  // Russian roulette reweights escapes past the reference threshold without bias: estimates match the full run
+  // within their extra noise (identically below the first decision)
+  auto p = small_params();
+  p.first_newton = 512;
+  p.max_iter = (1 << 18) + 8;
+  p.ks = {1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144};
+  const auto a = run_tree(p);
+  p.roulette_from = 2048;
+  const auto b = run_tree(p);
+  ASSERT_LT(b.leaf_iters, a.leaf_iters);
+  ASSERT_EQ(a.area[0].s, b.area[0].s);
+  ASSERT_EQ(a.area[1].s, b.area[1].s);
+  for (int k = 0; k + 1 < int(p.ks.size()); k++) {
+    // The runs share samples, so the difference's std error is at most the sum of theirs
+    const double d = b.diff_estimate(k) - a.diff_estimate(k),
+                 s = std::sqrt(a.variance(a.diff, k)) + std::sqrt(b.variance(b.diff, k));
+    if (k < 1) ASSERT_EQ(d, 0);
+    ASSERT_LT(std::abs(d), 4 * s + 1e-15) << tfm::format("k %d: %g vs %g", p.ks[k], d, s);
+  }
+}
+
+TEST(dd_matches_compare) {
+  // prec dd classifies exactly as the double-double half of comparedd
+  auto p = small_params();
+  p.prec = "comparedd";
+  const auto a = run_tree(p);
+  p.prec = "dd";
+  const auto b = run_tree(p);
+  for (int k = 0; k < int(p.ks.size()); k++) {
+    ASSERT_EQ(a.float_area[k].s, b.area[k].s);
+    ASSERT_EQ(a.float_area[k].q, b.area[k].q);
+  }
+}
+
 TEST(box) {
   // A box inside the period-2 disk |c + 1| < 1/4 is certified interior everywhere: area exactly twice the box
   auto p = small_params();
