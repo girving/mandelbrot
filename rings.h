@@ -30,7 +30,7 @@ template<class T> struct Rings {
     return __ldcg(reinterpret_cast<const unsigned long long*>(p));
   }
   __device__ static void store(uint64_t* p, const uint64_t v) {
-    __stcg(reinterpret_cast<unsigned long long*>(p), static_cast<unsigned long long>(v));
+    asm volatile("st.global.cg.u64 [%0], %1;" :: "l"(p), "l"(v) : "memory");
   }
   __device__ static uint32_t load32(const uint32_t* p) { return __ldcg(reinterpret_cast<const unsigned*>(p)); }
   // Copy a slot's value at L2, in 8- or 4-byte words
