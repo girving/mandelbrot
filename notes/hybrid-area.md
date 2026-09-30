@@ -640,6 +640,33 @@ scheduler) the stalls are not hidden, where the rounds do the same transitions i
 also needed five fixes (CAS contention, hoisted spin loads, wraparound and segment-sizing deadlocks, a stale
 nonempty bit) before the stress test passed.  The code is in git (0310d03 to dd1fbc1).
 
+*Russian roulette for deep runs (2026-09-30).*  In the paired deep difference nearly all the cost is long
+orbits, while the variance comes from the first octaves past the split.  So at Newton decision steps
+d_j = first_newton · 2^j + 8, an unsettled leaf orbit survives with probability 1/2 (a hash of c and n) and
+stops otherwise (`--roulette-from`, `--roulette-stride`, `--roulette-log2`).  Only escapes are reweighted: a
+sample's value at threshold k past the reference r (the last threshold before any decision) is
+b_r − W (b_r − b_k), where W = 2^(decisions survived), or 0 if killed.  Killed samples count as not escaped,
+so interior orbits add no variance, and the sums stay integers.  With escapes per octave falling like 2^-j,
+keeping 1/2 every octave adds constant variance per octave (as observed); every other octave (stride 2)
+makes both the added variance and the cost fall like 2^-j/2.  Base 200, first Newton 512, A(2^14) − A(2^24)
+on CPU (base cost 5.13e9 iterations; the columns are the cost past 2^14):
+
+| roulette | iterations past 2^14 | std err | err² · cost vs plain |
+|---|---|---|---|
+| none | 6.57e9 | 1.30e-6 | 1 |
+| from 2^14, stride 1 | 0.51e9 | 4.15e-6 | 1/1.3 |
+| from 2^14, stride 2 | 1.06e9 | 2.25e-6 | 1/2.1 |
+| from 2^15, stride 2 | 1.54e9 | 1.80e-6 | 1/2.2 |
+| from 2^14, stride 4 | 1.94e9 | 1.92e-6 | 1/1.55 |
+
+Over 48 seeds (from 2^15, stride 2) the mean differs from plain by −5.8e-8 ± 1.8e-7, and the seed spread
+(1.89e-6) matches the reported error.  The gain grows with the number of octaves (plain cost is linear in
+them, roulette's bounded), so over 2^20 … 2^32 it should be larger than 2.2×.  In the shallow part
+roulette does not pay: its error comes from the early octaves.  `--prec dd` runs leaf orbits in
+double-double alone, so deep runs can combine the two.  On CPU, double-double is 6.3× slower than double
+here, 1.45× of it from more iterations: double settles slow interior orbits once they fall into an exact
+floating-point cycle, which takes double-double longer to reach.
+
 ## 6. Reproducing
 
 ```
