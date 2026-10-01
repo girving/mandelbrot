@@ -151,7 +151,7 @@ int main(const int argc, const char** argv) {
     program.add_argument("--max-iter").scan<'i', int64_t>().default_value(int64_t(1) << 20);
     program.add_argument("--seed").scan<'i', int64_t>().default_value(int64_t(1));
     program.add_argument("--prec").help("leaf orbit precision: double, dd (double-double), float, compare (float vs double), or "
-                                        "compareNN (double rounded to NN ∈ {30, 36, 42, 48} bits vs double), or comparedd (double-double vs double)")
+                                        "compareNN (double rounded to NN ∈ {24, 27, 30, 36, 42, 48} bits vs double), or comparedd (double-double vs double)")
         .default_value(string("double"));
     program.add_argument("--cuda").help("run on the GPU").default_value(false).implicit_value(true);
     program.add_argument("--batch").help("target leaves per batch (0: 2^26 on the GPU, 2^22 on the CPU)")

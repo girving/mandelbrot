@@ -714,7 +714,9 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     if (compare) {
       // The alternative precision: float, or double rounded to fewer bits
       const Cell* lp = leaves.p + l0;
-      Rb.leaf_iters += p.prec == "compare30" ? sample<Rounded<30>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
+      Rb.leaf_iters += p.prec == "compare24" ? sample<Rounded<24>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
+                    : p.prec == "compare27" ? sample<Rounded<27>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
+                    : p.prec == "compare30" ? sample<Rounded<30>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
                     : p.prec == "compare36" ? sample<Rounded<36>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
                     : p.prec == "compare42" ? sample<Rounded<42>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
                     : p.prec == "compare48" ? sample<Rounded<48>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
@@ -888,7 +890,8 @@ TreeResult run_tree(const TreeParams& p) {
   const int K = p.ks.size();
   slow_assert(0 < K && K <= 31, "need 1 to 31 thresholds, got %d", K);
   slow_assert(p.max_iter < kOrbitNever, "max_iter %d needs a -DMANDELBROT_ORBIT64 build", p.max_iter);
-  slow_assert(p.prec == "double" || p.prec == "dd" || p.prec == "float" || p.prec == "compare" || p.prec == "compare30" ||
+  slow_assert(p.prec == "double" || p.prec == "dd" || p.prec == "float" || p.prec == "compare" ||
+              p.prec == "compare24" || p.prec == "compare27" || p.prec == "compare30" ||
               p.prec == "compare36" || p.prec == "compare42" || p.prec == "compare48" || p.prec == "comparedd",
               "bad prec %s", p.prec);
   const int ss = p.strata * p.strata;
