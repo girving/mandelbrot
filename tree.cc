@@ -201,6 +201,16 @@ template<class T> struct SampleTask {
   int64_t roulette_from;
   int roulette_log2, roulette_stride;
   uint8_t* rexp;
+  // The deep queue (TreeParams::deep_from): orbits still unsettled at step suspend_at stop there (status 10) and
+  // their states go to deep_states[k], deep_items[k] = i, for k from *deep_count; a deep pass then resumes them as
+  // items of their own (resume[i]), with iters_offset steps already counted
+  int64_t suspend_at;
+  State* deep_states;
+  int64_t* deep_items;
+  uint64_t* deep_count;
+  int64_t deep_cap;
+  const State* resume;
+  int64_t iters_offset;
 
   // Whether Newton step d (one of the d_j below) is a roulette decision: every roulette_stride-th from the first at
   // or after roulette_from
@@ -239,6 +249,11 @@ template<class T> struct SampleTask {
   }
 
   __host__ __device__ bool start(State& o, const int64_t i) const {
+    if (resume) {
+      o = resume[i];
+      o.status = 0;
+      return false;
+    }
     // Item counts are below 2^31 (scramble_stride checks), so 32-bit division suffices
     const uint32_t i32 = uint32_t(i), m32 = uint32_t(m);
     const Cell l = leaves[i32 / m32];
@@ -249,8 +264,12 @@ template<class T> struct SampleTask {
     return o.start(x, y, first_newton);
   }
   // Newton is deferred (the GPU engine settles pending orbits together; the CPU settles them at once)
-  __host__ __device__ bool run(State& o) const { return o.run(max_iter, burst); }
-  __host__ __device__ int64_t iters(const State& o) const { return o.iters(); }
+  __host__ __device__ bool run(State& o) const {
+    if (!suspend_at) return o.run(max_iter, burst);
+    if (o.n >= suspend_at) { o.status = 10; return true; }  // Unsettled at suspend_at: to the deep queue
+    return o.run(max_iter, burst < suspend_at - o.n ? burst : suspend_at - o.n);
+  }
+  __host__ __device__ int64_t iters(const State& o) const { return o.iters() - iters_offset; }
   __host__ __device__ int64_t progress(const State& o) const { return o.n; }
   // An escaped fast block (status 8, restored to its start n) needs the exact escape step only if some threshold
   // depends on it: escaping at a step in (n, n + 8] puts g below 2^-k for all of them if n - k ≥ 6 and for none
@@ -279,6 +298,13 @@ template<class T> struct SampleTask {
     return o.status != 4 ? 0 : o.candidate && o.n >= max_period ? int(o.candidate) : int(o.atom_candidate(max_period));
   }
   __host__ __device__ void finish(const State& o, const int64_t i) const {
+    if (o.status == 10) {
+      const uint64_t k = atomic_fetch_add(deep_count, uint64_t(1));
+      if (int64_t(k) < deep_cap) { deep_states[k] = o; deep_items[k] = i; }
+      bits[i] = 0;  // Filled in by the deep pass
+      if (rexp) rexp[i] = 0;
+      return;
+    }
     uint32_t b = 0;
     // (Status 8: escaped within (n, n + 8]; status 9: killed at n, so escaped after n if ever.  Either way below
     // 2^-k if n - k ≥ 6; roulette requires thresholds clear of its decision steps, so killed samples are unknown
@@ -576,15 +602,22 @@ vector<GroupSums> reduce(const Mem<uint32_t>& a, const Mem<uint32_t>* b, const v
   return g;
 }
 
-template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, const TreeParams& p,
-                                 const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow,
-                                 uint32_t* iters = nullptr, uint32_t* outcomes = nullptr, uint8_t* rexp = nullptr) {
+template<class T> SampleTask<T> sample_task(const Cell* leaves, const TreeParams& p, const double w, const double h,
+                                           uint32_t* bits, uint32_t* iters, uint32_t* outcomes, uint8_t* rexp) {
   SampleTask<T> task{p.burst, p.sample_min_blocks, leaves, p.m, p.strata, p.seed, p.x0, p.y0, w, h, p.max_iter, p.first_newton, p.newton_max_period,
                      NewtonOptions{p.newton_iters, p.newton_close2, p.newton_tol < 0 ? -1 : p.newton_tol * p.newton_tol,
                                    p.newton_margin, false, p.newton_repel2, false},
-                     int(p.ks.size()), {}, bits.p, iters, outcomes, p.first_newton, p.roulette_from,
-                     p.roulette_from ? p.roulette_log2 : 0, p.roulette_stride, rexp};
+                     int(p.ks.size()), {}, bits, iters, outcomes, p.first_newton, p.roulette_from,
+                     p.roulette_from ? p.roulette_log2 : 0, p.roulette_stride, rexp,
+                     0, nullptr, nullptr, nullptr, 0, nullptr, 0};
   for (size_t k = 0; k < p.ks.size(); k++) task.ks[k] = p.ks[k];
+  return task;
+}
+
+template<class T> int64_t sample(const Cell* leaves, const int64_t n_leaves, const TreeParams& p,
+                                 const double w, const double h, Mem<uint32_t>& bits, int64_t& overflow,
+                                 uint32_t* iters = nullptr, uint32_t* outcomes = nullptr, uint8_t* rexp = nullptr) {
+  const auto task = sample_task<T>(leaves, p, w, h, bits.p, iters, outcomes, rexp);
   const auto stats = run_orbits(task, n_leaves * p.m, p.cuda);
   overflow += stats.overflow;
   return stats.iters;
@@ -628,10 +661,165 @@ void dump_leaves(const TreeParams& p, const Mem<Cell>& leaves, const int64_t l0,
   fclose(f);
 }
 
+// The leaf series of a run (areas and consecutive differences, and with compare the alternative's areas, its
+// difference from double, and flips), and where each one's sums go in R
+void leaf_series(const TreeParams& p, TreeResult& R, vector<Series>& series, vector<GroupSums*>& into,
+                 GroupSums* flips) {
+  const bool compare = p.prec.starts_with("compare");
+  const int K = p.ks.size();
+  for (int k = 0; k < K; k++) {
+    const int8_t k8 = int8_t(k), ref = int8_t(roulette_reference(p));
+    series.push_back({kArea, k8, false, ref}); into.push_back(&R.area[k]);
+    if (k + 1 < K) { series.push_back({kDiff, k8, false, ref}); into.push_back(&R.diff[k]); }
+    if (compare) {
+      series.push_back({kArea, k8, true}); into.push_back(&R.float_area[k]);
+      series.push_back({kDelta, k8, false}); into.push_back(&R.delta[k]);
+    }
+  }
+  if (compare) { series.push_back({kFlips, 0, false}); into.push_back(flips); }
+}
+
+// Deep queue (TreeParams::deep_from).  A sub-batch's leaves holding a suspended sample are saved here (their m
+// result words and roulette weights) and zeroed in the sub-batch, which makes their contribution to every series
+// exactly zero there; the suspended states wait here too, until a deep pass runs them all at full GPU width, fills
+// in their words, and reduces the saved leaves, adding exactly what the sub-batch would have.
+struct DeepQueue {
+  std::mutex mu;
+  vector<char> states;    // Suspended orbit states, packed
+  vector<int64_t> slots;  // Each state's place in bits and rexp below
+  vector<uint32_t> bits;  // Saved leaves' result words, m per leaf
+  vector<uint8_t> rexp;   // Their roulette weights (with roulette)
+};
+
+// Copy leaves[u]'s m words of bits (and rexp) to out, then zero them in bits
+struct GatherLeaves {
+  uint32_t* bits;
+  const uint8_t* rexp;
+  const int64_t* leaves;
+  int m;
+  uint32_t* out_bits;
+  uint8_t* out_rexp;
+  __host__ __device__ void operator()(const int64_t u) const {
+    const int64_t l = leaves[u];
+    for (int j = 0; j < m; j++) {
+      out_bits[u * m + j] = bits[l * m + j];
+      if (rexp) out_rexp[u * m + j] = rexp[l * m + j];
+      bits[l * m + j] = 0;
+    }
+  }
+};
+
+// Sample a sub-batch with suspension at p.deep_from, moving suspended samples and their leaves to the queue
+template<class T> int64_t sample_suspending(const Cell* leaves, const int64_t nl, const TreeParams& p,
+                                            const double w, const double h, Mem<uint32_t>& bits, Mem<uint8_t>& rexp,
+                                            int64_t& overflow, DeepQueue& q) {
+  typedef Orbit<T> State;
+  const int64_t n = nl * p.m, cap = std::max<int64_t>(int64_t(1) << 16, n / 1024);
+  Mem<State> states(cap, p.cuda);
+  Mem<int64_t> items(cap, p.cuda);
+  Mem<uint64_t> count(1, p.cuda);
+  count.zero();
+  auto task = sample_task<T>(leaves, p, w, h, bits.p, nullptr, nullptr, p.roulette_from ? rexp.p : nullptr);
+  task.suspend_at = p.deep_from;
+  task.deep_states = states.p;
+  task.deep_items = items.p;
+  task.deep_count = count.p;
+  task.deep_cap = cap;
+  const auto stats = run_orbits(task, n, p.cuda);
+  overflow += stats.overflow;
+  uint64_t c;
+  count.to_host(&c, 1);
+  slow_assert(int64_t(c) <= cap, "deep queue: %d suspended samples in a sub-batch of %d, room for %d", c, n, cap);
+  if (!c) return stats.iters;
+  vector<int64_t> hi(c);
+  vector<State> hs(c);
+  items.to_host(hi.data(), c);
+  states.to_host(hs.data(), c);
+  // Their leaves, each once
+  vector<int64_t> ls(c);
+  for (uint64_t k = 0; k < c; k++) ls[k] = hi[k] / p.m;
+  std::sort(ls.begin(), ls.end());
+  ls.erase(std::unique(ls.begin(), ls.end()), ls.end());
+  const int64_t L = ls.size();
+  Mem<int64_t> dl(L, p.cuda);
+  dl.from_host(ls.data(), L);
+  Mem<uint32_t> gb(L * p.m, p.cuda);
+  Mem<uint8_t> gr(p.roulette_from ? L * p.m : 0, p.cuda);
+  for_each(L, GatherLeaves{bits.p, p.roulette_from ? rexp.p : nullptr, dl.p, p.m, gb.p, gr.p}, p.cuda);
+  vector<uint32_t> hb(L * p.m);
+  vector<uint8_t> hr(p.roulette_from ? L * p.m : 0);
+  gb.to_host(hb.data(), hb.size());
+  gr.to_host(hr.data(), hr.size());
+  std::lock_guard<std::mutex> lock(q.mu);
+  const int64_t base = q.bits.size();
+  q.bits.insert(q.bits.end(), hb.begin(), hb.end());
+  q.rexp.insert(q.rexp.end(), hr.begin(), hr.end());
+  const char* raw = reinterpret_cast<const char*>(hs.data());
+  q.states.insert(q.states.end(), raw, raw + c * sizeof(State));
+  for (uint64_t k = 0; k < c; k++) {
+    const int64_t u = std::lower_bound(ls.begin(), ls.end(), hi[k] / p.m) - ls.begin();
+    q.slots.push_back(base + u * p.m + hi[k] % p.m);
+  }
+  return stats.iters;
+}
+
+// A deep pass: run every queued state to completion, fill in its saved leaf, and reduce the saved leaves into R
+template<class T> void deep_pass(const TreeParams& p, DeepQueue& q, TreeResult& R) {
+  typedef Orbit<T> State;
+  vector<char> raw;
+  vector<int64_t> slots;
+  vector<uint32_t> bits;
+  vector<uint8_t> rexp;
+  {
+    std::lock_guard<std::mutex> lock(q.mu);
+    std::swap(raw, q.states); std::swap(slots, q.slots); std::swap(bits, q.bits); std::swap(rexp, q.rexp);
+  }
+  const int64_t c = slots.size();
+  if (!c) return;
+  const auto t0 = std::chrono::steady_clock::now();
+  Mem<State> st(c, p.cuda);
+  st.from_host(reinterpret_cast<const State*>(raw.data()), c);
+  Mem<uint32_t> db(c, p.cuda);
+  Mem<uint8_t> dr(p.roulette_from ? c : 0, p.cuda);
+  auto task = sample_task<T>(nullptr, p, 0, 0, db.p, nullptr, nullptr, p.roulette_from ? dr.p : nullptr);
+  task.resume = st.p;
+  task.iters_offset = p.deep_from;
+  const auto stats = run_orbits(task, c, p.cuda);
+  vector<uint32_t> hb(c);
+  vector<uint8_t> hr(dr.n);
+  db.to_host(hb.data(), c);
+  dr.to_host(hr.data(), hr.size());
+  for (int64_t k = 0; k < c; k++) {
+    bits[slots[k]] = hb[k];
+    if (p.roulette_from) rexp[slots[k]] = hr[k];
+  }
+  // Reduce the saved leaves on the host, with the same integer sums as a sub-batch
+  TreeParams ph = p;
+  ph.cuda = false;
+  const int64_t L = bits.size() / p.m;
+  Mem<uint32_t> mb(bits.size(), false);
+  mb.from_host(bits.data(), bits.size());
+  vector<Series> series;
+  vector<GroupSums*> into;
+  leaf_series(p, R, series, into, nullptr);
+  const auto sums = reduce(mb, nullptr, series, ph, L, p.roulette_from ? rexp.data() : nullptr);
+  for (size_t e = 0; e < sums.size(); e++) *into[e] += sums[e];
+  R.leaf_iters += stats.iters;
+  R.overflow += stats.overflow;
+  R.deep_samples += c;
+  R.deep_passes++;
+  R.sample_secs += secs_since(t0);
+}
+
+void deep_pass(const TreeParams& p, DeepQueue& q, TreeResult& R) {
+  if (p.prec == "dd") deep_pass<Expansion<2>>(p, q, R);
+  else deep_pass<double>(p, q, R);
+}
+
 // One batch: base cells [cell0, cell1), with tree levels, leaf samples and reductions accumulated into Rb.
 // Returns false, leaving Rb partial, if a tree level would reach p.max_level_cells: the caller splits the batch.
 bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, const int64_t max_leaves,
-               TreeResult& Rb) {
+               TreeResult& Rb, DeepQueue& deep) {
   const int K = p.ks.size();
   const bool compare = p.prec.starts_with("compare"), single = p.prec == "float";
 
@@ -713,12 +901,16 @@ bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     uint32_t* fop = p.flip_stats ? foutcomes.p : nullptr;
     Mem<uint8_t> rexp(p.roulette_from ? nl * p.m : 0, p.cuda);
     uint8_t* rp = p.roulette_from ? rexp.p : nullptr;
-    Rb.leaf_iters += single ? sample<float>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip)
-                   : p.prec == "dd" ? sample<Expansion<2>>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip, op, rp)
-                                    : sample<double>(leaves.p + l0, nl, p, w, h, bits, Rb.overflow, ip, op, rp);
+    const Cell* lp = leaves.p + l0;
+    if (p.deep_from)
+      Rb.leaf_iters += p.prec == "dd" ? sample_suspending<Expansion<2>>(lp, nl, p, w, h, bits, rexp, Rb.overflow, deep)
+                                      : sample_suspending<double>(lp, nl, p, w, h, bits, rexp, Rb.overflow, deep);
+    else
+      Rb.leaf_iters += single ? sample<float>(lp, nl, p, w, h, bits, Rb.overflow, ip)
+                     : p.prec == "dd" ? sample<Expansion<2>>(lp, nl, p, w, h, bits, Rb.overflow, ip, op, rp)
+                                      : sample<double>(lp, nl, p, w, h, bits, Rb.overflow, ip, op, rp);
     if (compare) {
       // The alternative precision: float, or double rounded to fewer bits
-      const Cell* lp = leaves.p + l0;
       Rb.leaf_iters += p.prec == "compare24" ? sample<Rounded<24>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
                     : p.prec == "compare27" ? sample<Rounded<27>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
                     : p.prec == "compare30" ? sample<Rounded<30>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
@@ -744,16 +936,7 @@ bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     vector<Series> series;
     vector<GroupSums*> into;
     GroupSums flips;
-    for (int k = 0; k < K; k++) {
-      const int8_t k8 = int8_t(k), ref = int8_t(roulette_reference(p));
-      series.push_back({kArea, k8, false, ref}); into.push_back(&Rb.area[k]);
-      if (k + 1 < K) { series.push_back({kDiff, k8, false, ref}); into.push_back(&Rb.diff[k]); }
-      if (compare) {
-        series.push_back({kArea, k8, true}); into.push_back(&Rb.float_area[k]);
-        series.push_back({kDelta, k8, false}); into.push_back(&Rb.delta[k]);
-      }
-    }
-    if (compare) { series.push_back({kFlips, 0, false}); into.push_back(&flips); }
+    leaf_series(p, Rb, series, into, &flips);
     const auto sums = reduce(bits, compare ? &fbits : nullptr, series, p, nl, p.roulette_from ? rexp.p : nullptr);
     for (size_t e = 0; e < sums.size(); e++) *into[e] += sums[e];
     Rb.flips += flips.s;
@@ -775,6 +958,14 @@ bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
         for (int64_t j = 0; j < size; j++) Rb.alloc[j] += h[c * size + j];
     }
     Rb.reduce_secs += secs_since(t3);
+  }
+  if (p.deep_from) {
+    int64_t queued;
+    {
+      std::lock_guard<std::mutex> lock(deep.mu);
+      queued = deep.slots.size();
+    }
+    if (queued >= p.deep_batch) deep_pass(p, deep, Rb);
   }
   Rb.leaves += n_leaves;
   Rb.batches++;
@@ -810,6 +1001,7 @@ void merge(TreeResult& R, const TreeResult& Rb) {
   for (size_t i = 0; i < R.flip_stats.size(); i++) R.flip_stats[i] += Rb.flip_stats[i];
   R.leaves += Rb.leaves; R.centers += Rb.centers; R.center_iters += Rb.center_iters; R.leaf_iters += Rb.leaf_iters;
   R.overflow += Rb.overflow; R.flips += Rb.flips; R.batches += Rb.batches;
+  R.deep_samples += Rb.deep_samples; R.deep_passes += Rb.deep_passes;
   R.tree_secs += Rb.tree_secs; R.center_kernel_secs += Rb.center_kernel_secs; R.sample_secs += Rb.sample_secs;
   R.reduce_secs += Rb.reduce_secs;
 }
@@ -872,6 +1064,9 @@ TreeResult empty_result(const TreeParams& p) {
   slow_assert(p.tiles >= 0 && p.tiles <= 64, "tiles must be in [0, 64]");
   if (p.tiles) { R.tile_diff.resize(int64_t(p.tiles) * p.tiles * K); R.tile_cert.assign(int64_t(p.tiles) * p.tiles * K, 0); }
   slow_assert(!p.flip_stats || p.prec.starts_with("compare"), "flip_stats needs a compare precision");
+  slow_assert(!p.deep_from || ((p.prec == "double" || p.prec == "dd") && !p.tiles && !p.leaf_stats &&
+                               p.dump.empty() && p.deep_from % 8 == 0 && p.deep_batch > 0),
+              "deep queue needs prec double or dd, no tiles, leaf stats or dump, and deep_from a multiple of 8");
   if (p.roulette_from) {
     slow_assert((p.prec == "double" || p.prec == "dd") && !p.tiles && !p.leaf_stats,
                 "roulette needs prec double or dd, no tiles or leaf stats");
@@ -917,6 +1112,7 @@ TreeResult run_tree(const TreeParams& p) {
   // full-GPU work.
   const int64_t total = rows * p.base, max_leaves = std::min<int64_t>(p.batch, ((int64_t(1) << 31) - 1) / p.m);
   std::mutex mu;
+  DeepQueue deep;  // Suspended samples (p.deep_from), shared by the workers
   // A small first batch, to estimate density: 64 base cells, fewer for deep trees, whose dense base cells have
   // many more leaves.  Batches that reach 2^31 cells in a level are split (run_batch).
   const int64_t first = std::max<int64_t>(1, 64 >> std::min(6, 2 * std::max(0, p.depth - 8)));
@@ -937,7 +1133,7 @@ TreeResult run_tree(const TreeParams& p) {
       // Run [a, b), halving it while a tree level would be too large
       const std::function<void(int64_t, int64_t)> go = [&](const int64_t a, const int64_t b) {
         TreeResult Rb = empty_like(R);
-        if (!run_batch(p, a, b, max_leaves, Rb)) {
+        if (!run_batch(p, a, b, max_leaves, Rb, deep)) {
           const int64_t m = a + (b - a) / 2;
           go(a, m);
           go(m, b);
@@ -969,6 +1165,12 @@ TreeResult run_tree(const TreeParams& p) {
     vector<std::thread> pool;
     for (int t = 0; t < threads; t++) pool.emplace_back(worker);
     for (auto& t : pool) t.join();
+  }
+  if (p.deep_from) {
+    // The last deep pass, for whatever is still queued
+    TreeResult Rb = empty_like(R);
+    deep_pass(p, deep, Rb);
+    merge(R, Rb);
   }
   R.secs = secs_since(t0);
   return R;

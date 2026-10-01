@@ -70,6 +70,11 @@ struct TreeParams {
   // variance: an octave's escapes fall like 2^-j, so its added variance falls like 2^-j/2, as does its cost.
   int64_t max_level_cells = int64_t(1) << 31;  // Batches split while a tree level reaches this (tests lower it)
   double progress = 0;       // If positive, print progress at most this often (seconds)
+  // Deep queue (0: off): leaf samples still unsettled at step deep_from (a multiple of 8) are suspended, and
+  // resumed in deep passes of at least deep_batch samples from many batches together, so that each batch's sampling
+  // is not held up by its few long orbits.  Results are bit-identical with and without it.
+  int64_t deep_from = 0;
+  int64_t deep_batch = int64_t(1) << 23;
   string dump;               // If set, append each leaf's cell and sample outcome codes here (see dump_leaves)
   int64_t roulette_from = 0;
   int roulette_log2 = 1;
@@ -104,6 +109,7 @@ struct TreeResult {
   vector<int64_t> tile_cert;          // With tiles: [tile * K + k] area certified below k, in finest cells
   vector<int64_t> flip_stats;         // With flip_stats: see FlipChunk in tree.cc (flip_stats_size(K) entries)
   int64_t leaves = 0, centers = 0, center_iters = 0, leaf_iters = 0, overflow = 0, flips = 0, batches = 0;
+  int64_t deep_samples = 0, deep_passes = 0;  // Deep queue statistics (not saved)
   double tree_secs = 0, center_kernel_secs = 0, sample_secs = 0, reduce_secs = 0, secs = 0;
 
   // Areas over the whole plane (twice the upper half), consecutive differences, float - double, and

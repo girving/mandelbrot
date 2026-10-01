@@ -52,6 +52,9 @@ void report(const TreeResult& R) {
   if (p.roulette_from)
     print("  roulette from Newton step %d, at every %d, keeping 2^-%d per decision", p.roulette_from, p.roulette_stride,
           p.roulette_log2);
+  if (p.deep_from)
+    print("  deep queue from step %d: %d samples suspended, %d deep passes (batches of %d)", p.deep_from,
+          R.deep_samples, R.deep_passes, p.deep_batch);
   print("  sampling throughput: %.3g iterations/s", double(R.leaf_iters) / R.sample_secs);
   print("  centers: %.3g cells, %.3g iterations; leaves: %.3g leaves, %.3g samples, %.3g iterations; "
         "%d orbits overflowed", double(R.centers), double(R.center_iters), double(R.leaves),
@@ -192,6 +195,10 @@ int main(const int argc, const char** argv) {
         .scan<'i', int>().default_value(1);
     program.add_argument("--flip-stats").help("with a compare precision: classify samples whose classifications differ")
         .default_value(false).implicit_value(true);
+    program.add_argument("--deep-from").help("suspend leaf samples unsettled at this step (a multiple of 8) for "
+                                             "deep passes (0: off)").scan<'i', int64_t>().default_value(int64_t(0));
+    program.add_argument("--deep-batch").help("suspended samples per deep pass").scan<'i', int64_t>()
+        .default_value(int64_t(1) << 23);
     program.add_argument("--progress").help("print progress at most every this many seconds (0: never)")
         .scan<'g', double>().default_value(0.0);
     program.add_argument("--dump").help("append each leaf's cell and sample outcome codes to this file (analysis)")
@@ -242,6 +249,8 @@ int main(const int argc, const char** argv) {
     p.flip_stats = program.get<bool>("--flip-stats");
     p.dump = program.get<string>("--dump");
     p.progress = program.get<double>("--progress");
+    p.deep_from = program.get<int64_t>("--deep-from");
+    p.deep_batch = program.get<int64_t>("--deep-batch");
     p.roulette_from = program.get<int64_t>("--roulette-from");
     p.roulette_log2 = program.get<int>("--roulette-log2");
     p.roulette_stride = program.get<int>("--roulette-stride");

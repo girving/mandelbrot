@@ -263,6 +263,36 @@ TEST(split_batches) {
   }
 }
 
+TEST(deep_queue) {
+  // Suspending long samples into deep passes changes no result: every sum is bit-identical, plain and with roulette
+  for (const bool roulette : {false, true}) {
+    auto p = small_params();
+    if (roulette) {
+      p.first_newton = 512;
+      p.max_iter = (1 << 16) + 8;
+      p.ks = {1024, 2048, 4096, 8192, 16384, 32768, 65536};
+      p.roulette_from = 2048;
+    }
+    const auto a = run_tree(p);
+    p.deep_from = roulette ? 2064 : 1032;
+    p.deep_batch = roulette ? 20 : 200;
+    const auto b = run_tree(p);
+    print("  roulette %d: %d samples suspended, %d deep passes", int(roulette), b.deep_samples, b.deep_passes);
+    ASSERT_LT(1, b.deep_passes);
+    ASSERT_EQ(a.leaf_iters, b.leaf_iters);
+    for (int k = 0; k < int(p.ks.size()); k++) {
+      ASSERT_EQ(a.area[k].s, b.area[k].s);
+      ASSERT_EQ(a.area[k].q, b.area[k].q);
+      ASSERT_EQ(a.area[k].p, b.area[k].p);
+      if (k + 1 < int(p.ks.size())) {
+        ASSERT_EQ(a.diff[k].s, b.diff[k].s);
+        ASSERT_EQ(a.diff[k].q, b.diff[k].q);
+        ASSERT_EQ(a.diff[k].p, b.diff[k].p);
+      }
+    }
+  }
+}
+
 TEST(roulette_unbiased) {
   // Russian roulette reweights escapes past the reference threshold without bias: estimates match the full run
   // within their extra noise (identically below the first decision)
@@ -455,6 +485,21 @@ TEST(cuda_matches_cpu) {
         print("  k %d: cpu %.12f, cuda %.12f, std err %.2e", p.ks[k], ec, eg, sd);
         ASSERT_LE(std::abs(ec - eg), 0.1 * sd + 1e-12);
       }
+    }
+    // The deep queue on the GPU: bit-identical to the GPU without it
+    p.prec = "double";
+    p.cuda = true;
+    const auto g0 = run_tree(p);
+    p.deep_from = 1032;
+    p.deep_batch = 200;
+    const auto g1 = run_tree(p);
+    print("cuda deep queue: %d samples suspended, %d deep passes", g1.deep_samples, g1.deep_passes);
+    ASSERT_LT(1, g1.deep_passes);
+    ASSERT_EQ(g0.leaf_iters, g1.leaf_iters);
+    for (int k = 0; k < int(p.ks.size()); k++) {
+      ASSERT_EQ(g0.area[k].s, g1.area[k].s);
+      ASSERT_EQ(g0.area[k].q, g1.area[k].q);
+      ASSERT_EQ(g0.area[k].p, g1.area[k].p);
     }
   })
 }
