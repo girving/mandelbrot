@@ -89,9 +89,20 @@ if [ -n "${SHARDED:-}" ]; then
   done
   failed=0
   for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid" || failed=1; done
-  for ((s = first; s <= last; s++)); do echo "--- shard $s"; tail -n 12 "$DIR/shard-$s.log" || true; done
+  for ((s = first; s <= last; s++)); do
+    echo "--- shard $s"
+    # A single shard's whole log (progress lines included); otherwise the end of each
+    if [ -n "${SHARD:-}" ]; then cat "$DIR/shard-$s.log" || true; else tail -n 12 "$DIR/shard-$s.log" || true; fi
+  done
   [ $failed = 0 ] || { echo "some shards failed; rerun to finish them"; exit 1; }
-  if [ -n "${SHARD:-}" ]; then step "Done with shard $SHARD of $RUN_NAME"; exit 0; fi
+  if [ -n "${SHARD:-}" ]; then
+    # The saved result, for runs whose /data does not outlive the job (idle_shards.py "storage": "local")
+    echo "=== RESULT BEGIN $RUN_NAME shard $SHARD"
+    cat "$DIR/shard-$SHARD.txt"
+    echo "=== RESULT END"
+    step "Done with shard $SHARD of $RUN_NAME"
+    exit 0
+  fi
   files=$(IFS=,; f=(); for ((s = 0; s < SHARDS; s++)); do f+=("$DIR/shard-$s.txt"); done; echo "${f[*]}")
   run $prog --merge "$files" "$@"
 elif [ -n "${RUNS:-}" ]; then

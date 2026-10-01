@@ -6,8 +6,14 @@
 RUNS.json lists runs: [{"name": ..., "shards": N, "command": "./build/release/escape_tree --cuda ... ks",
 "build64": false, "timeout": seconds per shard}, ...], with optional "free_gpus" (GPUs that must stay unused
 for a shard to start, overriding FREE_GPUS), "max_active" (a cap on the run's concurrently active shards),
-"commit" (the branch or tag to build, default hybrid-area), "env" (extra environment variables), and "only":
-[shard indices] (run just those, with no merge: a pilot, each shard's log holding its own report).  Shard results persist in /data/results/<name> on
+"commit" (the branch or tag to build, default hybrid-area), "env" (extra environment variables), "storage":
+"local" (see below), and "only": [shard indices] (run just those, with no merge: a pilot, each shard's log
+holding its own report).
+
+The PVC is ReadWriteOnce, so jobs on different nodes cannot share it: a second job waits, admitted and holding
+its GPU, until the first ends.  With "storage": "local", jobs mount a node-local emptyDir at /data instead
+(building their conda environment there, a few minutes), each finished shard's result is copied from its log
+to scratch/results/<name>/shard-<s>.txt, and the merge runs locally (LOCAL_ESCAPE_TREE) once all are in.  Shard results persist in /data/results/<name> on
 the PVC (cluster/bench.sh's SHARDED mode), so rerunning this after an interruption only redoes missing shards.
 
 The GPU queue has no priority classes and no preemption, so politeness is enforced here: a shard is submitted
@@ -19,11 +25,13 @@ result.
 """
 import calendar
 import json
+import os
 import subprocess
 import sys
 import time
 
 NAMESPACE, QUEUE, FREE_GPUS, SHORT_FREE_GPUS, MAX_JOBS, TOTAL_GPUS = 'research', 'gpu', 64, 16, 8, 248
+LOCAL_ESCAPE_TREE = './build/release64/escape_tree'  # For local merges
 REPO = 'girving/mandelbrot'
 
 
@@ -76,6 +84,8 @@ def job_yaml(name, run, shard, gpus=1):
         env['BUILD64'] = '1'
     env.update(run.get('env', {}))  # Extra environment, e.g. MANDELBROT_CUDA_TIMING
     envs = ''.join(f'            - name: {k}\n              value: {json.dumps(v)}\n' for k, v in env.items())
+    data = ('emptyDir:\n            sizeLimit: 40Gi' if run.get('storage') == 'local' else
+            'persistentVolumeClaim:\n            claimName: irving-mandelbrot')
     deadline = int(run.get('timeout', 7200)) + 3600
     return f'''apiVersion: batch/v1
 kind: Job
@@ -101,8 +111,7 @@ spec:
           type: RuntimeDefault
       volumes:
         - name: data
-          persistentVolumeClaim:
-            claimName: irving-mandelbrot
+          {data}
         - name: work
           emptyDir:
             sizeLimit: 1Gi
@@ -149,6 +158,42 @@ spec:
 '''
 
 
+def local_dir(run):
+    return os.path.join('scratch', 'results', run['name'])
+
+
+def collect(run, s, name):
+    """Copy a finished shard's result from its job log (storage local); True once it is saved"""
+    path = os.path.join(local_dir(run), f'shard-{s}.txt')
+    if os.path.exists(path):
+        return True
+    log = kubectl('logs', f'job/{name}', '-c', 'main')
+    begin = f'=== RESULT BEGIN {run["name"]} shard {s}\n'
+    if begin not in log:
+        raise RuntimeError(f'{name}: no result in its log')
+    text = log.split(begin, 1)[1].split('=== RESULT END', 1)[0]
+    os.makedirs(local_dir(run), exist_ok=True)
+    with open(path + '.tmp', 'w') as f:
+        f.write(text)
+    os.rename(path + '.tmp', path)
+    print(f'{time.strftime("%H:%M:%S")} collected {path}', flush=True)
+    return True
+
+
+def merge_locally(run):
+    """Merge a run's collected shard results with the local build; returns the report's path"""
+    args = run['command'].split()[1:]
+    args = [a for a in args if a != '--cuda']
+    files = ','.join(os.path.join(local_dir(run), f'shard-{s}.txt') for s in range(run['shards']))
+    out = os.path.join(local_dir(run), 'merge.txt')
+    r = subprocess.run([LOCAL_ESCAPE_TREE, '--merge', files, *args], capture_output=True, text=True, timeout=1800)
+    with open(out, 'w') as f:
+        f.write(r.stdout + r.stderr)
+    if r.returncode:
+        raise RuntimeError(f'local merge of {run["name"]} failed; see {out}')
+    return out
+
+
 def main():
     # Transient kubectl failures (an expired token, API hiccups) should not end a long run: wait and retry
     while True:
@@ -183,6 +228,15 @@ def loop():
                     merged.add(run['name'])
                     print(f'{time.strftime("%H:%M:%S")} pilot {run["name"]} done: '
                           f'{[states[(run["name"], s)] for s in run["only"]]}', flush=True)
+                continue
+            if run.get('storage') == 'local':
+                done = [s for s in range(run['shards']) if states[(run['name'], s)] == 'complete']
+                for s in done:
+                    collect(run, s, shard_name(run, s))
+                if len(done) == run['shards']:
+                    out = merge_locally(run)
+                    merged.add(run['name'])
+                    print(f'{time.strftime("%H:%M:%S")} merged {run["name"]} locally: {out}', flush=True)
                 continue
             if all(states[(run['name'], s)] == 'complete' for s in range(run['shards'])):
                 st = job_status(merge_name(run))
