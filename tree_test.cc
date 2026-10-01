@@ -251,15 +251,22 @@ TEST(shards_merge_exactly) {
 
 TEST(split_batches) {
   // Batches whose tree levels reach max_level_cells split in half and retry, without changing any result
+  // (2000 splits deeper levels' cell lists; 30 also splits base cell ranges)
   auto p = small_params();
   const auto a = run_tree(p);
-  p.max_level_cells = 2000;
-  const auto b = run_tree(p);
-  ASSERT_LT(a.batches, b.batches);
-  ASSERT_EQ(a.leaves, b.leaves);
-  for (int k = 0; k < int(p.ks.size()); k++) {
-    ASSERT_EQ(a.area[k].s, b.area[k].s);
-    ASSERT_EQ(a.area[k].q, b.area[k].q);
+  for (const int64_t limit : {2000, 30}) {
+    p.max_level_cells = limit;
+    const auto b = run_tree(p);
+    ASSERT_LT(a.batches, b.batches);
+    ASSERT_EQ(a.leaves, b.leaves);
+    ASSERT_EQ(a.leaf_iters, b.leaf_iters);
+    ASSERT_EQ(a.centers, b.centers);
+    for (size_t i = 0; i < a.certified.size(); i++) ASSERT_EQ(a.certified[i], b.certified[i]);
+    for (int k = 0; k < int(p.ks.size()); k++) {
+      ASSERT_EQ(a.area[k].s, b.area[k].s);
+      ASSERT_EQ(a.area[k].q, b.area[k].q);
+      ASSERT_EQ(a.area[k].p, b.area[k].p);
+    }
   }
 }
 
