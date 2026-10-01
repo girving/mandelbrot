@@ -777,7 +777,43 @@ With the tail model (±6e-12 … 1.2e-11) and precision (a few 1e-12), the total
   (~4000 ops per sample) and reworking error bars.  Pooling models across neighbouring leaves might reach
   3–5× on A(2^22), still capped at ~2.3× overall.
 - Leaf first Newton step: 8192 → 2048 saves 7.7% of iterations (5% CPU time) at depth 10, estimates
-  identical; untested on the GPU, where Newton attempts cost more.
+  identical; on the GPU (depth 15 pilot below) it is 23% slower.
+
+*Engine work for the depth-15 run (2026-10-01).*  The CPU-based budget missed GPU latencies; each was found
+by a pilot (base rows 0 and 633 of base 1266 at depth 15, the production command, one H200) and fixed with
+results bit-identical (unit tests, and identical pilot estimates throughout: 4.2540360431e-03 ± 1.45e-12):
+- Deep queue (`--deep-from 2^23+8`): continuing to 2^32 made each batch wait ~11.5 s for its few long orbits
+  (depth 8: 10.3× the time for 1.23× the iterations).  Samples unsettled at deep_from are suspended; their
+  leaves' words are saved and zeroed in the batch, and deep passes of 2^23 states from many batches finish
+  them at full width, then reduce the saved leaves with the same integer sums.
+- Memory: tree levels may reach 2^31 cells at ~90 bytes per cell (center states 160 bytes, parked twice), so
+  `--max-level-cells 2^27` splits batches, and a level too large even for one base cell (2.6e8 cells on the
+  real axis) has its cell list split into independent subtrees continued from that level.  The device pool
+  is trimmed and the allocation retried once on out-of-memory.
+- Tree overhead: with every batch building all 16 levels, tree time equalled sampling time (1958 vs 2242
+  worker-seconds over 1281 batches; the centers' 4e13 iterations are ~40 s of GPU work, so this is latency:
+  ~95 ms per level step).  `--split-depth` builds the levels below it once for runs of base cells and batches
+  the cells there.
+- Storage: the PVC is ReadWriteOnce, so jobs on different nodes wait for each other while holding GPUs;
+  production shards use node-local /data (the conda environment builds in ~15 s) and return results in their
+  logs, merged locally.
+
+| pilot (2 rows, 3.12e10 leaves, 1.28e15 leaf iterations) | time | tree (worker-s) | peak GPU memory |
+|---|---|---|---|
+| batch 2^25, overlap 2 | 2336.7 s | 1958 | 48 GB |
+| batch 2^26, overlap 3 | 2103.5 s | 3141 | 113 GB |
+| split depth 8 | 2027.4 s | 1001 | 41 GB |
+| split depth 11 | 1861.5 s | 689 | 38 GB |
+| split depth 11, first Newton 2048 | 2296.2 s | 744 | 38 GB |
+| split depth 11, batch 2^26 | 2025.1 s | 1367 | 72 GB |
+| split depth 11, overlap 3 | **1633.7 s** | 1072 | 57 GB |
+| split depth 12, overlap 3 | 1656.7 s | 1168 | 55 GB |
+| split depth 13, overlap 3 | 2071.7 s | 2267 | 53 GB |
+
+The pilot rows hold 2.1× the average leaves (production: ~9.4e12), so the whole run is ~1634 / 2.1 × 633 ≈
+4.9e5 s ≈ 136 H200-hours, sampling at ~7.8e11 it/s overall (~21% of FP64 peak).  Engine timing shows the main
+sampling pass using ~55% of warp lanes, the next place to look.  The two rows alone give A(2^32) ± 1.45e-12,
+~2.5e-11 for the whole run.
 
 ## 6. Reproducing
 
