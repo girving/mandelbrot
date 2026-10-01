@@ -6,8 +6,8 @@
 RUNS.json lists runs: [{"name": ..., "shards": N, "command": "./build/release/escape_tree --cuda ... ks",
 "build64": false, "timeout": seconds per shard}, ...], with optional "free_gpus" (GPUs that must stay unused
 for a shard to start, overriding FREE_GPUS), "max_active" (a cap on the run's concurrently active shards),
-"commit" (the branch or tag to build, default hybrid-area), and "only": [shard indices] (run just those, with
-no merge: a pilot, each shard's log holding its own report).  Shard results persist in /data/results/<name> on
+"commit" (the branch or tag to build, default hybrid-area), "env" (extra environment variables), and "only":
+[shard indices] (run just those, with no merge: a pilot, each shard's log holding its own report).  Shard results persist in /data/results/<name> on
 the PVC (cluster/bench.sh's SHARDED mode), so rerunning this after an interruption only redoes missing shards.
 
 The GPU queue has no priority classes and no preemption, so politeness is enforced here: a shard is submitted
@@ -74,6 +74,7 @@ def job_yaml(name, run, shard, gpus=1):
         env['SHARD'] = str(shard)
     if run.get('build64'):
         env['BUILD64'] = '1'
+    env.update(run.get('env', {}))  # Extra environment, e.g. MANDELBROT_CUDA_TIMING
     envs = ''.join(f'            - name: {k}\n              value: {json.dumps(v)}\n' for k, v in env.items())
     deadline = int(run.get('timeout', 7200)) + 3600
     return f'''apiVersion: batch/v1
