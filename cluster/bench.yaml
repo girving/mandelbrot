@@ -1,0 +1,90 @@
+# One-H200 benchmark of escape_tree (cluster/bench.sh), after cluster/pvc.yaml:
+#   kubectl apply -f cluster/bench.yaml
+#   kubectl -n research get workloads,jobs,pods -w
+#   kubectl -n research logs -f job/irving-mandelbrot-bench
+#   kubectl -n research delete job irving-mandelbrot-bench      # before resubmitting
+# The first run also creates the conda environment on the PVC (a few minutes).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: irving-mandelbrot-bench
+  namespace: research
+  labels:
+    kueue.x-k8s.io/queue-name: gpu
+spec:
+  activeDeadlineSeconds: 3600
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: irving-mandelbrot
+        - name: work
+          emptyDir:
+            sizeLimit: 1Gi
+      initContainers:
+        # Fetch micromamba (once) and the benchmark script at COMMIT
+        - name: fetch
+          image: curlimages/curl:8.16.0
+          env:
+            - name: COMMIT
+              value: hybrid-area
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              mkdir -p /data/bin
+              [ -x /data/bin/micromamba ] || {
+                curl -fsSL -o /data/bin/micromamba \
+                  https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-linux-64
+                chmod +x /data/bin/micromamba; }
+              # The contents API, not raw.githubusercontent.com, which serves stale files for minutes
+              curl -fsSL -H "Accept: application/vnd.github.raw" -o /work/bench.sh \
+                "https://api.github.com/repos/girving/mandelbrot/contents/cluster/bench.sh?ref=$COMMIT"
+              grep -m1 "^ENV=" /work/bench.sh
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: work, mountPath: /work }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: { cpu: "1", memory: 1Gi }
+            limits: { memory: 1Gi }
+      containers:
+        - name: main
+          image: nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu24.04
+          env:
+            - name: COMMIT
+              value: hybrid-area
+            - name: MANDELBROT_THREADS
+              value: "22"
+            - name: RUNS  # Commands, one per line, optionally prefixed by VAR=value (empty: the default benchmark)
+              value: ""
+            - name: HOME
+              value: /tmp
+          command: ["bash", "/work/bench.sh"]
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: work, mountPath: /work }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # One GPU's share of an 8-GPU node (176 vCPUs, 1960 GB)
+          resources:
+            requests: { cpu: "22", memory: 64Gi }
+            limits: { memory: 64Gi, nvidia.com/gpu: 1 }

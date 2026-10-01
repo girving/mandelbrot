@@ -25,6 +25,7 @@ foreach p : libpaths
 endforeach
 
 add_global_arguments('-stdlib=libc++', language: 'cpp')
+add_global_link_arguments('-stdlib=libc++', language: 'cpp')  # Not the default on Linux
 add_global_arguments('-Wsign-compare', language: 'cpp')
 add_global_arguments('-Wno-gnu-statement-expression', language: 'cpp')
 add_global_arguments('-Wno-unused-parameter', language: 'cpp')
@@ -44,13 +45,16 @@ png = dependency('libpng')
 cuda = dependency('cuda', version: '>=11.3', required: false)
 if cuda.found()
   add_global_arguments('-I/usr/local/cuda/include', language: 'cpp')
-  add_global_arguments('-x', 'cuda', '--cuda-gpu-arch=sm_80', language: 'cpp')
+  add_global_arguments('-x', 'cuda', '--cuda-gpu-arch=sm_80', '--cuda-gpu-arch=sm_90', language: 'cpp')
   add_global_arguments('-Wno-unknown-cuda-version', language: 'cpp')
-
-  # Clang defaults to -ffp-contract=fast with CUDA, which breaks expansion arithmetic
-  #   https://llvm.org/docs/CompileCudaWithLLVM.html#flags-that-control-numerical-code
-  add_global_arguments('-ffp-contract=off', language: 'cpp')
+  # CUDA ≥ 12 rejects libc++ on x86 unless asked; clang's CUDA support works with it
+  add_global_arguments('-D_ALLOW_UNSUPPORTED_LIBCPP', language: 'cpp')
 endif
+
+# No implicit FMA contraction anywhere: it breaks expansion arithmetic, and without it CPU and GPU builds
+# (and Mac and Linux) do identical arithmetic.  Clang defaults to -ffp-contract=fast with CUDA, and to on.
+#   https://llvm.org/docs/CompileCudaWithLLVM.html#flags-that-control-numerical-code
+add_global_arguments('-ffp-contract=off', language: 'cpp')
 
 # Download tinyformat.h
 tinyformat = custom_target('tinyformat', output: 'tinyformat.h',
@@ -65,7 +69,7 @@ argparse = custom_target('argparse', output: 'argparse.hpp',
 
 base_deps = openmp + (cuda.found() ? [cuda] : [])
 base = declare_dependency(
-    link_with: library('base', ['cutil.cc', 'debug.cc', 'loops.cc', 'numpy.cc', 'print.cc', 'shutdown.cc',
+    link_with: library('base', ['angles.cc', 'cutil.cc', 'debug.cc', 'loops.cc', 'numpy.cc', 'print.cc', 'shutdown.cc',
                                 tinyformat, argparse], dependencies: base_deps),
     sources: [tinyformat, argparse], dependencies: base_deps)
 tests = declare_dependency(
@@ -91,16 +95,22 @@ generated = [
     custom_target('gen_butterflies', output: 'gen-butterflies.h', command: [codelets, '@OUTPUT@']),
 ]
 area = declare_dependency(
-    link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc'] + generated,
+    link_with: library('area', ['area.cc', 'expansion.cc', 'series.cc', 'fft.cc', 'nearest.cc', 'octaves.cc'] + generated,
                        dependencies: [base, arb_cc, known, m]),
     sources: generated, dependencies: [arb_cc, known, m])
 
+test('angles', executable('angles_test', ['angles_test.cc'], dependencies: [tests]))
+test('tests', executable('tests_test', ['tests_test.cc'], dependencies: [tests]))
+test('escape', executable('escape_test', ['escape_test.cc', 'escape.cc'], dependencies: [tests]))
+test('tree', executable('tree_test', ['tree_test.cc', 'tree.cc', 'engine.cc', 'escape.cc'], dependencies: [area, tests]))
 test('bit', executable('bit_test', ['bit_test.cc'], dependencies: [tests]))
+test('numpy', executable('numpy_test', ['numpy_test.cc'], dependencies: [tests]))
 test('expansion', executable('expansion_test', ['expansion_test.cc'], dependencies: [area, tests]))
 test('loops', executable('loops_test', ['loops_test.cc'], dependencies: [base, tests]))
 test('arb_area', executable('arb_area_test', ['arb_area_test.cc'], dependencies: [arb_area, tests]))
 test('poly', executable('poly_test', ['poly_test.cc'], dependencies: [arb_area, tests]))
 test('fft', executable('fft_test', ['fft_test.cc'], dependencies: [area, tests]))
+test('octaves', executable('octaves_test', ['octaves_test.cc'], dependencies: [area, tests]))
 test('series', executable('series_test', ['series_test.cc'], dependencies: [area, tests]))
 test('area', executable('area_test', ['area_test.cc'], dependencies: [area, arb_area, tests]))
 if cuda.found()
@@ -113,3 +123,15 @@ executable('mandelbrot', ['mandelbrot.cc'], dependencies: [area, arb_area])
 executable('logo', ['logo.cc'], dependencies: [area, png])
 executable('series-to-npy', ['series-to-npy.cc'], dependencies: [area])
 executable('series-exp', ['series-exp.cc'], dependencies: [area])
+executable('hyperbolic', ['hyperbolic.cc'], dependencies: [area])
+executable('renorm', ['renorm.cc'], dependencies: [base])
+executable('octscan', ['octscan.cc'], dependencies: [area])
+executable('rootsum', ['rootsum.cc'], dependencies: [area])
+executable('tuning', ['tuning.cc'], dependencies: [base])
+executable('fattened', ['fattened.cc'], dependencies: [base])
+executable('census', ['census.cc'], dependencies: [area])
+executable('escape_area', ['escape_area.cc', 'escape.cc'], dependencies: [base])
+executable('escape_tree', ['escape_tree.cc', 'tree.cc', 'engine.cc', 'escape.cc'], dependencies: [area])
+executable('orbit_bench', ['orbit_bench.cc', 'engine.cc'], dependencies: [base])
+executable('orbit_census', ['orbit_census.cc', 'engine.cc', 'escape.cc'], dependencies: [base])
+executable('orbit_regimes', ['orbit_regimes.cc', 'engine.cc', 'escape.cc'], dependencies: [base])

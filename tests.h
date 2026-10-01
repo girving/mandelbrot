@@ -25,6 +25,10 @@ string blue(const string& s);
   __attribute__((unused)) const int name##_ignored = register_test(#name, name##_test); \
   void name##_test()
 
+// On failure, ASSERTs stream an optional message into cout, then throw.  Each ASSERT is a single expression
+//   ({ check; }) ? (void)0 : DieOnAssign() = cout << message...
+// so it nests safely in unbraced if/else, and since the trailing << binds inside the third operand of ?:, the
+// message is only evaluated on failure.
 struct DieOnAssign {
   void operator=(const ostream&) { print(); throw test_error(); }
 };
@@ -47,11 +51,12 @@ test_compare(const char* sx, X&& x, const char* sy, Y&& y, Op&& op, const char* 
 }
 
 #define ASSERT2(x, y, op, nop) \
-  if (test_compare(#x, (x), #y, (y), op, nop, __FUNCTION__, __LINE__)); \
-  else DieOnAssign() = cout
+  ({ test_compare(#x, (x), #y, (y), op, nop, __FUNCTION__, __LINE__); }) ? (void)0 : DieOnAssign() = cout
 
-#define ASSERT_TRUE(x) if (test_bool(#x, (x), true, __FUNCTION__, __LINE__)); else DieOnAssign() = cout
-#define ASSERT_FALSE(x) if (test_bool(#x, (x), false, __FUNCTION__, __LINE__)); else DieOnAssign() = cout
+#define ASSERT_TRUE(x) \
+  ({ test_bool(#x, (x), true, __FUNCTION__, __LINE__); }) ? (void)0 : DieOnAssign() = cout
+#define ASSERT_FALSE(x) \
+  ({ test_bool(#x, (x), false, __FUNCTION__, __LINE__); }) ? (void)0 : DieOnAssign() = cout
 
 #define ASSERT_EQ(x, y) ASSERT2(x, y, std::equal_to(), "!=")
 #define ASSERT_NE(x, y) ASSERT2(x, y, std::not_equal_to(), "!!=")

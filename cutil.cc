@@ -18,8 +18,20 @@ private:
 public:
 
   Stream() {
+    // Keep freed stream-ordered allocations (Mem) in the device's pool: by default the pool returns them to the OS
+    // at each synchronize, so every batch's buffers (gigabytes of leaf bits) would be mapped afresh
+    static const bool pooled = [] {
+      int device;
+      cuda_check(cudaGetDevice(&device));
+      cudaMemPool_t pool;
+      cuda_check(cudaDeviceGetDefaultMemPool(&pool, device));
+      uint64_t threshold = UINT64_MAX;
+      cuda_check(cudaMemPoolSetAttribute(pool, cudaMemPoolAttrReleaseThreshold, &threshold));
+      return true;
+    }();
+    (void)pooled;
     CUstream p;
-    cuda_check(cudaStreamCreate(&p));
+    cuda_check(cudaStreamCreateWithFlags(&p, cudaStreamNonBlocking));
     s.reset(p, [](CUstream p) { cuda_check(cudaStreamDestroy(p)); });
   }
 
@@ -32,13 +44,49 @@ CUstream stream() {
   if (synchronous)
     return 0;
   else {
-    static Stream s;
+    // One non-blocking stream per host thread, so that concurrent batches (TreeParams::overlap) overlap
+    static thread_local Stream s;
     return s;
   }
 }
 
 void cuda_sync() {
   cuda_check(cudaStreamSynchronize(stream()));
+}
+
+static cudaMemPool_t default_pool() {
+  int device;
+  cuda_check(cudaGetDevice(&device));
+  cudaMemPool_t pool;
+  cuda_check(cudaDeviceGetDefaultMemPool(&pool, device));
+  return pool;
+}
+
+string gpu_memory() {
+  uint64_t used = 0, high = 0, reserved = 0;
+  const auto pool = default_pool();
+  cuda_check(cudaMemPoolGetAttribute(pool, cudaMemPoolAttrUsedMemCurrent, &used));
+  cuda_check(cudaMemPoolGetAttribute(pool, cudaMemPoolAttrUsedMemHigh, &high));
+  cuda_check(cudaMemPoolGetAttribute(pool, cudaMemPoolAttrReservedMemCurrent, &reserved));
+  size_t free = 0, total = 0;
+  cuda_check(cudaMemGetInfo(&free, &total));
+  return tfm::format("GPU memory in use %.1f GB (peak %.1f), pool %.1f GB, device %.1f of %.1f GB", used * 1e-9,
+                     high * 1e-9, reserved * 1e-9, (total - free) * 1e-9, total * 1e-9);
+}
+
+void* cuda_malloc(const size_t bytes) {
+  void* p = nullptr;
+  cudaError_t e = cudaMallocAsync(&p, bytes, stream());
+  if (e == cudaErrorMemoryAllocation) {
+    // The pool keeps freed memory (see Stream), possibly in pieces cached for other streams: return it all to the
+    // device and try once more
+    (void)cudaGetLastError();
+    cuda_check(cudaDeviceSynchronize());
+    cuda_check(cudaMemPoolTrimTo(default_pool(), 0));
+    e = cudaMallocAsync(&p, bytes, stream());
+  }
+  if (e != cudaSuccess) die("cuda_malloc: %.3g GB: %s (%s)", bytes * 1e-9, cudaGetErrorString(e), gpu_memory());
+  return p;
 }
 
 int num_sms() {
