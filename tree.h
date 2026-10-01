@@ -68,6 +68,7 @@ struct TreeParams {
   // 2^roulette_log2 from then on, and stops otherwise.  Unbiased, with integer weights; thresholds must be at
   // least 8 steps from every decision step.  Keeping 1/2 every other octave (stride 2) balances cost against
   // variance: an octave's escapes fall like 2^-j, so its added variance falls like 2^-j/2, as does its cost.
+  string dump;               // If set, append each leaf's cell and sample outcome codes here (see dump_leaves)
   int64_t roulette_from = 0;
   int roulette_log2 = 1;
   int roulette_stride = 1;

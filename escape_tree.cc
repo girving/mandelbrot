@@ -192,6 +192,8 @@ int main(const int argc, const char** argv) {
         .scan<'i', int>().default_value(1);
     program.add_argument("--flip-stats").help("with a compare precision: classify samples whose classifications differ")
         .default_value(false).implicit_value(true);
+    program.add_argument("--dump").help("append each leaf's cell and sample outcome codes to this file (analysis)")
+        .default_value(string(""));
     program.add_argument("--shard").help("run only shard s/N: base rows r with r % N == s (see --save, --merge)")
         .default_value(string("0/1"));
     program.add_argument("--save").help("save the result's exact sums to this file (for --merge)")
@@ -236,6 +238,7 @@ int main(const int argc, const char** argv) {
     p.tiles = program.get<int>("--tiles");
     p.overlap = program.get<int>("--overlap");
     p.flip_stats = program.get<bool>("--flip-stats");
+    p.dump = program.get<string>("--dump");
     p.roulette_from = program.get<int64_t>("--roulette-from");
     p.roulette_log2 = program.get<int>("--roulette-log2");
     p.roulette_stride = program.get<int>("--roulette-stride");

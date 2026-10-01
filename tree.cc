@@ -604,6 +604,29 @@ int roulette_reference(const TreeParams& p) {
   return ref;
 }
 
+// --dump: append each leaf's cell (ix, iy at the leaf level) and its samples' outcome codes, as int32s
+void dump_leaves(const TreeParams& p, const Mem<Cell>& leaves, const int64_t l0, const int64_t nl,
+                 const Mem<uint32_t>& outcomes) {
+  vector<Cell> all(l0 + nl);
+  vector<uint32_t> codes(nl * p.m);
+  leaves.to_host(all.data(), l0 + nl);
+  const Cell* cells = all.data() + l0;
+  outcomes.to_host(codes.data(), codes.size());
+  vector<uint32_t> out;
+  out.reserve(nl * (2 + p.m));
+  for (int64_t i = 0; i < nl; i++) {
+    out.push_back(uint32_t(cells[i].ix));
+    out.push_back(uint32_t(cells[i].iy));
+    for (int j = 0; j < p.m; j++) out.push_back(codes[i * p.m + j]);
+  }
+  static std::mutex mu;
+  std::lock_guard<std::mutex> lock(mu);
+  FILE* f = fopen(p.dump.c_str(), "ab");
+  slow_assert(f, "can't open %s", p.dump);
+  slow_assert(fwrite(out.data(), 4, out.size(), f) == out.size(), "short write to %s", p.dump);
+  fclose(f);
+}
+
 // One batch: base cells [cell0, cell1), with tree levels, leaf samples and reductions accumulated into Rb
 void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, const int64_t max_leaves,
                TreeResult& Rb) {
@@ -677,10 +700,11 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
     const int64_t nl = std::min(max_leaves, n_leaves - l0);
     const auto t2 = std::chrono::steady_clock::now();
     Mem<uint32_t> bits(nl * p.m, p.cuda), fbits(compare ? nl * p.m : 0, p.cuda),
-                  iters(p.leaf_stats ? nl * p.m : 0, p.cuda), outcomes(p.flip_stats ? nl * p.m : 0, p.cuda),
+                  iters(p.leaf_stats ? nl * p.m : 0, p.cuda),
+                  outcomes(p.flip_stats || !p.dump.empty() ? nl * p.m : 0, p.cuda),
                   foutcomes(p.flip_stats ? nl * p.m : 0, p.cuda);
     uint32_t* ip = p.leaf_stats ? iters.p : nullptr;
-    uint32_t* op = p.flip_stats ? outcomes.p : nullptr;
+    uint32_t* op = p.flip_stats || !p.dump.empty() ? outcomes.p : nullptr;
     uint32_t* fop = p.flip_stats ? foutcomes.p : nullptr;
     Mem<uint8_t> rexp(p.roulette_from ? nl * p.m : 0, p.cuda);
     uint8_t* rp = p.roulette_from ? rexp.p : nullptr;
@@ -697,6 +721,7 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
                     : p.prec == "comparedd" ? sample<Expansion<2>>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop)
                                             : sample<float>(lp, nl, p, w, h, fbits, Rb.overflow, nullptr, fop);
     }
+    if (!p.dump.empty()) dump_leaves(p, leaves, l0, nl, outcomes);
     if (p.flip_stats) {
       const int64_t samples = nl * p.m, chunks = (samples + kFlipChunk - 1) / kFlipChunk, S = flip_stats_size(K);
       Mem<int64_t> fout(chunks * S, p.cuda);
