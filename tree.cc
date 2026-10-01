@@ -829,13 +829,21 @@ void deep_pass(const TreeParams& p, DeepQueue& q, TreeResult& R) {
   else deep_pass<double>(p, q, R);
 }
 
+// Cells (and center hints) at TreeParams::split_depth, collected by the first phase of run_tree
+struct SplitCells {
+  std::mutex mu;
+  vector<Cell> cells;
+  vector<uint8_t> hints;
+};
+
 // One batch: base cells [cell0, cell1), with tree levels, leaf samples and reductions accumulated into Rb.
 // Returns false, leaving Rb partial, if the base level itself has p.max_level_cells cells: the caller splits the
 // batch.  A deeper level that large is split into pieces of independent subtrees, each continued from that level
-// (d0 > 0, with its cells and hints in start_cells and start_hints, which this takes).
+// (d0 > 0, with its cells and hints in start_cells and start_hints, which this takes).  With split, the batch
+// stops at p.split_depth, appending the cells there to split instead of going on.
 bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, const int64_t max_leaves,
                TreeResult& Rb, DeepQueue& deep, const int d0 = 0, Mem<Cell>* start_cells = nullptr,
-               Mem<uint8_t>* start_hints = nullptr) {
+               Mem<uint8_t>* start_hints = nullptr, SplitCells* split = nullptr) {
   const int K = p.ks.size();
   const bool compare = p.prec.starts_with("compare"), single = p.prec == "float";
 
@@ -851,6 +859,18 @@ bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
   }
   int64_t n_leaves = 0;
   for (int d = d0; d <= p.depth; d++) {
+    if (split && d == p.split_depth) {
+      vector<Cell> hc(n);
+      vector<uint8_t> hh(n);
+      cells.to_host(hc.data(), n);
+      hints.to_host(hh.data(), n);
+      std::lock_guard<std::mutex> lock(split->mu);
+      split->cells.insert(split->cells.end(), hc.begin(), hc.end());
+      split->hints.insert(split->hints.end(), hh.begin(), hh.end());
+      Rb.split_cells += n;
+      Rb.tree_secs += secs_since(t1);
+      return true;
+    }
     if (n >= p.max_level_cells) {
       if (!d) return false;
       // Split this level's cells into pieces of independent subtrees, and continue each from here
@@ -866,7 +886,7 @@ bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
         Mem<uint8_t> ph(m, p.cuda);
         pc.from_host(hc.data() + a, m);
         ph.from_host(hh.data() + a, m);
-        run_batch(p, cell0, cell1, max_leaves, Rb, deep, d, &pc, &ph);
+        run_batch(p, cell0, cell1, max_leaves, Rb, deep, d, &pc, &ph, split);
       }
       return true;
     }
@@ -1037,7 +1057,7 @@ void merge(TreeResult& R, const TreeResult& Rb) {
   for (size_t i = 0; i < R.flip_stats.size(); i++) R.flip_stats[i] += Rb.flip_stats[i];
   R.leaves += Rb.leaves; R.centers += Rb.centers; R.center_iters += Rb.center_iters; R.leaf_iters += Rb.leaf_iters;
   R.overflow += Rb.overflow; R.flips += Rb.flips; R.batches += Rb.batches;
-  R.deep_samples += Rb.deep_samples; R.deep_passes += Rb.deep_passes;
+  R.deep_samples += Rb.deep_samples; R.deep_passes += Rb.deep_passes; R.split_cells += Rb.split_cells;
   R.tree_secs += Rb.tree_secs; R.center_kernel_secs += Rb.center_kernel_secs; R.sample_secs += Rb.sample_secs;
   R.reduce_secs += Rb.reduce_secs;
 }
@@ -1145,64 +1165,97 @@ TreeResult run_tree(const TreeParams& p) {
   // Batches are runs of base cells in row-major order, sized adaptively for about p.batch leaves (and fewer
   // than 2^31 samples).  On the GPU, p.overlap batches run at once in host threads with their own streams, so
   // that one batch's latency-bound work (tree levels, and the long-orbit tails of its rounds) overlaps another's
-  // full-GPU work.
+  // full-GPU work.  With p.split_depth, levels below it are built first for whole runs of base cells (a few
+  // large passes instead of every batch building them), collecting the cells at split_depth; batches are then
+  // runs of those cells, each continued from split_depth.  Results are the same either way.
   const int64_t total = rows * p.base, max_leaves = std::min<int64_t>(p.batch, ((int64_t(1) << 31) - 1) / p.m);
   std::mutex mu;
   DeepQueue deep;  // Suspended samples (p.deep_from), shared by the workers
-  // A small first batch, to estimate density: 64 base cells, fewer for deep trees, whose dense base cells have
-  // many more leaves.  Batches that reach 2^31 cells in a level are split (run_batch).
-  const int64_t first = std::max<int64_t>(1, 64 >> std::min(6, 2 * std::max(0, p.depth - 8)));
-  int64_t next_cell = 0, cells_per_batch = std::min<int64_t>(total, first);
-  int64_t done_cells = 0, done_leaves = 0;
+  SplitCells split;  // Cells at p.split_depth, from the first phase
   const auto start = std::chrono::steady_clock::now();
   auto last_progress = start;
-  const auto worker = [&]() {
-    for (;;) {
-      int64_t cell0, cell1;
-      {
-        std::lock_guard<std::mutex> lock(mu);
-        if (next_cell >= total) return;
-        cell0 = next_cell;
-        cell1 = std::min(total, cell0 + cells_per_batch);
-        next_cell = cell1;
-      }
-      // Run [a, b), halving it while a tree level would be too large
-      const std::function<void(int64_t, int64_t)> go = [&](const int64_t a, const int64_t b) {
-        TreeResult Rb = empty_like(R);
-        if (!run_batch(p, a, b, max_leaves, Rb, deep)) {
-          const int64_t m = a + (b - a) / 2;
-          go(a, m);
-          go(m, b);
-          return;
-        }
-        std::lock_guard<std::mutex> lock(mu);
-        merge(R, Rb);
-        // Aim for about p.batch leaves per batch, from the leaves per base cell so far, growing at most 4× per
-        // batch since sparse early cells (common in --box domains) underestimate the density
-        done_cells += b - a;
-        done_leaves += Rb.leaves;
-        const double per_cell = double(done_leaves) / double(done_cells);
-        const int64_t target = int64_t(double(max_leaves) / std::max(1e-3, per_cell));
-        cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (b - a), target));
-        if (p.progress > 0 && secs_since(last_progress) >= p.progress) {
-          last_progress = std::chrono::steady_clock::now();
-          string mem;
-          IF_CUDA(if (p.cuda) mem = "; " + gpu_memory();)
-          print("progress %.0f s: base cells %d / %d, batches %d, leaves %.3g, leaf iterations %.3g, center "
-                "iterations %.3g (sampling %.0f s, tree %.0f s)%s", secs_since(start), done_cells, total, R.batches,
-                double(R.leaves), double(R.leaf_iters), double(R.center_iters), R.sample_secs, R.tree_secs, mem);
-        }
-      };
-      go(cell0, cell1);
-    }
-  };
   const int threads = p.cuda ? p.overlap : 1;
   slow_assert(threads >= 1, "overlap must be at least 1");
-  if (threads == 1) worker();
-  else {
-    vector<std::thread> pool;
-    for (int t = 0; t < threads; t++) pool.emplace_back(worker);
-    for (auto& t : pool) t.join();
+  slow_assert(0 <= p.split_depth && p.split_depth <= p.depth, "split depth %d outside [0, depth]", p.split_depth);
+
+  // Run units [0, units) in adaptive batches over the workers: run(a, b, Rb) runs units [a, b) into Rb, returning
+  // false if they must be split; size(Rb) is a batch's size, aimed at target per batch
+  const auto pool = [&](const char* phase, const int64_t units, const int64_t first,
+                        const std::function<bool(int64_t, int64_t, TreeResult&)>& run,
+                        const std::function<int64_t(const TreeResult&)>& size, const int64_t target) {
+    int64_t next = 0, per_batch = std::min<int64_t>(units, first), done = 0, done_size = 0;
+    const auto worker = [&]() {
+      for (;;) {
+        int64_t u0, u1;
+        {
+          std::lock_guard<std::mutex> lock(mu);
+          if (next >= units) return;
+          u0 = next;
+          u1 = std::min(units, u0 + per_batch);
+          next = u1;
+        }
+        // Run [a, b), halving it while it must be split
+        const std::function<void(int64_t, int64_t)> go = [&](const int64_t a, const int64_t b) {
+          TreeResult Rb = empty_like(R);
+          if (!run(a, b, Rb)) {
+            const int64_t m = a + (b - a) / 2;
+            go(a, m);
+            go(m, b);
+            return;
+          }
+          std::lock_guard<std::mutex> lock(mu);
+          merge(R, Rb);
+          // Aim for target per batch, from the size per unit so far, growing at most 4× per batch since sparse
+          // early units (common in --box domains) underestimate the density
+          done += b - a;
+          done_size += size(Rb);
+          const double per_unit = double(done_size) / double(done);
+          per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (b - a), int64_t(double(target) / std::max(1e-3, per_unit))));
+          if (p.progress > 0 && secs_since(last_progress) >= p.progress) {
+            last_progress = std::chrono::steady_clock::now();
+            string mem;
+            IF_CUDA(if (p.cuda) mem = "; " + gpu_memory();)
+            print("progress %.0f s: %s %d / %d, batches %d, leaves %.3g, leaf iterations %.3g, center "
+                  "iterations %.3g (sampling %.0f s, tree %.0f s)%s", secs_since(start), phase, done, units, R.batches,
+                  double(R.leaves), double(R.leaf_iters), double(R.center_iters), R.sample_secs, R.tree_secs, mem);
+          }
+        };
+        go(u0, u1);
+      }
+    };
+    if (threads == 1) worker();
+    else {
+      vector<std::thread> workers;
+      for (int t = 0; t < threads; t++) workers.emplace_back(worker);
+      for (auto& t : workers) t.join();
+    }
+  };
+  // A small first batch, to estimate density: 64 base cells, fewer for deep trees, whose dense base cells have
+  // many more leaves
+  const int64_t first = std::max<int64_t>(1, 64 >> std::min(6, 2 * std::max(0, p.depth - 8)));
+  const auto leaves_of = [](const TreeResult& Rb) { return Rb.leaves; };
+  if (!p.split_depth) {
+    pool("base cells", total, first,
+         [&](const int64_t a, const int64_t b, TreeResult& Rb) { return run_batch(p, a, b, max_leaves, Rb, deep); },
+         leaves_of, max_leaves);
+  } else {
+    // Levels below split_depth for runs of base cells, then batches of the cells there (for the first phase,
+    // aiming for a quarter of max_level_cells collected cells per batch)
+    pool("base cells", total, first,
+         [&](const int64_t a, const int64_t b, TreeResult& Rb) {
+           return run_batch(p, a, b, max_leaves, Rb, deep, 0, nullptr, nullptr, &split);
+         },
+         [](const TreeResult& Rb) { return Rb.split_cells; }, std::max<int64_t>(1, p.max_level_cells / 4));
+    const int64_t n = split.cells.size();
+    pool("split cells", n, 1,
+         [&](const int64_t a, const int64_t b, TreeResult& Rb) {
+           Mem<Cell> c(b - a, p.cuda);
+           Mem<uint8_t> h(b - a, p.cuda);
+           c.from_host(split.cells.data() + a, b - a);
+           h.from_host(split.hints.data() + a, b - a);
+           return run_batch(p, 0, 0, max_leaves, Rb, deep, p.split_depth, &c, &h);
+         },
+         leaves_of, max_leaves);
   }
   if (p.deep_from) {
     // The last deep pass, for whatever is still queued
