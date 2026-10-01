@@ -69,6 +69,7 @@ struct TreeParams {
   // least 8 steps from every decision step.  Keeping 1/2 every other octave (stride 2) balances cost against
   // variance: an octave's escapes fall like 2^-j, so its added variance falls like 2^-j/2, as does its cost.
   int64_t max_level_cells = int64_t(1) << 31;  // Batches split while a tree level reaches this (tests lower it)
+  double progress = 0;       // If positive, print progress at most this often (seconds)
   string dump;               // If set, append each leaf's cell and sample outcome codes here (see dump_leaves)
   int64_t roulette_from = 0;
   int roulette_log2 = 1;

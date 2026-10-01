@@ -922,6 +922,8 @@ TreeResult run_tree(const TreeParams& p) {
   const int64_t first = std::max<int64_t>(1, 64 >> std::min(6, 2 * std::max(0, p.depth - 8)));
   int64_t next_cell = 0, cells_per_batch = std::min<int64_t>(total, first);
   int64_t done_cells = 0, done_leaves = 0;
+  const auto start = std::chrono::steady_clock::now();
+  auto last_progress = start;
   const auto worker = [&]() {
     for (;;) {
       int64_t cell0, cell1;
@@ -950,6 +952,12 @@ TreeResult run_tree(const TreeParams& p) {
         const double per_cell = double(done_leaves) / double(done_cells);
         const int64_t target = int64_t(double(max_leaves) / std::max(1e-3, per_cell));
         cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (b - a), target));
+        if (p.progress > 0 && secs_since(last_progress) >= p.progress) {
+          last_progress = std::chrono::steady_clock::now();
+          print("progress %.0f s: base cells %d / %d, batches %d, leaves %.3g, leaf iterations %.3g, center "
+                "iterations %.3g (sampling %.0f s, tree %.0f s)", secs_since(start), done_cells, total, R.batches,
+                double(R.leaves), double(R.leaf_iters), double(R.center_iters), R.sample_secs, R.tree_secs);
+        }
       };
       go(cell0, cell1);
     }
