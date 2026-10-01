@@ -763,6 +763,22 @@ d = depth + log2(base / 1000):
 
 With the tail model (±6e-12 … 1.2e-11) and precision (a few 1e-12), the total error is ~3e-11.
 
+*Taylor-series ideas (shelved).*
+- Skipping iterations by linearizing each leaf's orbit (series approximation): samples of a leaf share at most
+  the prefix before the first of them ends, 22–28% of iterations, so ≤ 1.36× even before accuracy limits.
+- Control variates from the linearized multiplier map: an interior sample's λ and dλ/dc model its hyperbolic
+  component as {c : |λ_i + λ'_i (c − c_i)| < 1}.  For sample j, ĥ_{−j} is the union of the other samples'
+  models, and mean_j h_j + β · mean_j (∫ĥ_{−j} − ĥ_{−j}(c_j)) (∫ over j's stratum) is unbiased for any
+  fixed β, since c_j is uniform in its stratum and independent of the others.  On 50k mixed leaves of depth 10 (two independent replicas each; these leaves carry
+  91% of A(2^22)'s variance): variance ratio 0.564 at β = 1, 0.490 at the optimal β = 0.72 (2.0×).  Only 4.8%
+  of samples are mispredicted, but the model itself is noisy (which small components 16 samples hit), and
+  trusting models only near their samples is worse (τ = 0.5: 0.597).  The deep difference (~43% of the
+  variance at depth 15) is untouched, so the overall gain is ~1.4× at best before the cost of evaluating models
+  (~4000 ops per sample) and reworking error bars.  Pooling models across neighbouring leaves might reach
+  3–5× on A(2^22), still capped at ~2.3× overall.
+- Leaf first Newton step: 8192 → 2048 saves 7.7% of iterations (5% CPU time) at depth 10, estimates
+  identical; untested on the GPU, where Newton attempts cost more.
+
 ## 6. Reproducing
 
 ```
