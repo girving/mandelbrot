@@ -830,9 +830,12 @@ void deep_pass(const TreeParams& p, DeepQueue& q, TreeResult& R) {
 }
 
 // One batch: base cells [cell0, cell1), with tree levels, leaf samples and reductions accumulated into Rb.
-// Returns false, leaving Rb partial, if a tree level would reach p.max_level_cells: the caller splits the batch.
+// Returns false, leaving Rb partial, if the base level itself has p.max_level_cells cells: the caller splits the
+// batch.  A deeper level that large is split into pieces of independent subtrees, each continued from that level
+// (d0 > 0, with its cells and hints in start_cells and start_hints, which this takes).
 bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, const int64_t max_leaves,
-               TreeResult& Rb, DeepQueue& deep) {
+               TreeResult& Rb, DeepQueue& deep, const int d0 = 0, Mem<Cell>* start_cells = nullptr,
+               Mem<uint8_t>* start_hints = nullptr) {
   const int K = p.ks.size();
   const bool compare = p.prec.starts_with("compare"), single = p.prec == "float";
 
@@ -841,11 +844,31 @@ bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
   int64_t n = cell1 - cell0;
   Mem<Cell> cells(0, p.cuda), leaves(0, p.cuda);
   Mem<uint8_t> hints(0, p.cuda);
+  if (d0) {
+    std::swap(cells.p, start_cells->p); std::swap(cells.n, start_cells->n);
+    std::swap(hints.p, start_hints->p); std::swap(hints.n, start_hints->n);
+    n = cells.n;
+  }
   int64_t n_leaves = 0;
-  for (int d = 0; d <= p.depth; d++) {
+  for (int d = d0; d <= p.depth; d++) {
     if (n >= p.max_level_cells) {
-      slow_assert(cell1 - cell0 > 1, "level %d of base cell %d has %d cells", d, cell0, n);
-      return false;
+      if (!d) return false;
+      // Split this level's cells into pieces of independent subtrees, and continue each from here
+      vector<Cell> hc(n);
+      vector<uint8_t> hh(n);
+      cells.to_host(hc.data(), n);
+      hints.to_host(hh.data(), n);
+      const int64_t piece = std::max<int64_t>(1, p.max_level_cells / 2);
+      Rb.tree_secs += secs_since(t1);
+      for (int64_t a = 0; a < n; a += piece) {
+        const int64_t m = std::min(piece, n - a);
+        Mem<Cell> pc(m, p.cuda);
+        Mem<uint8_t> ph(m, p.cuda);
+        pc.from_host(hc.data() + a, m);
+        ph.from_host(hh.data() + a, m);
+        run_batch(p, cell0, cell1, max_leaves, Rb, deep, d, &pc, &ph);
+      }
+      return true;
     }
     const Level level{d ? cells.p : nullptr, p.base, cell0, p.shard, p.shards};
     const double w = (p.x1 - p.x0) / double(p.base << d), h = (p.y1 - p.y0) / double(p.base << d);
