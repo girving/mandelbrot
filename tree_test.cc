@@ -384,6 +384,28 @@ TEST(expansion_orbits) {
   ASSERT_LE(R.flips, R.leaves * p.m / 1000);
 }
 
+TEST(expansion_step) {
+  // The fused double-double step is accurate to 2 · 2^-104 (|z|^2 + |c|) per step, against Expansion<3>
+  typedef Expansion<2> E;
+  typedef Expansion<3> F;
+  std::mt19937_64 rng(7);
+  std::uniform_real_distribution<double> u(-1, 1);
+  double worst = 0;
+  for (int i = 0; i < 1000000; i++) {
+    const double r = 2 * std::abs(u(rng)), a = r * u(rng), b = r * u(rng), x = 2 * u(rng), y = 2 * u(rng);
+    const double al = std::ldexp(u(rng), std::ilogb(a) - 53), bl = std::ldexp(u(rng), std::ilogb(b) - 53);
+    E zx(a, al, nonoverlap), zy(b, bl, nonoverlap), zy2 = zy * zy, r2 = zx * zx + zy2;
+    const F X(a, al, 0.0, nonoverlap), Y(b, bl, 0.0, nonoverlap), ex = X * X - Y * Y + x, ey = 2 * (X * Y) + y;
+    orbit_step(zx, zy, zy2, r2, x, y);
+    const F dx = F(zx.x[0], zx.x[1], 0.0, nonoverlap) - ex, dy = F(zy.x[0], zy.x[1], 0.0, nonoverlap) - ey;
+    const double scale = std::ldexp(a * a + b * b + std::hypot(x, y), -104);
+    worst = std::max(worst, std::max(std::abs(dx.x[0]), std::abs(dy.x[0])) / scale);
+    ASSERT_LE(std::abs(r2.x[0] - (zx.x[0] * zx.x[0] + zy.x[0] * zy.x[0])), 1e-15 * r2.x[0]);
+  }
+  print("  worst step error %.3g · 2^-104 (|z|^2 + |c|)", worst);
+  ASSERT_LE(worst, 2);
+}
+
 TEST(compare_rounded) {
   // Fewer bits flip more samples; 48 bits flips few
   auto p = small_params();
