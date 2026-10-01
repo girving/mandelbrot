@@ -17,6 +17,7 @@ cannot be preempted, so they start only when the cluster is far from full.  Once
 merge job (one GPU, a few minutes: it builds, then only merges) prints the whole run's report; its log is the
 result.
 """
+import calendar
 import json
 import subprocess
 import sys
@@ -46,7 +47,8 @@ def queue_state():
 
 
 def job_status(name):
-    """'active', 'complete', 'failed', or None if absent"""
+    """'active', 'complete', 'failed', 'stuck' (started 15 minutes ago with no pod, e.g. rejected by a policy,
+    while holding its quota), or None if absent"""
     r = subprocess.run(['kubectl', '-n', NAMESPACE, 'get', 'job', name, '-o', 'json'], capture_output=True,
                        text=True, timeout=60)
     if r.returncode:
@@ -56,6 +58,10 @@ def job_status(name):
         return 'complete'
     if s.get('failed'):
         return 'failed'
+    start = s.get('startTime')
+    if start and not s.get('active') and not s.get('ready'):
+        if time.time() - calendar.timegm(time.strptime(start, '%Y-%m-%dT%H:%M:%SZ')) > 900:
+            return 'stuck'
     return 'active'
 
 
@@ -123,6 +129,7 @@ spec:
               drop: [ALL]
           resources:
             requests: {{ cpu: "1", memory: 1Gi }}
+            limits: {{ memory: 1Gi }}
       containers:
         - name: main
           image: nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu24.04
@@ -158,9 +165,11 @@ def loop():
     shard_name = lambda run, s: f'irving-mandelbrot-{run["name"]}-s{s}'
     merge_name = lambda run: f'irving-mandelbrot-{run["name"]}-merge'
     attempts = {}
+    given_up = set()  # Shards whose stuck jobs were deleted after their last attempt
     merged = set()
     while True:
-        states = {(r['name'], s): job_status(shard_name(r, s)) for r, s in todo}
+        states = {(r['name'], s): 'failed' if (r['name'], s) in given_up else job_status(shard_name(r, s))
+                  for r, s in todo}
         active = sum(v == 'active' for v in states.values())
         run_active = {r['name']: sum(states[(r['name'], s)] == 'active' for s in r.get('only', range(r['shards'])))
                       for r in runs}
@@ -189,7 +198,16 @@ def loop():
         queue = None
         for (run, s) in todo:
             key = (run['name'], s)
-            if states[key] == 'failed' and attempts.get(key, 0) < 3:
+            if states[key] == 'stuck':
+                print(f'{time.strftime("%H:%M:%S")} {shard_name(run, s)} has no pod 15 minutes after starting; '
+                      f'deleting it (see kubectl -n {NAMESPACE} get events)', flush=True)
+                kubectl('delete', 'job', shard_name(run, s), '--wait=true')
+                if attempts.get(key, 0) < 3:
+                    states[key] = None
+                else:
+                    states[key] = 'failed'
+                    given_up.add(key)
+            if states[key] == 'failed' and attempts.get(key, 0) < 3 and key not in given_up:
                 kubectl('delete', 'job', shard_name(run, s), '--wait=true')
                 states[key] = None
             if states[key] is not None:

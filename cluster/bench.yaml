@@ -63,6 +63,7 @@ spec:
               drop: [ALL]
           resources:
             requests: { cpu: "1", memory: 1Gi }
+            limits: { memory: 1Gi }
       containers:
         - name: main
           image: nvcr.io/nvidia/cuda:12.8.1-devel-ubuntu24.04
