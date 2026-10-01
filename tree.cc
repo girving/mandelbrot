@@ -1163,9 +1163,11 @@ TreeResult run_tree(const TreeParams& p) {
         cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (b - a), target));
         if (p.progress > 0 && secs_since(last_progress) >= p.progress) {
           last_progress = std::chrono::steady_clock::now();
+          string mem;
+          IF_CUDA(if (p.cuda) mem = "; " + gpu_memory();)
           print("progress %.0f s: base cells %d / %d, batches %d, leaves %.3g, leaf iterations %.3g, center "
-                "iterations %.3g (sampling %.0f s, tree %.0f s)", secs_since(start), done_cells, total, R.batches,
-                double(R.leaves), double(R.leaf_iters), double(R.center_iters), R.sample_secs, R.tree_secs);
+                "iterations %.3g (sampling %.0f s, tree %.0f s)%s", secs_since(start), done_cells, total, R.batches,
+                double(R.leaves), double(R.leaf_iters), double(R.center_iters), R.sample_secs, R.tree_secs, mem);
         }
       };
       go(cell0, cell1);

@@ -81,6 +81,12 @@ template<class T> static inline void device_to_device(span<Device<T>> dst, type_
 // Number of SMs
 int num_sms();
 
+// Stream-ordered allocation on this thread's stream, trimming the pool and retrying once if memory runs out
+void* cuda_malloc(size_t bytes);
+
+// The device memory pool's usage, for progress reports
+string gpu_memory();
+
 }  // namespace mandelbrot
 #endif  // __CUDACC__
 

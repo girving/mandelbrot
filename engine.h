@@ -94,7 +94,7 @@ template<class T> struct Mem : public Noncopyable {
     static_assert(std::is_trivially_copyable_v<T>);
     if (!n) return;
     if (cuda) {
-      IF_CUDA(cuda_check(cudaMallocAsync(&p, n * sizeof(T), stream())));
+      IF_CUDA(p = static_cast<T*>(cuda_malloc(n * sizeof(T))));
       CUDA_OR_DIE();
     } else {
       p = static_cast<T*>(malloc(n * sizeof(T)));
