@@ -8,8 +8,9 @@ RUNS.json lists runs: [{"name": ..., "shards": N, "command": "./build/release/es
 PVC (cluster/bench.sh's SHARDED mode), so rerunning this after an interruption only redoes missing shards.
 
 The GPU queue has no priority classes and no preemption, so politeness is enforced here: a shard is submitted
-only while the queue has no pending workloads, at least FREE_GPUS GPUs stay unused, and at most MAX_JOBS of
-our shard jobs are active.  Once a run's shards are all done, a merge job (one GPU, a few minutes: it builds,
+only while the queue has no pending workloads, at least FREE_GPUS GPUs stay unused (SHORT_FREE_GPUS for runs
+marked "short": true, which take a few minutes), and at most MAX_JOBS of our shard jobs are active.  Long jobs
+cannot be preempted, so they start only when the cluster is far from full.  Once a run's shards are all done, a merge job (one GPU, a few minutes: it builds,
 then only merges) prints the whole run's report; its log is the result.
 """
 import json
@@ -17,7 +18,7 @@ import subprocess
 import sys
 import time
 
-NAMESPACE, QUEUE, FREE_GPUS, MAX_JOBS, TOTAL_GPUS = 'research', 'gpu', 16, 8, 248
+NAMESPACE, QUEUE, FREE_GPUS, SHORT_FREE_GPUS, MAX_JOBS, TOTAL_GPUS = 'research', 'gpu', 64, 16, 8, 248
 REPO = 'girving/mandelbrot'
 
 
@@ -180,8 +181,9 @@ def loop():
             if states[key] is not None:
                 continue
             pending, used = queue_state()
-            if pending or used > TOTAL_GPUS - FREE_GPUS or active >= MAX_JOBS:
-                break
+            free = SHORT_FREE_GPUS if run.get('short') else FREE_GPUS
+            if pending or used > TOTAL_GPUS - free or active >= MAX_JOBS:
+                continue
             kubectl('apply', '-f', '-', input=job_yaml(shard_name(run, s), run, s))
             attempts[key] = attempts.get(key, 0) + 1
             states[key] = 'active'
