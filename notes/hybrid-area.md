@@ -741,6 +741,28 @@ Two mechanisms, both vanishing fast with precision:
 Symmetric outcomes (escaped ↔ max_iter) cancel at every precision.  So double's precision bias is a few
 1e-12, inside the 3e-11 target, and two digits need no double-double.
 
+*Two-digit budget for one double run to 2^32 with roulette.*  Depth scaling on CPU, the same four base rows
+(shard 7/250 of base 1000), base-only runs to 2^22 against full runs to 2^32 (roulette from 2^23, stride 2):
+
+| depth | A(2^22) err | base time | err² · t | full / base: time, iterations | deep difference err |
+|---|---|---|---|---|---|
+| 9 | 5.13e-10 | 22.7 s | 5.97e-18 | 1.90, 1.24 | |
+| 10 | 2.00e-10 | 84.8 s | 3.39e-18 (1.76×) | 1.37, 1.20 | 4.3e-11 |
+| 11 | 7.80e-11 | 322.7 s | 1.96e-18 (1.73×) | 1.37, 1.23 | 2.17e-11 |
+
+So the shallow gain holds at ~1.75× per level (GPU: 2.05×, 1.82×), and continuing to 2^32 costs 1.2–1.4×.
+But the deep difference converges more slowly: its variance falls 3.9× per level against 6.55× for A(2^22),
+so by depth 15 it carries ~40% of the variance.  From the GPU's depth 10 (A(2^22) ± 3.08e-9 in ~245
+GPU-s; deep difference ± 6.8e-10 scaled from the CPU rows), time ×3.7 per level, one run at effective depth
+d = depth + log2(base / 1000):
+
+| statistical target | effective depth | H200-hours (overhead 1.24–1.37) | if A's gain tapers to 1.6× |
+|---|---|---|---|
+| 2.7e-11 | 15.34 (depth 15, base 1266) | 91–101 | 120–132 |
+| 3.0e-11 | 15.21 (depth 15, base 1159) | 77–85 | 101–112 |
+
+With the tail model (±6e-12 … 1.2e-11) and precision (a few 1e-12), the total error is ~3e-11.
+
 ## 6. Reproducing
 
 ```
