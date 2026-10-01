@@ -276,6 +276,7 @@ TEST(deep_queue) {
     const auto a = run_tree(p);
     p.deep_from = roulette ? 2064 : 1032;
     p.deep_batch = roulette ? 20 : 200;
+    p.deep_cap = 5;  // Too little room, to exercise reruns
     const auto b = run_tree(p);
     print("  roulette %d: %d samples suspended, %d deep passes", int(roulette), b.deep_samples, b.deep_passes);
     ASSERT_LT(1, b.deep_passes);
