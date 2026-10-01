@@ -4,16 +4,18 @@
   cluster/idle_shards.py RUNS.json
 
 RUNS.json lists runs: [{"name": ..., "shards": N, "command": "./build/release/escape_tree --cuda ... ks",
-"build64": false, "timeout": seconds per shard, "free_gpus": G, "max_active": M}, ...].  The optional
-free_gpus and max_active override FREE_GPUS (GPUs that must stay unused for a shard to start) and cap that
-run's concurrently active shards.  Shard results persist in /data/results/<name> on the
-PVC (cluster/bench.sh's SHARDED mode), so rerunning this after an interruption only redoes missing shards.
+"build64": false, "timeout": seconds per shard}, ...], with optional "free_gpus" (GPUs that must stay unused
+for a shard to start, overriding FREE_GPUS), "max_active" (a cap on the run's concurrently active shards),
+"commit" (the branch or tag to build, default hybrid-area), and "only": [shard indices] (run just those, with
+no merge: a pilot, each shard's log holding its own report).  Shard results persist in /data/results/<name> on
+the PVC (cluster/bench.sh's SHARDED mode), so rerunning this after an interruption only redoes missing shards.
 
 The GPU queue has no priority classes and no preemption, so politeness is enforced here: a shard is submitted
 only while the queue has no pending workloads, at least FREE_GPUS GPUs stay unused (SHORT_FREE_GPUS for runs
 marked "short": true, which take a few minutes), and at most MAX_JOBS of our shard jobs are active.  Long jobs
-cannot be preempted, so they start only when the cluster is far from full.  Once a run's shards are all done, a merge job (one GPU, a few minutes: it builds,
-then only merges) prints the whole run's report; its log is the result.
+cannot be preempted, so they start only when the cluster is far from full.  Once a run's shards are all done, a
+merge job (one GPU, a few minutes: it builds, then only merges) prints the whole run's report; its log is the
+result.
 """
 import json
 import subprocess
@@ -58,7 +60,8 @@ def job_status(name):
 
 
 def job_yaml(name, run, shard, gpus=1):
-    env = {'COMMIT': 'hybrid-area', 'MANDELBROT_THREADS': str(22 * gpus), 'SHARDED': run['command'],
+    commit = run.get('commit', 'hybrid-area')  # A branch or tag (git clone --branch takes either)
+    env = {'COMMIT': commit, 'MANDELBROT_THREADS': str(22 * gpus), 'SHARDED': run['command'],
            'RUN_NAME': run['name'], 'SHARDS': str(run['shards']), 'RUN_TIMEOUT': str(run.get('timeout', 7200)),
            'HOME': '/tmp'}
     if shard is not None:
@@ -110,7 +113,7 @@ spec:
                   https://github.com/mamba-org/micromamba-releases/releases/download/2.9.0-0/micromamba-linux-64
                 chmod +x /data/bin/micromamba; }}
               curl -fsSL -H "Accept: application/vnd.github.raw" -o /work/bench.sh \\
-                "https://api.github.com/repos/{REPO}/contents/cluster/bench.sh?ref=hybrid-area"
+                "https://api.github.com/repos/{REPO}/contents/cluster/bench.sh?ref={commit}"
           volumeMounts:
             - {{ name: data, mountPath: /data }}
             - {{ name: work, mountPath: /work }}
@@ -151,7 +154,7 @@ def main():
 
 def loop():
     runs = json.load(open(sys.argv[1]))
-    todo = [(run, s) for run in runs for s in range(run['shards'])]
+    todo = [(run, s) for run in runs for s in run.get('only', range(run['shards']))]
     shard_name = lambda run, s: f'irving-mandelbrot-{run["name"]}-s{s}'
     merge_name = lambda run: f'irving-mandelbrot-{run["name"]}-merge'
     attempts = {}
@@ -159,10 +162,17 @@ def loop():
     while True:
         states = {(r['name'], s): job_status(shard_name(r, s)) for r, s in todo}
         active = sum(v == 'active' for v in states.values())
-        run_active = {r['name']: sum(states[(r['name'], s)] == 'active' for s in range(r['shards'])) for r in runs}
+        run_active = {r['name']: sum(states[(r['name'], s)] == 'active' for s in r.get('only', range(r['shards'])))
+                      for r in runs}
         # Merge runs whose shards are all complete
         for run in runs:
             if run['name'] in merged:
+                continue
+            if 'only' in run:
+                if all(states[(run['name'], s)] in ('complete', 'failed') for s in run['only']):
+                    merged.add(run['name'])
+                    print(f'{time.strftime("%H:%M:%S")} pilot {run["name"]} done: '
+                          f'{[states[(run["name"], s)] for s in run["only"]]}', flush=True)
                 continue
             if all(states[(run['name'], s)] == 'complete' for s in range(run['shards'])):
                 st = job_status(merge_name(run))
