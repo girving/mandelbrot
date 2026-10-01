@@ -4,7 +4,9 @@
   cluster/idle_shards.py RUNS.json
 
 RUNS.json lists runs: [{"name": ..., "shards": N, "command": "./build/release/escape_tree --cuda ... ks",
-"build64": false, "timeout": seconds per shard}, ...].  Shard results persist in /data/results/<name> on the
+"build64": false, "timeout": seconds per shard, "free_gpus": G, "max_active": M}, ...].  The optional
+free_gpus and max_active override FREE_GPUS (GPUs that must stay unused for a shard to start) and cap that
+run's concurrently active shards.  Shard results persist in /data/results/<name> on the
 PVC (cluster/bench.sh's SHARDED mode), so rerunning this after an interruption only redoes missing shards.
 
 The GPU queue has no priority classes and no preemption, so politeness is enforced here: a shard is submitted
@@ -157,6 +159,7 @@ def loop():
     while True:
         states = {(r['name'], s): job_status(shard_name(r, s)) for r, s in todo}
         active = sum(v == 'active' for v in states.values())
+        run_active = {r['name']: sum(states[(r['name'], s)] == 'active' for s in range(r['shards'])) for r in runs}
         # Merge runs whose shards are all complete
         for run in runs:
             if run['name'] in merged:
@@ -173,6 +176,7 @@ def loop():
         if len(merged) == len(runs):
             return
         # Resubmit failed shards (a few times), and submit new ones while the cluster is idle enough
+        queue = None
         for (run, s) in todo:
             key = (run['name'], s)
             if states[key] == 'failed' and attempts.get(key, 0) < 3:
@@ -180,17 +184,22 @@ def loop():
                 states[key] = None
             if states[key] is not None:
                 continue
-            pending, used = queue_state()
-            free = SHORT_FREE_GPUS if run.get('short') else FREE_GPUS
-            if pending or used > TOTAL_GPUS - free or active >= MAX_JOBS:
+            if queue is None:
+                queue = queue_state()
+            pending, used = queue
+            free = run.get('free_gpus', SHORT_FREE_GPUS if run.get('short') else FREE_GPUS)
+            if (pending or used > TOTAL_GPUS - free or active >= MAX_JOBS
+                    or run_active[run['name']] >= run.get('max_active', MAX_JOBS)):
                 continue
             kubectl('apply', '-f', '-', input=job_yaml(shard_name(run, s), run, s))
             attempts[key] = attempts.get(key, 0) + 1
             states[key] = 'active'
             active += 1
+            run_active[run['name']] += 1
             print(f'{time.strftime("%H:%M:%S")} submitted {shard_name(run, s)} (queue: {pending} pending, '
                   f'{used} GPUs in use)', flush=True)
             time.sleep(20)  # Let the queue see it before the next check
+            queue = None
         time.sleep(60)
 
 

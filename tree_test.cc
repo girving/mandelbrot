@@ -249,6 +249,20 @@ TEST(shards_merge_exactly) {
     }
 }
 
+TEST(split_batches) {
+  // Batches whose tree levels reach max_level_cells split in half and retry, without changing any result
+  auto p = small_params();
+  const auto a = run_tree(p);
+  p.max_level_cells = 2000;
+  const auto b = run_tree(p);
+  ASSERT_LT(a.batches, b.batches);
+  ASSERT_EQ(a.leaves, b.leaves);
+  for (int k = 0; k < int(p.ks.size()); k++) {
+    ASSERT_EQ(a.area[k].s, b.area[k].s);
+    ASSERT_EQ(a.area[k].q, b.area[k].q);
+  }
+}
+
 TEST(roulette_unbiased) {
   // Russian roulette reweights escapes past the reference threshold without bias: estimates match the full run
   // within their extra noise (identically below the first decision)
