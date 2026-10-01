@@ -706,6 +706,41 @@ orbit below 2^22 (1400–1900 steps on average, in double-double at ~2.9e10 it/s
 escaping past 2^22 contribute.  Deep leaf samples are plain Monte Carlo: the tree certifies nothing near
 them, so depth buys only more samples.  At depth 10's efficiency, 1.5e-11 would take ~8,000 H200-hours.
 
+*Levers for the deep part (2026-09-30).*
+- Leaf-level importance sampling, measured offline: `--dump` of every sample in three base rows at depth 10
+  (37.5M leaves, double, to 2^32), samples 0–7 as the pilot and 8–15 as the outcome, cost-weighted Neyman
+  allocation across leaf classes, cross-validated on held-out leaves.  Best gain 1.3× (classes by the pilot
+  samples alive at 2^14–2^18); finer classes overfit the 5,417 deep escapes and lose.  As before (two-phase
+  importance sampling, above), deep escapes are scattered at random among near-boundary leaves.
+- Double and double-double carry no shared information on long orbits (their escape times are re-randomized),
+  so double cannot serve as a control variate for a double-double deep run.  But if double's bias is small
+  enough, the deep run is unnecessary: the shallow run already computes every sample to 2^22 in double, and
+  continuing its survivors to 2^32 with roulette adds 0.24× its iterations (0.96× without roulette; from the
+  dump).  The deep difference's error falls 4× per level in variance, reaching ~1e-11 at depth 16.
+- The fused double-double step (41 FP64 ops against 84; double 6) halves double-double's arithmetic, should
+  it be needed.
+
+*Precision ladder (depth 5, base 1000, 5.9e8 samples, octaves 2^14 … 2^26, CPU).*  Double rounded to b bits
+against double, by outcome (A_b(k) − A_double(k) contributions):
+
+| bits | escaped → interior | interior → escaped | escaped ↔ max_iter | re-timed escapes at 2^20 |
+|---|---|---|---|---|
+| 24 (= float, identical) | 34,288 (+1.26e-5) | 4,655 | 120 / 79 | −3.8e-7 |
+| 27 | 7,258 (+2.66e-6) | 1,008 | 103 / 81 | −1.8e-7 |
+| 30 | 1,558 (+5.7e-7) | 235 | 73 / 73 | −4.3e-8 |
+| 36 | 76 (+2.8e-8) | 10 | 68 / 77 | +2.7e-8 (noise) |
+
+Two mechanisms, both vanishing fast with precision:
+- Stuck orbits: the low-precision orbit falls into an exact floating-point cycle (Brent), so an exterior point
+  counts as interior.  Counts fall 2^-0.73 per bit over 24 … 36 bits; extrapolated to 53 bits, ~0.5 per
+  2.07e10 samples, i.e. +3e-12 in area (the double-double runs saw 0 and 1 per seed).
+- Re-timed escapes: as a fraction r of D(k), the bias depends only on log2(k) − bits, i.e. on k·ε (curves for
+  24, 27, 30 and 36 bits collapse): r = −1.8% at −10, −4…−8% at −9, rising to a −25…−35% plateau by −4, and
+  |r| ≲ 0.5% (zero within errors) from −13 to −22.  Double sits at log2(k) − 53 = −31 (2^22) … −21 (2^32), so
+  even decaying only 2× per octave past −22, the bias at 2^22 is < 3e-12.
+Symmetric outcomes (escaped ↔ max_iter) cancel at every precision.  So double's precision bias is a few
+1e-12, inside the 3e-11 target, and two digits need no double-double.
+
 ## 6. Reproducing
 
 ```
