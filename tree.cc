@@ -714,22 +714,35 @@ template<class T> int64_t sample_suspending(const Cell* leaves, const int64_t nl
                                             const double w, const double h, Mem<uint32_t>& bits, Mem<uint8_t>& rexp,
                                             int64_t& overflow, DeepQueue& q) {
   typedef Orbit<T> State;
-  const int64_t n = nl * p.m, cap = std::max<int64_t>(int64_t(1) << 16, n / 1024);
-  Mem<State> states(cap, p.cuda);
-  Mem<int64_t> items(cap, p.cuda);
+  const int64_t n = nl * p.m;
+  // Room for the suspended states: usually a few per million samples, but dense regions (cusps, the real axis)
+  // can have many more, so if they overflow, run the sub-batch again with exactly enough room (every sample
+  // rewrites its result, so the rerun is exact)
+  int64_t cap = p.deep_cap ? p.deep_cap : std::max<int64_t>(int64_t(1) << 16, n / 64);
+  Mem<State> states(0, p.cuda);
+  Mem<int64_t> items(0, p.cuda);
   Mem<uint64_t> count(1, p.cuda);
-  count.zero();
-  auto task = sample_task<T>(leaves, p, w, h, bits.p, nullptr, nullptr, p.roulette_from ? rexp.p : nullptr);
-  task.suspend_at = p.deep_from;
-  task.deep_states = states.p;
-  task.deep_items = items.p;
-  task.deep_count = count.p;
-  task.deep_cap = cap;
-  const auto stats = run_orbits(task, n, p.cuda);
-  overflow += stats.overflow;
+  RunStats stats;
   uint64_t c;
-  count.to_host(&c, 1);
-  slow_assert(int64_t(c) <= cap, "deep queue: %d suspended samples in a sub-batch of %d, room for %d", c, n, cap);
+  for (;;) {
+    Mem<State> s(cap, p.cuda);
+    Mem<int64_t> it(cap, p.cuda);
+    std::swap(states.p, s.p); std::swap(states.n, s.n);
+    std::swap(items.p, it.p); std::swap(items.n, it.n);
+    count.zero();
+    auto task = sample_task<T>(leaves, p, w, h, bits.p, nullptr, nullptr, p.roulette_from ? rexp.p : nullptr);
+    task.suspend_at = p.deep_from;
+    task.deep_states = states.p;
+    task.deep_items = items.p;
+    task.deep_count = count.p;
+    task.deep_cap = cap;
+    stats = run_orbits(task, n, p.cuda);
+    count.to_host(&c, 1);
+    if (int64_t(c) <= cap) break;
+    print("  deep queue: %d suspended samples in a sub-batch of %d, room for %d: rerunning", c, n, cap);
+    cap = c;
+  }
+  overflow += stats.overflow;
   if (!c) return stats.iters;
   vector<int64_t> hi(c);
   vector<State> hs(c);

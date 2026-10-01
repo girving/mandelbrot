@@ -75,6 +75,7 @@ struct TreeParams {
   // is not held up by its few long orbits.  Results are bit-identical with and without it.
   int64_t deep_from = 0;
   int64_t deep_batch = int64_t(1) << 23;
+  int64_t deep_cap = 0;      // Initial room for suspended states per sub-batch (0: automatic; tests lower it)
   string dump;               // If set, append each leaf's cell and sample outcome codes here (see dump_leaves)
   int64_t roulette_from = 0;
   int roulette_log2 = 1;
