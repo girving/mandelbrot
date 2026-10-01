@@ -270,6 +270,31 @@ TEST(split_batches) {
   }
 }
 
+TEST(split_depth) {
+  // Building shallow levels first for runs of base cells, then batching the cells at split_depth, changes no
+  // result (including with level splits inside the second phase)
+  auto p = small_params();
+  const auto a = run_tree(p);
+  for (const int sd : {1, 2, 3}) {
+    for (const int64_t limit : {int64_t(1) << 31, int64_t(500)}) {
+      p.split_depth = sd;
+      p.max_level_cells = limit;
+      const auto b = run_tree(p);
+      ASSERT_EQ(a.leaves, b.leaves);
+      ASSERT_EQ(a.leaf_iters, b.leaf_iters);
+      ASSERT_EQ(a.centers, b.centers);
+      ASSERT_EQ(a.center_iters, b.center_iters);
+      for (size_t i = 0; i < a.certified.size(); i++) ASSERT_EQ(a.certified[i], b.certified[i]);
+      for (size_t i = 0; i < a.exact.size(); i++) ASSERT_EQ(a.exact[i], b.exact[i]);
+      for (int k = 0; k < int(p.ks.size()); k++) {
+        ASSERT_EQ(a.area[k].s, b.area[k].s);
+        ASSERT_EQ(a.area[k].q, b.area[k].q);
+        ASSERT_EQ(a.area[k].p, b.area[k].p);
+      }
+    }
+  }
+}
+
 TEST(deep_queue) {
   // Suspending long samples into deep passes changes no result: every sum is bit-identical, plain and with roulette
   for (const bool roulette : {false, true}) {

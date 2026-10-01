@@ -201,6 +201,8 @@ int main(const int argc, const char** argv) {
         .default_value(int64_t(1) << 23);
     program.add_argument("--max-level-cells").help("split batches whose tree levels reach this many cells (memory)")
         .scan<'i', int64_t>().default_value(int64_t(1) << 31);
+    program.add_argument("--split-depth").help("build tree levels below this first, then batch the cells there (0: off)")
+        .scan<'i', int>().default_value(0);
     program.add_argument("--progress").help("print progress at most every this many seconds (0: never)")
         .scan<'g', double>().default_value(0.0);
     program.add_argument("--dump").help("append each leaf's cell and sample outcome codes to this file (analysis)")
@@ -251,6 +253,7 @@ int main(const int argc, const char** argv) {
     p.flip_stats = program.get<bool>("--flip-stats");
     p.dump = program.get<string>("--dump");
     p.progress = program.get<double>("--progress");
+    p.split_depth = program.get<int>("--split-depth");
     p.max_level_cells = program.get<int64_t>("--max-level-cells");
     p.deep_from = program.get<int64_t>("--deep-from");
     p.deep_batch = program.get<int64_t>("--deep-batch");
