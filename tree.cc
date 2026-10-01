@@ -7,6 +7,7 @@
 #include "rounded.h"
 #include "orbit_expansion.h"
 #include <cmath>
+#include <functional>
 #include <mutex>
 #include <thread>
 namespace mandelbrot {
@@ -627,8 +628,9 @@ void dump_leaves(const TreeParams& p, const Mem<Cell>& leaves, const int64_t l0,
   fclose(f);
 }
 
-// One batch: base cells [cell0, cell1), with tree levels, leaf samples and reductions accumulated into Rb
-void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, const int64_t max_leaves,
+// One batch: base cells [cell0, cell1), with tree levels, leaf samples and reductions accumulated into Rb.
+// Returns false, leaving Rb partial, if a tree level would reach p.max_level_cells: the caller splits the batch.
+bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, const int64_t max_leaves,
                TreeResult& Rb) {
   const int K = p.ks.size();
   const bool compare = p.prec.starts_with("compare"), single = p.prec == "float";
@@ -640,7 +642,10 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
   Mem<uint8_t> hints(0, p.cuda);
   int64_t n_leaves = 0;
   for (int d = 0; d <= p.depth; d++) {
-    slow_assert(n < (int64_t(1) << 31), "level %d of a batch has %d cells; lower --batch", d, n);
+    if (n >= p.max_level_cells) {
+      slow_assert(cell1 - cell0 > 1, "level %d of base cell %d has %d cells", d, cell0, n);
+      return false;
+    }
     const Level level{d ? cells.p : nullptr, p.base, cell0, p.shard, p.shards};
     const double w = (p.x1 - p.x0) / double(p.base << d), h = (p.y1 - p.y0) / double(p.base << d);
     Mem<uint32_t> status(n, p.cuda);
@@ -773,6 +778,7 @@ void run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
   }
   Rb.leaves += n_leaves;
   Rb.batches++;
+  return true;
 }
 
 // Empty per-threshold sums shaped like R's, for a batch
@@ -911,7 +917,10 @@ TreeResult run_tree(const TreeParams& p) {
   // full-GPU work.
   const int64_t total = rows * p.base, max_leaves = std::min<int64_t>(p.batch, ((int64_t(1) << 31) - 1) / p.m);
   std::mutex mu;
-  int64_t next_cell = 0, cells_per_batch = std::min<int64_t>(total, 64);  // A small first batch, to estimate density
+  // A small first batch, to estimate density: 64 base cells, fewer for deep trees, whose dense base cells have
+  // many more leaves.  Batches that reach 2^31 cells in a level are split (run_batch).
+  const int64_t first = std::max<int64_t>(1, 64 >> std::min(6, 2 * std::max(0, p.depth - 8)));
+  int64_t next_cell = 0, cells_per_batch = std::min<int64_t>(total, first);
   int64_t done_cells = 0, done_leaves = 0;
   const auto worker = [&]() {
     for (;;) {
@@ -923,17 +932,26 @@ TreeResult run_tree(const TreeParams& p) {
         cell1 = std::min(total, cell0 + cells_per_batch);
         next_cell = cell1;
       }
-      TreeResult Rb = empty_like(R);
-      run_batch(p, cell0, cell1, max_leaves, Rb);
-      std::lock_guard<std::mutex> lock(mu);
-      merge(R, Rb);
-      // Aim for about p.batch leaves per batch, from the leaves per base cell so far, growing at most 4× per
-      // batch since sparse early cells (common in --box domains) underestimate the density
-      done_cells += cell1 - cell0;
-      done_leaves += Rb.leaves;
-      const double per_cell = double(done_leaves) / double(done_cells);
-      cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (cell1 - cell0),
-                                                               int64_t(double(max_leaves) / std::max(1e-3, per_cell))));
+      // Run [a, b), halving it while a tree level would be too large
+      const std::function<void(int64_t, int64_t)> go = [&](const int64_t a, const int64_t b) {
+        TreeResult Rb = empty_like(R);
+        if (!run_batch(p, a, b, max_leaves, Rb)) {
+          const int64_t m = a + (b - a) / 2;
+          go(a, m);
+          go(m, b);
+          return;
+        }
+        std::lock_guard<std::mutex> lock(mu);
+        merge(R, Rb);
+        // Aim for about p.batch leaves per batch, from the leaves per base cell so far, growing at most 4× per
+        // batch since sparse early cells (common in --box domains) underestimate the density
+        done_cells += b - a;
+        done_leaves += Rb.leaves;
+        const double per_cell = double(done_leaves) / double(done_cells);
+        const int64_t target = int64_t(double(max_leaves) / std::max(1e-3, per_cell));
+        cells_per_batch = std::max<int64_t>(1, std::min<int64_t>(4 * (b - a), target));
+      };
+      go(cell0, cell1);
     }
   };
   const int threads = p.cuda ? p.overlap : 1;
