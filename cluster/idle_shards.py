@@ -43,7 +43,9 @@ def kubectl(*args, input=None, check=True):
 
 
 def queue_state():
-    """(pending workloads, GPUs in use) for the GPU cluster queue"""
+    """(pending, GPUs in use, GPUs pending workloads ask for, nodes they are pinned to) for the GPU cluster queue.
+    pending counts the cluster's pending workloads that are not explained here: only this namespace's are
+    visible, and those are explained by their GPU demand and any hostname they are pinned to."""
     q = json.loads(subprocess.run(['kubectl', 'get', 'clusterqueue', QUEUE, '-o', 'json'], capture_output=True,
                                   text=True, timeout=60, check=True).stdout)
     used = 0
@@ -51,7 +53,25 @@ def queue_state():
         for r in f['resources']:
             if r['name'] == 'nvidia.com/gpu':
                 used += int(r['total'])
-    return q['status'].get('pendingWorkloads', 0), used
+    total_pending = q['status'].get('pendingWorkloads', 0)
+    demand, pinned, seen = 0, set(), 0
+    if total_pending:
+        ws = json.loads(kubectl('get', 'workloads', '-o', 'json'))['items']
+        for w in ws:
+            conds = {c['type']: c.get('status') for c in w.get('status', {}).get('conditions', [])}
+            if w['spec'].get('queueName') != QUEUE or conds.get('QuotaReserved') == 'True' or conds.get('Finished') == 'True':
+                continue
+            seen += 1
+            for ps in w['spec'].get('podSets', []):
+                spec = ps['template']['spec']
+                for c in spec.get('containers', []):
+                    g = c.get('resources', {}).get('requests', {}).get('nvidia.com/gpu')
+                    if g:
+                        demand += int(g) * ps.get('count', 1)
+                host = spec.get('nodeSelector', {}).get('kubernetes.io/hostname')
+                if host:
+                    pinned.add(host)
+    return max(0, total_pending - seen), used, demand, pinned
 
 
 def job_status(name):
@@ -73,7 +93,7 @@ def job_status(name):
     return 'active'
 
 
-def job_yaml(name, run, shard, gpus=1):
+def job_yaml(name, run, shard, gpus=1, avoid=()):
     commit = run.get('commit', 'hybrid-area')  # A branch or tag (git clone --branch takes either)
     env = {'COMMIT': commit, 'MANDELBROT_THREADS': str(22 * gpus), 'SHARDED': run['command'],
            'RUN_NAME': run['name'], 'SHARDS': str(run['shards']), 'RUN_TIMEOUT': str(run.get('timeout', 7200)),
@@ -84,6 +104,13 @@ def job_yaml(name, run, shard, gpus=1):
         env['BUILD64'] = '1'
     env.update(run.get('env', {}))  # Extra environment, e.g. MANDELBROT_CUDA_TIMING
     envs = ''.join(f'            - name: {k}\n              value: {json.dumps(v)}\n' for k, v in env.items())
+    # Stay off nodes that pending workloads are pinned to
+    affinity = ''
+    if avoid:
+        affinity = ('      affinity:\n        nodeAffinity:\n          requiredDuringSchedulingIgnoredDuringExecution:\n'
+                    '            nodeSelectorTerms:\n              - matchExpressions:\n'
+                    '                  - key: kubernetes.io/hostname\n                    operator: NotIn\n'
+                    f'                    values: {json.dumps(sorted(avoid))}\n')
     data = ('emptyDir:\n            sizeLimit: 40Gi' if run.get('storage') == 'local' else
             'persistentVolumeClaim:\n            claimName: irving-mandelbrot')
     deadline = int(run.get('timeout', 7200)) + 3600
@@ -101,7 +128,7 @@ spec:
   template:
     spec:
       restartPolicy: Never
-      securityContext:
+{affinity}      securityContext:
         runAsNonRoot: true
         runAsUser: 65532
         runAsGroup: 65532
@@ -269,18 +296,19 @@ def loop():
                 continue
             if queue is None:
                 queue = queue_state()
-            pending, used = queue
+            pending, used, demand, pinned = queue
             free = run.get('free_gpus', SHORT_FREE_GPUS if run.get('short') else FREE_GPUS)
-            if (pending or used > TOTAL_GPUS - free or active >= MAX_JOBS
+            # Pending workloads we can see only need their GPUs left free (and their pinned nodes left alone)
+            if (pending or used + demand > TOTAL_GPUS - free or active >= MAX_JOBS
                     or run_active[run['name']] >= run.get('max_active', MAX_JOBS)):
                 continue
-            kubectl('apply', '-f', '-', input=job_yaml(shard_name(run, s), run, s))
+            kubectl('apply', '-f', '-', input=job_yaml(shard_name(run, s), run, s, avoid=pinned))
             attempts[key] = attempts.get(key, 0) + 1
             states[key] = 'active'
             active += 1
             run_active[run['name']] += 1
-            print(f'{time.strftime("%H:%M:%S")} submitted {shard_name(run, s)} (queue: {pending} pending, '
-                  f'{used} GPUs in use)', flush=True)
+            print(f'{time.strftime("%H:%M:%S")} submitted {shard_name(run, s)} (queue: {pending} unexplained '
+                  f'pending, {used} GPUs in use, {demand} pending GPU demand, avoiding {sorted(pinned)})', flush=True)
             time.sleep(20)  # Let the queue see it before the next check
             queue = None
         time.sleep(60)
