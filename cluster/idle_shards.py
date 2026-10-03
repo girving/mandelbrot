@@ -6,9 +6,10 @@
 RUNS.json lists runs: [{"name": ..., "shards": N, "command": "./build/release/escape_tree --cuda ... ks",
 "build64": false, "timeout": seconds per shard}, ...], with optional "free_gpus" (GPUs that must stay unused
 for a shard to start, overriding FREE_GPUS), "max_active" (a cap on the run's concurrently active shards),
-"commit" (the branch or tag to build, default hybrid-area), "env" (extra environment variables), "storage":
-"local" (see below), and "only": [shard indices] (run just those, with no merge: a pilot, each shard's log
-holding its own report).
+"max_active_idle" and "idle_free_gpus" (a higher cap while at least that many GPUs are free and nothing is
+pending), "commit" (the branch or tag to build, default hybrid-area), "env" (extra environment variables),
+"storage": "local" (see below), and "only": [shard indices] (run just those, with no merge: a pilot, each
+shard's log holding its own report).
 
 The PVC is ReadWriteOnce, so jobs on different nodes cannot share it: a second job waits, admitted and holding
 its GPU, until the first ends.  With "storage": "local", jobs mount a node-local emptyDir at /data instead
@@ -299,8 +300,11 @@ def loop():
             pending, used, demand, pinned = queue
             free = run.get('free_gpus', SHORT_FREE_GPUS if run.get('short') else FREE_GPUS)
             # Pending workloads we can see only need their GPUs left free (and their pinned nodes left alone)
+            cap = run.get('max_active', MAX_JOBS)
+            if not pending and not demand and TOTAL_GPUS - used >= run.get('idle_free_gpus', TOTAL_GPUS + 1):
+                cap = run.get('max_active_idle', cap)  # The cluster is nearly empty
             if (pending or used + demand > TOTAL_GPUS - free or active >= MAX_JOBS
-                    or run_active[run['name']] >= run.get('max_active', MAX_JOBS)):
+                    or run_active[run['name']] >= cap):
                 continue
             kubectl('apply', '-f', '-', input=job_yaml(shard_name(run, s), run, s, avoid=pinned))
             attempts[key] = attempts.get(key, 0) + 1
