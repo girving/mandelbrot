@@ -831,7 +831,7 @@ k·D(k) for k = 2^22 … 2^31: 1.3876 1.3655 1.3463 1.3293 1.3150 1.3024 1.2921 
 0.0044).  Fitting a + b/j and a quadratic over the last 6, 8 and 10 octaves gives T(2^32) = 5.71e-10 … 5.97e-10,
 median 5.843e-10, model spread ±1.3e-11, fit error ±7e-13 (scratch/results/prod-d15/final_tail.py).  So
 
-  **μ = 1.50659188365 ± 2.7e-11**  (statistics 2.3e-11, tail model 1.3e-11, precision a few 1e-12)
+  μ = 1.506591883654 ± 0.000000000027 (statistics 2.3e-11, tail model 1.3e-11, precision a few 1e-12)
 
 against the published 1.5065918849: 1.25e-9 lower, within its stated uncertainty, with ~100× smaller error.
 The dominant systematic is the tail extrapolation, which backtests on these octaves put at 1–2%.
@@ -841,7 +841,7 @@ octaves before it, and predict A(2^c) − A(2^32), measured to 3–8e-12.  At ev
 the quadratic overpredicts, the bracket widening with n; for n = 6, a + b/j is −1.00, −0.99, −0.95, −0.81,
 −0.78% and the quadratic +0.50, +0.42, +0.35, +0.34, +0.22% at c = 26 … 30.  Correcting the n = 6 fits at 2^32
 by these biases (a + b/j by ~+0.75%, the quadratic by ~−0.2%) gives T(2^32) = 5.85–5.87e-10, so the tail is
-known to ~±5e-12 and μ = 1.50659188365 ± 2.4e-11.  An independent direct measurement of the octaves past
+known to ~±5e-12 and **μ = 1.506591883652(24)**, i.e. 1.506591883652 ± 0.000000000024.  An independent direct measurement of the octaves past
 2^32 (depth 13, seed 4, max_iter 2^36, run tail-d13) is under way.
 
 ## 6. Reproducing
