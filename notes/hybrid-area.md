@@ -815,6 +815,27 @@ The pilot rows hold 2.1× the average leaves (production: ~9.4e12), so the whole
 sampling pass using ~55% of warp lanes, the next place to look.  The two rows alone give A(2^32) ± 1.45e-12,
 ~2.5e-11 for the whole run.
 
+*Result (2026-10-05).*  The production run `prod-d15` (depth 15, base 1266, seed 3, double, to 2^32 with roulette
+and the deep queue, split depth 11, overlap 3; 32 shards of 4.6–5.2 h on single H200s, ~158 GPU-hours;
+1.1e13 leaves, 1.77e14 samples, 4.4e17 iterations):
+
+| k | A(k) | std err |
+|---|---|---|
+| 2^14 | 1.5067932403 | 1.47e-10 |
+| 2^20 | 1.5065945847 | 2.60e-11 |
+| 2^22 | 1.5065925360 | 2.14e-11 |
+| 2^26 | 1.5065919225 | 2.21e-11 |
+| 2^32 | 1.5065918842378 | 2.33e-11 |
+
+k·D(k) for k = 2^22 … 2^31: 1.3876 1.3655 1.3463 1.3293 1.3150 1.3024 1.2921 1.2815 1.2736 1.2711 (errors up to
+0.0044).  Fitting a + b/j and a quadratic over the last 6, 8 and 10 octaves gives T(2^32) = 5.71e-10 … 5.97e-10,
+median 5.843e-10, model spread ±1.3e-11, fit error ±7e-13 (scratch/results/prod-d15/final_tail.py).  So
+
+  **μ = 1.5065918837 ± 2.7e-11**  (1.50659188365; statistics 2.3e-11, tail model 1.3e-11, precision a few 1e-12)
+
+against the published 1.5065918849: 1.25e-9 lower, within its stated uncertainty, with ~100× smaller error.
+The dominant systematic is the tail extrapolation, which backtests on these octaves put at 1–2%.
+
 ## 6. Reproducing
 
 ```
