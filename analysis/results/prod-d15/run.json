@@ -1,0 +1,15 @@
+[
+ {
+  "name": "prod-d15",
+  "shards": 32,
+  "build64": true,
+  "timeout": 57600,
+  "free_gpus": 32,
+  "max_active": 2,
+  "commit": "area-run-7",
+  "storage": "local",
+  "command": "./build/release64/escape_tree --cuda --base 1266 --depth 15 --seed 3 --progress 300 --overlap 3 --split-depth 11 --batch 33554432 --max-level-cells 134217728 --deep-from 8388616 --max-iter 4294967296 --roulette-from 8388608 --roulette-stride 2 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 33554432 67108864 134217728 268435456 536870912 1073741824 2147483648 4294967288",
+  "max_active_idle": 4,
+  "idle_free_gpus": 32
+ }
+]
