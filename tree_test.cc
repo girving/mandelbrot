@@ -476,11 +476,89 @@ TEST(expansion_step) {
     orbit_step(zx, zy, zy2, r2, x, y);
     const F dx = F(zx.x[0], zx.x[1], 0.0, nonoverlap) - ex, dy = F(zy.x[0], zy.x[1], 0.0, nonoverlap) - ey;
     const double scale = std::ldexp(a * a + b * b + std::hypot(x, y), -104);
-    worst = std::max(worst, std::max(std::abs(dx.x[0]), std::abs(dy.x[0])) / scale);
+    worst = std::max(worst, std::max(std::abs(double(dx)), std::abs(double(dy))) / scale);
     ASSERT_LE(std::abs(r2.x[0] - (zx.x[0] * zx.x[0] + zy.x[0] * zy.x[0])), 1e-15 * r2.x[0]);
   }
   print("  worst step error %.3g · 2^-104 (|z|^2 + |c|)", worst);
   ASSERT_LE(worst, 2);
+}
+
+TEST(expansion3_step) {
+  // The fused triple-double step is accurate to 2^-156 (|z|^2 + |c|) per step, against Expansion<4>, including
+  // when the result cancels; and long orbits at an attracting parameter stay that close
+  typedef Expansion<3> E;
+  typedef Expansion<4> F;
+  const auto up = [](const E e) { return F(e.x[0], e.x[1], e.x[2], 0.0, nonoverlap); };
+  std::mt19937_64 rng(7);
+  std::uniform_real_distribution<double> u(-1, 1);
+  double worst[2] = {0, 0};
+  int64_t overlaps[2] = {0, 0};
+  const int n = 1000000;
+  for (int i = 0; i < 2 * n; i++) {
+    const bool cancel = i >= n;  // Second half: c ≈ -z^2, so z' is tiny
+    const double r = 2 * std::abs(u(rng)), a = r * u(rng), b = r * u(rng);
+    const double a1 = std::ldexp(u(rng), std::ilogb(a) - 53), b1 = std::ldexp(u(rng), std::ilogb(b) - 53);
+    const double a2 = std::ldexp(u(rng), std::ilogb(a1) - 53), b2 = std::ldexp(u(rng), std::ilogb(b1) - 53);
+    const double x = cancel ? -(a * a - b * b) * (1 + std::ldexp(u(rng), -40 - int(rng() % 13))) : 2 * u(rng);
+    const double y = cancel ? -(2 * a * b) * (1 + std::ldexp(u(rng), -40 - int(rng() % 13))) : 2 * u(rng);
+    E zx(a, a1, a2, nonoverlap), zy(b, b1, b2, nonoverlap), zy2 = zy * zy, r2 = zx * zx + zy2;
+    const F X = up(zx), Y = up(zy), ex = X * X - Y * Y + x, ey = 2 * (X * Y) + y;
+    orbit_step(zx, zy, zy2, r2, x, y);
+    const F dx = up(zx) - ex, dy = up(zy) - ey;
+    const double scale = std::ldexp(a * a + b * b + std::hypot(x, y), -155);
+    // Whole sums: a difference of expansions that round differently is not normalized
+    worst[cancel] = std::max(worst[cancel], std::max(std::abs(double(dx)), std::abs(double(dy))) / scale);
+    for (const E z : {zx, zy})
+      overlaps[cancel] += std::abs(z.x[1]) > std::ldexp(1, std::ilogb(z.x[0]) - 53) ||
+                          std::abs(z.x[2]) > std::ldexp(1, std::ilogb(z.x[1]) - 53);
+    ASSERT_LE(std::abs(r2.x[0] - (zx.x[0] * zx.x[0] + zy.x[0] * zy.x[0])), 1e-15 * r2.x[0]);
+  }
+  print("  worst step error %.3g · 2^-155 (|z|^2 + |c|), %.3g with cancellation; overlapping results %d, %d",
+        worst[0], worst[1], overlaps[0], overlaps[1]);
+  ASSERT_LE(std::max(worst[0], worst[1]), 0.5);
+  ASSERT_EQ(overlaps[0], 0);
+
+  // 10^4 steps at c = 0.2 + 0.5i, in the main cardioid, from z = c: contracting, so errors stay at the step size
+  const double x = 0.2, y = 0.5;
+  E zx(x), zy(y), zy2 = zy * zy, r2 = zx * zx + zy2;
+  F X(x), Y(y);
+  for (int i = 0; i < 10000; i++) {
+    orbit_step(zx, zy, zy2, r2, x, y);
+    const F t = X * X - Y * Y + x;
+    Y = 2 * (X * Y) + y;
+    X = t;
+  }
+  const double err = std::max(std::abs(double(up(zx) - X)), std::abs(double(up(zy) - Y)));
+  print("  10^4 steps: error %.3g · 2^-155", std::ldexp(err, 155));
+  ASSERT_LE(err, std::ldexp(1, -150));
+}
+
+TEST(expansion3_orbits) {
+  // Orbit<Expansion<3>> (generic Newton and cycle code around the fused step) classifies like double and
+  // Expansion<2>, apart from rare precision-sensitive samples
+  std::mt19937_64 rng(11);
+  std::uniform_real_distribution<double> ux(-2, 0.5), uy(0, 1.2);
+  const int n = 4000;
+  int differ2 = 0, differ1 = 0, escaped = 0, interior = 0;
+  for (int i = 0; i < n; i++) {
+    const double x = ux(rng), y = uy(rng);
+    Orbit<double> o1;
+    Orbit<Expansion<2>> o2;
+    Orbit<Expansion<3>> o3;
+    o1.start(x, y); o2.start(x, y); o3.start(x, y);
+    o1.finish(1 << 14); o2.finish(1 << 14); o3.finish(1 << 14);
+    const Escape e1 = o1.result(), e2 = o2.result(), e3 = o3.result();
+    differ1 += e1.steps != e3.steps;
+    differ2 += e2.steps != e3.steps;
+    escaped += e3.steps >= 0;
+    interior += e3.period > 0;
+  }
+  print("  %d samples: %d escaped, %d attracting; Expansion<3> differs from Expansion<2> on %d, from double on %d",
+        n, escaped, interior, differ2, differ1);
+  ASSERT_LE(n / 4, escaped);
+  ASSERT_LE(n / 8, interior);
+  ASSERT_LE(differ2, 2);
+  ASSERT_LE(differ1, 4);
 }
 
 TEST(compare_rounded) {
