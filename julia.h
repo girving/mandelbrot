@@ -14,7 +14,8 @@
 // evaluating h at preimages by barycentric interpolation.  Both preimages of z have radius √|z - c|, so they share
 // one Chebyshev row and their angular rows add: L is stored as N × nr and N × nt factors.  (1 - L) h = 1 is solved
 // by iterative refinement: GMRES in double for corrections, residuals in the working precision S.  Points,
-// weights and quadrature nodes come from arb, rounded to S.
+// weights and quadrature nodes come from arb, rounded to S.  (A two-grid Atkinson-Brakhage preconditioner cut
+// GMRES iterations ~3x near c = 1/4 but cost more than it saved: L only halves frequencies per application.)
 #pragma once
 
 #include <cstdint>
@@ -29,6 +30,7 @@ struct JuliaParams {
   int nr = 32, nt = 101;  // Chebyshev points in log r, angles (odd)
   int nq = 0, ng = 0;     // Area quadrature: angles (0: 2 nt + 1), Gauss-Legendre points in r (0: nr + 16)
   int max_refine = 20;
+  bool eig = false;  // Also estimate L's leading eigenvalue (power iteration in double)
   bool verbose = false;
 };
 
@@ -36,6 +38,7 @@ template<class S> struct JuliaResult {
   S area;
   double residual = 0;  // Final max |1 - (1 - L) h| at the collocation points
   int refinements = 0, gmres_iters = 0;
+  double rho = 0;  // L's leading eigenvalue e^{P(2)}, if eig
   double secs = 0;
 };
 
