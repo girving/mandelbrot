@@ -19,7 +19,7 @@ N × nt factors and applied in O(N²) without forming it.  Geometry comes from a
 refinement: residuals in S ∈ {double, Expansion<2>, Expansion<3>}, corrections by GMRES in double, ~15 digits
 per round.  The area integral is trapezoid in θ times Gauss–Legendre in r over [ρ(θ), r2].
 
-## Results (Expansion<3>, M1 Max)
+## Results (Expansion<3>, 18-core M5 Pro)
 
 | c | area K(c) | agreement | time (100 × 301) |
 |---|---|---|---|
