@@ -638,6 +638,24 @@ int roulette_reference(const TreeParams& p) {
   return ref;
 }
 
+// --dump-cells: append each certified cell of a level as int32s (depth, ix, iy, below-threshold mask), for pictures
+void dump_certified(const TreeParams& p, const Level& level, const int d, const int64_t n, const Mem<uint32_t>& status) {
+  vector<uint32_t> st(n);
+  status.to_host(st.data(), n);
+  vector<int32_t> out;
+  for (int64_t i = 0; i < n; i++) {
+    if (!certified(st[i])) continue;
+    const Cell c = level.at(i);
+    out.insert(out.end(), {int32_t(d), c.ix, c.iy, int32_t(st[i])});
+  }
+  static std::mutex mu;
+  std::lock_guard<std::mutex> lock(mu);
+  FILE* f = fopen(p.dump_cells.c_str(), "ab");
+  slow_assert(f, "can't open %s", p.dump_cells);
+  slow_assert(fwrite(out.data(), 4, out.size(), f) == out.size(), "short write to %s", p.dump_cells);
+  fclose(f);
+}
+
 // --dump: append each leaf's cell (ix, iy at the leaf level) and its samples' outcome codes, as int32s
 void dump_leaves(const TreeParams& p, const Mem<Cell>& leaves, const int64_t l0, const int64_t nl,
                  const Mem<uint32_t>& outcomes) {
@@ -899,6 +917,7 @@ bool run_batch(const TreeParams& p, const int64_t cell0, const int64_t cell1, co
                     status.p, d ? hints.p : nullptr, p.center_hint_newton};
     for (int k = 0; k < K; k++) task.ks[k] = p.ks[k];
     const auto stats = run_orbits(task, n, p.cuda);
+    if (!p.dump_cells.empty()) dump_certified(p, level, d, n, status);
     Rb.center_kernel_secs += stats.secs;
     Rb.centers += n;
     Rb.center_iters += stats.iters;
@@ -1120,6 +1139,7 @@ TreeResult empty_result(const TreeParams& p) {
   slow_assert(p.tiles >= 0 && p.tiles <= 64, "tiles must be in [0, 64]");
   if (p.tiles) { R.tile_diff.resize(int64_t(p.tiles) * p.tiles * K); R.tile_cert.assign(int64_t(p.tiles) * p.tiles * K, 0); }
   slow_assert(!p.flip_stats || p.prec.starts_with("compare"), "flip_stats needs a compare precision");
+  slow_assert(p.dump_cells.empty() || !p.cuda, "dump_cells is CPU only");
   slow_assert(!p.deep_from || ((p.prec == "double" || p.prec == "dd") && !p.tiles && !p.leaf_stats &&
                                p.dump.empty() && p.deep_from % 8 == 0 && p.deep_batch > 0),
               "deep queue needs prec double or dd, no tiles, leaf stats or dump, and deep_from a multiple of 8");
