@@ -850,7 +850,8 @@ production on every overlapping octave 2^26 … 2^31.  Past 2^32 it measures k·
 2^36 (f̄ = 1.22 … 1.27), T(2^32) = 5.80e-10 ± 1.0e-11 directly, against 5.86e-10 ± 5e-12 extrapolated (0.5σ).
 Combined, T(2^32) = 5.848e-10 ± 4.5e-12, and
 
-  **μ = 1.506591883653(24)**  (statistics 2.3e-11, tail 4.5e-12, precision a few 1e-12).
+  **μ = 1.506591883653(24)**  (statistics 2.3e-11, tail 4.5e-12, precision a few 1e-12), i.e.
+  μ = 1.506591883653 ± 4.7e-11 at 95% confidence (the convention of Förstemann's and Lo's estimates).
 
 *Comparison with earlier estimates.*  Förstemann (2012, GPU pixel counting, 20 random grids of 2097152², max
 iterations ~8.6e9): 1.5065918849 ± 2.8e-9 as a 95% interval, i.e. σ ≈ 1.4e-9; he counted unresolved pixels
