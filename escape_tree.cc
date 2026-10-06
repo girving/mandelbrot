@@ -205,6 +205,8 @@ int main(const int argc, const char** argv) {
         .scan<'i', int>().default_value(0);
     program.add_argument("--progress").help("print progress at most every this many seconds (0: never)")
         .scan<'g', double>().default_value(0.0);
+    program.add_argument("--dump-cells").help("append each certified cell (depth, ix, iy, mask) to this file (CPU)")
+        .default_value(string(""));
     program.add_argument("--dump").help("append each leaf's cell and sample outcome codes to this file (analysis)")
         .default_value(string(""));
     program.add_argument("--shard").help("run only shard s/N: base rows r with r % N == s (see --save, --merge)")
@@ -252,6 +254,7 @@ int main(const int argc, const char** argv) {
     p.overlap = program.get<int>("--overlap");
     p.flip_stats = program.get<bool>("--flip-stats");
     p.dump = program.get<string>("--dump");
+    p.dump_cells = program.get<string>("--dump-cells");
     p.progress = program.get<double>("--progress");
     p.split_depth = program.get<int>("--split-depth");
     p.max_level_cells = program.get<int64_t>("--max-level-cells");
