@@ -78,6 +78,18 @@ TEST(small_c) {
   ASSERT_LE(abs(d23), 1e-28);
 }
 
+TEST(grade) {
+  // Angular grading changes the discretization, not the answer: near the cusp it needs far fewer points
+  JuliaParams p;
+  p.cx = 0.25 - std::ldexp(1, -9);
+  p.nr = 110; p.nt = 331;
+  const double uniform = julia_area<double>(p).area;
+  p.nr = 60; p.nt = 121; p.grade = 0.6;
+  const double graded = julia_area<double>(p).area;
+  print("  c = 1/4 - 2^-9: uniform 110x331 %.16f, graded 60x121 %.16f", uniform, graded);
+  ASSERT_LE(abs(uniform - graded), 1e-13);
+}
+
 TEST(eigenvalue) {
   // L's leading eigenvalue e^{P(2)}: exactly 1/2 at c = 0 (L^n 1 = 2^-n |z|^-2 (1 - 2^-n)), and at real c ≥ the
   // variational bound |f'(q)|^-2 from the delta measure at the repelling fixed point q = (1 + √(1 - 4c))/2

@@ -49,6 +49,27 @@ static void sin_cos_pi(arb_t s, arb_t c, const int64_t p, const int64_t q) {
   arb_sin_cos_pi(s, c, x, prec);
 }
 
+// Angular grading: e^{iθ} = (e^{iφ} + a)/(1 + a e^{iφ}) with interpolation uniform in φ, so 0 ≤ a < 1 packs
+// points near θ = 0 by (1 + a)/(1 - a).  mobius(out, e^{iφ}, a) gives e^{iθ}; mobius(out, e^{iθ}, -a) inverts it.
+static void mobius(acb_t out, const acb_t e, const double a) {
+  acb_t num, den;
+  acb_init(num); acb_init(den);
+  acb_set_d(num, a);
+  acb_add(num, num, e, prec);
+  acb_mul_arb(den, e, exact_arb(a), prec);
+  acb_add_ui(den, den, 1, prec);
+  acb_div(out, num, den, prec);
+  acb_clear(num); acb_clear(den);
+}
+
+// e^{i arg(e)/2} as a pair, for a unit complex e
+static void half_phase(arb_t ex, arb_t ey, const acb_t e) {
+  Arb t;
+  acb_arg(t, e, prec);
+  arb_mul_2exp_si(t, t, -1);
+  arb_sin_cos(ey, ex, t, prec);
+}
+
 template<class S> void cheb_row(const vector<S>& nodes, const vector<S>& weights, const S s, S* row) {
   const int n = int(nodes.size());
   S sum(0);
@@ -109,14 +130,17 @@ template<> void trig_row(const vector<double>& rho_x, const vector<double>& rho_
 // (-1)^k sin((2k+1)π/(2nr)), and nt angles θ_j = 2πj/nt through their half angle phases ρ_j = e^{iπj/nt}
 template<class S> struct Grid {
   int nr, nt;
+  double grade;  // Angular grading a: θ_j = θ(φ_j) with φ_j = 2πj/nt
   vector<Arb> s;  // The nodes in arb, for collocation points
   vector<S> nodes, weights, rho_x, rho_y;
   int64_t size() const { return int64_t(nr) * nt; }
 };
-template<class S> static Grid<S> make_grid(const arb_t s1, const arb_t s2, const int nr, const int nt) {
+template<class S> static Grid<S> make_grid(const arb_t s1, const arb_t s2, const int nr, const int nt,
+                                           const double grade) {
   slow_assert(nt % 2 == 1 && nr >= 2, "need odd nt and nr ≥ 2");
+  slow_assert(0 <= grade && grade < 1, "need 0 ≤ grade < 1");
   Grid<S> g;
-  g.nr = nr; g.nt = nt;
+  g.nr = nr; g.nt = nt; g.grade = grade;
   g.s.resize(nr);
   g.nodes.resize(nr); g.weights.resize(nr); g.rho_x.resize(nt); g.rho_y.resize(nt);
   Arb mid, half_len, a, b;
@@ -137,24 +161,23 @@ template<class S> static Grid<S> make_grid(const arb_t s1, const arb_t s2, const
 }
 
 // Preimage data of a collocation point z = e^{s_k} e^{iθ_j}: W = 1/(4|z - c|) = 1/|f'(w)|^2, the preimage log
-// radius ½ log|z - c|, and η = e^{i arg(z - c)/4}, the half angle phase of √(z - c) (the other preimage has iη)
-template<class S> struct Pre { S W, sw, ex, ey; };
+// radius ½ log|z - c|, and for each preimage ±√(z - c), the half phase e^{iφ/2} of its interpolation angle φ
+template<class S> struct Pre { S W, sw, ex[2], ey[2]; };
 template<class S> static vector<Pre<S>> preimages(const Grid<S>& g, const double cx, const double cy) {
   vector<Pre<S>> pre(g.size());
   parallel_for(g.size(), [&](const int64_t i) {
     const int k = int(i / g.nt), j = int(i % g.nt);
     Arb r, sn, cs, m, phi, t;
-    acb_t u;
-    acb_init(u);
+    acb_t u, e;
+    acb_init(u); acb_init(e);
     arb_exp(r, g.s[k], prec);
-    sin_cos_pi(sn, cs, 2 * j, g.nt);
-    arb_mul(acb_realref(u), r, cs, prec);
-    arb_mul(acb_imagref(u), r, sn, prec);
+    sin_cos_pi(acb_imagref(e), acb_realref(e), 2 * j, g.nt);
+    mobius(u, e, g.grade);
+    acb_mul_arb(u, u, r, prec);
     arb_sub(acb_realref(u), acb_realref(u), exact_arb(cx), prec);
     arb_sub(acb_imagref(u), acb_imagref(u), exact_arb(cy), prec);
     acb_abs(m, u, prec);
     acb_arg(phi, u, prec);
-    acb_clear(u);
     auto& q = pre[i];
     arb_mul_2exp_si(t, m, 2);
     arb_inv(t, t, prec);
@@ -162,9 +185,16 @@ template<class S> static vector<Pre<S>> preimages(const Grid<S>& g, const double
     arb_log(t, m, prec);
     arb_mul_2exp_si(t, t, -1);
     q.sw = rnd<S>(t);
-    arb_mul_2exp_si(phi, phi, -2);
-    arb_sin_cos(sn, cs, phi, prec);
-    q.ex = rnd<S>(cs); q.ey = rnd<S>(sn);
+    // The preimages have angles arg(z - c)/2 and that plus π; map each back to φ
+    arb_mul_2exp_si(phi, phi, -1);
+    arb_sin_cos(acb_imagref(e), acb_realref(e), phi, prec);
+    for (int b = 0; b < 2; b++) {
+      if (b) acb_neg(e, e);
+      mobius(u, e, -g.grade);
+      half_phase(cs, sn, u);
+      q.ex[b] = rnd<S>(cs); q.ey[b] = rnd<S>(sn);
+    }
+    acb_clear(u); acb_clear(e);
   });
   return pre;
 }
@@ -185,8 +215,8 @@ template<class S> static Factors<S> factors(const vector<Pre<S>>& pre, const Gri
     F.W[i] = q.W;
     cheb_row(g.nodes, g.weights, q.sw, &F.R[i * nr]);
     vector<S> t2(nt);
-    trig_row(g.rho_x, g.rho_y, q.ex, q.ey, &F.T[i * nt]);
-    trig_row(g.rho_x, g.rho_y, -q.ey, q.ex, t2.data());
+    trig_row(g.rho_x, g.rho_y, q.ex[0], q.ey[0], &F.T[i * nt]);
+    trig_row(g.rho_x, g.rho_y, q.ex[1], q.ey[1], t2.data());
     for (int l = 0; l < nt; l++) F.T[i * nt + l] += t2[l];
   });
   return F;
@@ -200,7 +230,9 @@ template<class S> static Factors<double> to_double(const Factors<S>& F) {
 }
 template<class S> static vector<Pre<double>> to_double(const vector<Pre<S>>& pre) {
   vector<Pre<double>> d(pre.size());
-  for (size_t i = 0; i < pre.size(); i++) d[i] = {double(pre[i].W), double(pre[i].sw), double(pre[i].ex), double(pre[i].ey)};
+  for (size_t i = 0; i < pre.size(); i++)
+    d[i] = {double(pre[i].W), double(pre[i].sw), {double(pre[i].ex[0]), double(pre[i].ex[1])},
+            {double(pre[i].ey[0]), double(pre[i].ey[1])}};
   return d;
 }
 
@@ -297,7 +329,7 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   arb_set_d(a, r2); arb_log(s2, a, prec);
 
   // The operator on the fine grid, in S and double
-  const auto fine = make_grid<S>(s1, s2, nr, nt);
+  const auto fine = make_grid<S>(s1, s2, nr, nt, p.grade);
   const auto& nodes = fine.nodes;
   const auto& weights = fine.weights;
   const auto& rho_x = fine.rho_x;
@@ -355,18 +387,30 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     }
   }
 
-  // ∫_X h, X = {ρ(θ) ≤ |z| ≤ r2} with |ρ^2 e^{2iθ} + c| = r2: trapezoid in θ, Gauss-Legendre in r
+  // ∫_X h, X = {ρ(θ) ≤ |z| ≤ r2} with |ρ^2 e^{2iθ} + c| = r2: trapezoid in φ (weighted by dθ/dφ), Gauss-Legendre
+  // in r
   const int nq = p.nq ? p.nq : 2 * nt + 1, ng = p.ng ? p.ng : nr + 16;
   vector<Arb> gx(ng), gw(ng);
   for (int g = 0; g < ng; g++) arb_hypgeom_legendre_p_ui_root(gx[g], gw[g], ng, g, prec);
   vector<S> part(nq);
   parallel_for(nq, [&](const int64_t q) {
-    Arb sn, cs, bb, rho, rg, wg, t, u;
-    // b = Re(conj(c) e^{2iθ}), θ = 2πq/nq;  ρ^2 = -b + √(b^2 - |c|^2 + r2^2)
-    sin_cos_pi(sn, cs, 4 * q, nq);
-    arb_mul(bb, cs, exact_arb(p.cx), prec);
-    arb_mul(t, sn, exact_arb(p.cy), prec);
+    Arb sn, cs, bb, rho, rg, wg, t, u, jac;
+    // θ = θ(φ) for φ = 2πq/nq, dθ/dφ = (1 - a^2)/|1 + a e^{iφ}|^2, b = Re(conj(c) e^{2iθ}), ρ^2 = -b + √(b^2 - |c|^2 + r2^2)
+    acb_t e, et;
+    acb_init(e); acb_init(et);
+    sin_cos_pi(acb_imagref(e), acb_realref(e), 2 * q, nq);
+    mobius(et, e, p.grade);
+    acb_mul_arb(e, e, exact_arb(p.grade), prec);
+    acb_add_ui(e, e, 1, prec);
+    acb_abs(jac, e, prec);
+    arb_sqr(jac, jac, prec);
+    arb_set_d(u, p.grade); arb_sqr(u, u, prec); arb_set_ui(t, 1); arb_sub(t, t, u, prec);
+    arb_div(jac, t, jac, prec);
+    acb_sqr(et, et, prec);
+    arb_mul(bb, acb_realref(et), exact_arb(p.cx), prec);
+    arb_mul(t, acb_imagref(et), exact_arb(p.cy), prec);
     arb_add(bb, bb, t, prec);
+    acb_clear(e); acb_clear(et);
     arb_sqr(t, bb, prec);
     arb_set_d(u, r2); arb_sqr(u, u, prec);
     arb_add(t, t, u, prec);
@@ -375,7 +419,7 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     arb_sqrt(t, t, prec);
     arb_sub(rho, t, bb, prec);
     arb_sqrt(rho, rho, prec);
-    // h along this angle: v[k] = Σ_j T(θ)[j] H[k,j], with η = e^{iθ/2} = e^{iπq/nq}
+    // h along this angle: v[k] = Σ_j T(φ)[j] H[k,j], with η = e^{iφ/2} = e^{iπq/nq}
     sin_cos_pi(sn, cs, q, nq);
     vector<S> trow(nt), v(nr), crow(nr);
     trig_row(rho_x, rho_y, rnd<S>(cs), rnd<S>(sn), trow.data());
@@ -400,7 +444,7 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
       for (int k = 0; k < nr; k++) hv += crow[k] * v[k];
       sum += rnd<S>(wg) * hv;
     }
-    part[q] = sum;
+    part[q] = rnd<S>(jac) * sum;
   });
   S integral(0);
   for (const auto& s : part) integral += s;
