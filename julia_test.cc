@@ -90,6 +90,21 @@ TEST(grade) {
   ASSERT_LE(abs(uniform - graded), 1e-13);
 }
 
+TEST(parabolic_preconditioner) {
+  // Near c = 1/4, (1 - L+)^-1 over the branch fixing q leaves the answer alone and cuts GMRES iterations
+  JuliaParams p;
+  p.cx = 0.25 - std::ldexp(1, -12);
+  p.nr = 80; p.nt = 181; p.grade = 0.744;
+  p.pre = 0;
+  const auto plain = julia_area<double>(p);
+  p.pre = 1;
+  const auto pre = julia_area<double>(p);
+  print("  c = 1/4 - 2^-12: plain %.16f (%d GMRES iterations, %.2f s), preconditioned %.16f (%d, %.2f s)",
+        plain.area, plain.gmres_iters, plain.secs, pre.area, pre.gmres_iters, pre.secs);
+  ASSERT_LE(abs(plain.area - pre.area), 1e-13);
+  ASSERT_LE(4 * pre.gmres_iters, plain.gmres_iters);
+}
+
 TEST(eigenvalue) {
   // L's leading eigenvalue e^{P(2)}: exactly 1/2 at c = 0 (L^n 1 = 2^-n |z|^-2 (1 - 2^-n)), and at real c ≥ the
   // variational bound |f'(q)|^-2 from the delta measure at the repelling fixed point q = (1 + √(1 - 4c))/2

@@ -30,6 +30,7 @@ struct JuliaParams {
   int nr = 32, nt = 101;  // Chebyshev points in log r, angles (odd)
   double grade = 0;       // Angular grading a ∈ [0, 1): points pack near θ = 0 by (1 + a)/(1 - a)
   int nq = 0, ng = 0;     // Area quadrature: angles (0: 2 nt + 1), Gauss-Legendre points in r (0: nr + 16)
+  int pre = -1;            // Parabolic preconditioner (1 - L+)^-1: 1 on, 0 off, -1 when |f'(q)| is near 1
   int max_refine = 20;
   bool eig = false;  // Also estimate L's leading eigenvalue (power iteration in double)
   bool verbose = false;

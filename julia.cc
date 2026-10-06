@@ -11,6 +11,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <complex>
 #include <functional>
 #include <thread>
 namespace mandelbrot {
@@ -255,14 +256,15 @@ template<class S> static void apply(const Factors<S>& F, const vector<S>& h, vec
 
 typedef function<void(const vector<double>&, vector<double>&)> Op;
 
-// Restarted GMRES for A x = b; returns iterations
-static int gmres(const int64_t N, const Op& A, const vector<double>& b, vector<double>& x, const double tol) {
+// Right preconditioned restarted GMRES for A x = b: solves A M u = b, x = M u (M may be null).  Returns iterations.
+static int gmres(const int64_t N, const Op& A, const Op& M, const vector<double>& b, vector<double>& x,
+                 const double tol) {
   const int m = 60;
   const auto norm = [](const vector<double>& v) { double s = 0; for (const double a : v) s += a * a; return sqrt(s); };
   const double bnorm = norm(b);
   x.assign(N, 0);
   if (bnorm == 0) return 0;
-  vector<double> r(N), w(N);
+  vector<double> r(N), w(N), z(N), mz(N);
   int iters = 0;
   for (int restart = 0; restart < 100; restart++) {
     A(x, w);
@@ -277,7 +279,8 @@ static int gmres(const int64_t N, const Op& A, const vector<double>& b, vector<d
     int k = 0;
     for (; k < m; k++) {
       iters++;
-      A(V[k], w);
+      if (M) { M(V[k], z); A(z, w); }
+      else A(V[k], w);
       for (int pass = 0; pass < 2; pass++)  // Modified Gram-Schmidt, twice
         for (int l = 0; l <= k; l++) {
           double d = 0;
@@ -308,8 +311,12 @@ static int gmres(const int64_t N, const Op& A, const vector<double>& b, vector<d
       for (int q = l + 1; q < k; q++) s -= H[l][q] * y[q];
       y[l] = s / H[l][l];
     }
+    z.assign(N, 0);
     for (int l = 0; l < k; l++)
-      for (int64_t i = 0; i < N; i++) x[i] += y[l] * V[l][i];
+      for (int64_t i = 0; i < N; i++) z[i] += y[l] * V[l][i];
+    if (M) M(z, mz);
+    else mz = z;
+    for (int64_t i = 0; i < N; i++) x[i] += mz[i];
   }
   die("gmres did not converge");
 }
@@ -342,6 +349,62 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     apply(Fd, v, out);
     for (int64_t i = 0; i < N; i++) out[i] = v[i] - out[i];
   };
+  // Preconditioner for the slow modes near the repelling fixed point q = (1 + √(1 - 4c))/2.  The principal branch
+  // w+(z) = √(z - c) has q as an attracting fixed point with multiplier 1/μ, μ = f'(q), and its iterates converge to
+  // q from the whole annulus.  Split L = L+ + L- by branch: near c = 1/4, μ → 1 and L+ carries a cluster of
+  // eigenvalues μ^{-2-a-b} → 1 (dilations in q's Koenigs coordinate), while L- adds only O(ε^2) to the leading
+  // eigenvalue, so L- (1 - L+)^-1 stays well conditioned.  And L+^m g(z) = |(w+^m)'(z)|^2 g(w+^m(z)) has L's
+  // factored form for any m: one interpolation row at the point w+^m(z).  So
+  //   M = Π_{j<J} (1 + L+^{2^j}) = Σ_{n<2^J} L+^n ≈ (1 - L+)^-1
+  // costs J single-row matvecs, with 2^J steps enough that |μ|^{-2^{J+1}} ≤ 1/100.
+  const std::complex<double> c(p.cx, p.cy), qf = (1.0 + std::sqrt(1.0 - 4.0 * c)) / 2.0;
+  const double mu = std::abs(2.0 * qf);
+  const int J = p.pre == 0 ? 0 : max(0, int(std::ceil(std::log2(std::log(100.0) / (2 * std::log(mu))))));
+  const bool use_pre = p.pre == 1 || (p.pre < 0 && J >= 4);
+  vector<Factors<double>> powers;
+  if (use_pre) {
+    const auto fine_d = make_grid<double>(s1, s2, nr, nt, p.grade);
+    vector<vector<Pre<double>>> pts(J, vector<Pre<double>>(N));
+    parallel_for(N, [&](const int64_t i) {
+      const int k = int(i / nt), j = int(i % nt);
+      const double phi = 2 * M_PI * j / nt;
+      const std::complex<double> e = std::polar(1.0, phi), a = p.grade;
+      std::complex<double> z = std::exp(double(fine_d.nodes[k])) * (e + a) / (1.0 + a * e);
+      double jac = 1;
+      int64_t m = 0;
+      for (int l = 0; l < J; l++) {
+        for (; m < (int64_t(1) << l); m++) {  // Advance to w+^{2^l}(z), accumulating |w+'|^2 = 1/(4|z - c|)
+          jac /= 4 * std::abs(z - c);
+          z = std::sqrt(z - c);
+        }
+        const std::complex<double> u = z / std::abs(z), v = (u - a) / (1.0 - a * u);  // e^{iθ}, then e^{iφ}
+        const double half = std::arg(v) / 2;
+        pts[l][i] = {jac, std::log(std::abs(z)), {std::cos(half), 0}, {std::sin(half), 0}};
+      }
+    });
+    for (int l = 0; l < J; l++) {
+      // One branch only, so build the rows directly rather than through factors()
+      Factors<double> P;
+      P.nr = nr; P.nt = nt;
+      P.W.resize(N); P.R.resize(N * nr); P.T.resize(N * nt);
+      parallel_for(N, [&](const int64_t i) {
+        const auto& q = pts[l][i];
+        P.W[i] = q.W;
+        cheb_row(fine_d.nodes, fine_d.weights, q.sw, &P.R[i * nr]);
+        trig_row(fine_d.rho_x, fine_d.rho_y, q.ex[0], q.ey[0], &P.T[i * nt]);
+      });
+      powers.push_back(std::move(P));
+    }
+  }
+  const Op M = !use_pre ? Op() : Op([&](const vector<double>& r, vector<double>& out) {
+    out = r;
+    vector<double> t;
+    for (const auto& P : powers) {
+      apply(P, out, t);
+      for (int64_t i = 0; i < N; i++) out[i] += t[i];
+    }
+  });
+  if (p.verbose && use_pre) print("  parabolic preconditioner: mu %.6f, J = %d", mu, J);
   const double t_setup = elapsed();
   double t_apply = 0, t_gmres = 0;
 
@@ -366,7 +429,7 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     if (p.verbose) print("  refinement %d: residual %.3g", res.refinements, rmax);
     if (rmax <= eps || stalled || res.refinements >= p.max_refine) break;
     const double tg = elapsed();
-    res.gmres_iters += gmres(N, A, rd, dx, 1e-14);
+    res.gmres_iters += gmres(N, A, M, rd, dx, 1e-14);
     t_gmres += elapsed() - tg;
     for (int64_t i = 0; i < N; i++) h[i] += S(dx[i]);
     res.refinements++;
