@@ -245,7 +245,7 @@ Grönwall's theorem at radius e^δ gives the area of the fattened set {c : g_M(c
   F(δ) = π e^{2δ} − π Σ n |b_n|² e^{−2nδ}.
 
 The weights e^{−2nδ} decay, so the 2^27 coefficients determine F(2^-k) to about 10^-8 for k ≤ 19
-(`scratch/fattened_exact.py`).
+(`fattened`).
 
 The same sets are cheap to measure by Monte Carlo far past what the series can reach.  If the orbit of
 c has not escaped after m iterations, then g_M(c) ≤ 2^-m · O(1).  So deciding whether g < 2^-k takes
@@ -829,26 +829,26 @@ and the deep queue, split depth 11, overlap 3; 32 shards of 4.6–5.2 h on singl
 
 k·D(k) for k = 2^22 … 2^31: 1.3876 1.3655 1.3463 1.3293 1.3150 1.3024 1.2921 1.2815 1.2736 1.2711 (errors up to
 0.0044).  Fitting a + b/j and a quadratic over the last 6, 8 and 10 octaves gives T(2^32) = 5.71e-10 … 5.97e-10,
-median 5.843e-10, model spread ±1.3e-11, fit error ±7e-13 (scratch/results/prod-d15/final_tail.py).  So
+median 5.843e-10, model spread ±1.3e-11, fit error ±7e-13 (`analysis/final_tail.py`).  So
 
   μ = 1.506591883654 ± 0.000000000027 (statistics 2.3e-11, tail model 1.3e-11, precision a few 1e-12)
 
 against the published 1.5065918849: 1.25e-9 lower, within its stated uncertainty, with ~100× smaller error.
 The dominant systematic is the tail extrapolation, which backtests on these octaves put at 1–2%.
 
-*Tail backtest on the production octaves* (scratch/tail_backtest_prod.py): cut at 2^c, fit k·D(k) over the n
+*Tail backtest on the production octaves* (`analysis/tail_backtest.py`): cut at 2^c, fit k·D(k) over the n
 octaves before it, and predict A(2^c) − A(2^32), measured to 3–8e-12.  At every cut a + b/j underpredicts and
 the quadratic overpredicts, the bracket widening with n; for n = 6, a + b/j is −1.00, −0.99, −0.95, −0.81,
 −0.78% and the quadratic +0.50, +0.42, +0.35, +0.34, +0.22% at c = 26 … 30.  Correcting the n = 6 fits at 2^32
 by these biases (a + b/j by ~+0.75%, the quadratic by ~−0.2%) gives T(2^32) = 5.85–5.87e-10, so the tail is
 known to ~±5e-12 and μ = 1.506591883652(24).
 
-*Direct tail check* (run tail-d13: depth 13, seed 4, max_iter 2^36, 8 shards, ~26 GPU-hours).  Independent
-samples give A(2^32) = 1.5065918842169 ± 1.4e-10, 2.1e-11 (0.15σ) from production, and k·D(k) agrees with
+*Direct tail check* (run tail-d13: depth 13, seed 4, max_iter 2^36, 8 shards, ~26 GPU-hours;
+`analysis/tail_direct.py`).  Independent samples give A(2^32) = 1.5065918842169 ± 1.4e-10, 2.1e-11 (0.15σ) from production, and k·D(k) agrees with
 production on every overlapping octave 2^26 … 2^31.  Past 2^32 it measures k·D(k) = 1.234(24), 1.284(50),
 1.173(67), 1.319(142) at 2^32 … 2^35, so the octaves to 2^36 sum to 5.436e-10 ± 9.9e-12; with ~3.6e-11 beyond
 2^36 (f̄ = 1.22 … 1.27), T(2^32) = 5.80e-10 ± 1.0e-11 directly, against 5.86e-10 ± 5e-12 extrapolated (0.5σ).
-Combined, T(2^32) = 5.848e-10 ± 4.5e-12, and
+Combined, T(2^32) = 5.847e-10 ± 4.5e-12, and
 
   **μ = 1.506591883653(24)**  (statistics 2.3e-11, tail 4.5e-12, precision a few 1e-12), i.e.
   μ = 1.506591883653 ± 4.7e-11 at 95% confidence (the convention of Förstemann's and Lo's estimates).
@@ -860,7 +860,7 @@ iterations ~8.6e9): 1.5065918849 ± 2.8e-9 as a 95% interval, i.e. σ ≈ 1.4e-9
 per grid cell, 30.4e12 points): 1.5065918902 ± 5.4e-9 (95%), +1.9σ from ours when its two groups are combined by
 inverse variance (group A 12 grids +0.7σ, group B 99 grids +2.1σ).  Its membership test is loose (consecutive
 iterates within 2^-16, though the site says 2^-48; Floyd cycle test within 2^-32; 2^34 iterations).  Measured
-against ours (scratch/lo/): its false members are ~2e-10 of area (exterior bands along the main cardioid and the
+against ours (`analysis/lo/`): its false members are ~2e-10 of area (exterior bands along the main cardioid and the
 period-2 disk, sampled decade by decade in |λ| − 1; nothing near the cusp or elsewhere above ~1e-11), while its
 undecided points (6.5e-10 of samples, 3.7e-9 of area, ≥ 96% interior since exterior survivors past 2^34 are only
 ~1.5e-10) are dropped from the denominator, biasing it low by ~2.8e-9.  Corrected, Lo ≈ 1.5065918917 ± 2.9e-9:
@@ -881,6 +881,10 @@ meson compile -C build/release
 ./build/release/escape_area 16000 1048576 SEED 16384 ... 1048568   # fattened areas; ~22 s per 2e9 samples
 ./build/release/escape_tree --prec compare 64 1024 16384 262144 1048568   # certified tree, float vs double; ~85 s
 ```
+
+The area result is reproduced from the committed shard results by `python analysis/tail_direct.py` (see
+`analysis/README.md`); the runs themselves are `cluster/idle_shards.py analysis/results/*/run.json` at tag
+`area-run-7`.
 
 Unit tests cover everything the analyses use: `meson test -C build/release angles octaves numpy tests`.
 They check Lavaurs' algorithm against A000740 and the satellite counts through period 18, the fast

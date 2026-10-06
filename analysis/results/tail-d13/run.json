@@ -1,0 +1,13 @@
+[
+ {
+  "name": "tail-d13",
+  "shards": 8,
+  "build64": true,
+  "timeout": 21600,
+  "free_gpus": 32,
+  "max_active": 4,
+  "commit": "area-run-7",
+  "storage": "local",
+  "command": "./build/release64/escape_tree --cuda --base 1266 --depth 13 --seed 4 --progress 300 --overlap 3 --split-depth 9 --batch 33554432 --max-level-cells 134217728 --deep-from 8388616 --max-iter 68719476736 --roulette-from 8388608 --roulette-stride 2 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 33554432 67108864 134217728 268435456 536870912 1073741824 2147483648 4294967296 8589934592 17179869184 34359738368 68719476728"
+ }
+]
