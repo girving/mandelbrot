@@ -852,6 +852,19 @@ Combined, T(2^32) = 5.848e-10 ± 4.5e-12, and
 
   **μ = 1.506591883653(24)**  (statistics 2.3e-11, tail 4.5e-12, precision a few 1e-12).
 
+*Comparison with earlier estimates.*  Förstemann (2012, GPU pixel counting, 20 random grids of 2097152², max
+iterations ~8.6e9): 1.5065918849 ± 2.8e-9 as a 95% interval, i.e. σ ≈ 1.4e-9; he counted unresolved pixels
+(~8e-10 of area, incl. ~3e-10 of exterior points escaping after his limit) as members, so corrected
+≈ 1.5065918846, 0.7σ from ours.  Hsing Lo (Oct 2025, github.com/hsingtism/mandelbrot-area, one random point
+per grid cell, 30.4e12 points): 1.5065918902 ± 5.4e-9 (95%), +1.9σ from ours when its two groups are combined by
+inverse variance (group A 12 grids +0.7σ, group B 99 grids +2.1σ).  Its membership test is loose (consecutive
+iterates within 2^-16, though the site says 2^-48; Floyd cycle test within 2^-32; 2^34 iterations).  Measured
+against ours (scratch/lo/): its false members are ~2e-10 of area (exterior bands along the main cardioid and the
+period-2 disk, sampled decade by decade in |λ| − 1; nothing near the cusp or elsewhere above ~1e-11), while its
+undecided points (6.5e-10 of samples, 3.7e-9 of area, ≥ 96% interior since exterior survivors past 2^34 are only
+~1.5e-10) are dropped from the denominator, biasing it low by ~2.8e-9.  Corrected, Lo ≈ 1.5065918917 ± 2.9e-9:
+2.8σ above ours and 2.2σ above corrected Förstemann, so most likely a fluctuation in its group B.
+
 ## 6. Reproducing
 
 ```
