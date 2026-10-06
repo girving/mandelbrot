@@ -841,8 +841,16 @@ octaves before it, and predict A(2^c) − A(2^32), measured to 3–8e-12.  At ev
 the quadratic overpredicts, the bracket widening with n; for n = 6, a + b/j is −1.00, −0.99, −0.95, −0.81,
 −0.78% and the quadratic +0.50, +0.42, +0.35, +0.34, +0.22% at c = 26 … 30.  Correcting the n = 6 fits at 2^32
 by these biases (a + b/j by ~+0.75%, the quadratic by ~−0.2%) gives T(2^32) = 5.85–5.87e-10, so the tail is
-known to ~±5e-12 and **μ = 1.506591883652(24)**, i.e. 1.506591883652 ± 0.000000000024.  An independent direct measurement of the octaves past
-2^32 (depth 13, seed 4, max_iter 2^36, run tail-d13) is under way.
+known to ~±5e-12 and μ = 1.506591883652(24).
+
+*Direct tail check* (run tail-d13: depth 13, seed 4, max_iter 2^36, 8 shards, ~26 GPU-hours).  Independent
+samples give A(2^32) = 1.5065918842169 ± 1.4e-10, 2.1e-11 (0.15σ) from production, and k·D(k) agrees with
+production on every overlapping octave 2^26 … 2^31.  Past 2^32 it measures k·D(k) = 1.234(24), 1.284(50),
+1.173(67), 1.319(142) at 2^32 … 2^35, so the octaves to 2^36 sum to 5.436e-10 ± 9.9e-12; with ~3.6e-11 beyond
+2^36 (f̄ = 1.22 … 1.27), T(2^32) = 5.80e-10 ± 1.0e-11 directly, against 5.86e-10 ± 5e-12 extrapolated (0.5σ).
+Combined, T(2^32) = 5.848e-10 ± 4.5e-12, and
+
+  **μ = 1.506591883653(24)**  (statistics 2.3e-11, tail 4.5e-12, precision a few 1e-12).
 
 ## 6. Reproducing
 
