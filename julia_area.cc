@@ -34,6 +34,7 @@ int main(int argc, char** argv) {
   program.add_argument("--r2").help("outer radius").scan<'g', double>().default_value(1.5);
   program.add_argument("--nr").help("Chebyshev points in log r").scan<'i', int>().default_value(32);
   program.add_argument("--nt").help("angles (odd)").scan<'i', int>().default_value(101);
+  program.add_argument("--grade").help("angular grading toward θ = 0, in [0, 1)").scan<'g', double>().default_value(0.0);
   program.add_argument("--nq").help("quadrature angles (0: 2 nt + 1)").scan<'i', int>().default_value(0);
   program.add_argument("--ng").help("Gauss-Legendre points (0: nr + 16)").scan<'i', int>().default_value(0);
   program.add_argument("--prec").help("double, dd, or td").default_value(string("double"));
@@ -45,6 +46,7 @@ int main(int argc, char** argv) {
   p.cx = c[0]; p.cy = c[1];
   p.r1 = program.get<double>("--r1"); p.r2 = program.get<double>("--r2");
   p.nr = program.get<int>("--nr"); p.nt = program.get<int>("--nt");
+  p.grade = program.get<double>("--grade");
   p.nq = program.get<int>("--nq"); p.ng = program.get<int>("--ng");
   p.verbose = program.get<bool>("--verbose");
   p.eig = program.get<bool>("--eig");
