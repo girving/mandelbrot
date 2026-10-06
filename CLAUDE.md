@@ -25,3 +25,4 @@ Builds use `-Werror` with `warning_level=2`. CUDA (sm_80 and sm_90, via clang `-
 - **Cluster**: `cluster/` holds a one-H200 Kueue benchmark job (`pvc.yaml`, `bench.yaml`, `bench.sh`) that builds with a conda-forge toolchain.
 - **CPU/GPU sharing**: the same `.cc` sources compile for CUDA when available; `loops.h`, `device.h`, and `cutil.h` abstract over serial, OpenMP, and CUDA execution.
 - **Escape-time area**: `orbit.h` has resumable orbits (`Orbit<T>`, `OrbitDE`); `engine.h` runs them on CPU threads or a persistent-thread CUDA kernel; `tree.h/cc` is the certified quadtree Monte Carlo driven by `escape_tree`, deterministic from integer counts so CPU runs check GPU runs.
+- **Julia set areas**: `julia.h/cc` computes μ(K(c)) for |c| < 1/4 to ~47 digits via the area transfer operator (collocation, iterative refinement with double GMRES); driver `julia_area`, notes in `notes/julia-area.md`.
