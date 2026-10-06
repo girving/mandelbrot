@@ -78,5 +78,21 @@ TEST(small_c) {
   ASSERT_LE(abs(d23), 1e-28);
 }
 
+TEST(eigenvalue) {
+  // L's leading eigenvalue e^{P(2)}: exactly 1/2 at c = 0 (L^n 1 = 2^-n |z|^-2 (1 - 2^-n)), and at real c ≥ the
+  // variational bound |f'(q)|^-2 from the delta measure at the repelling fixed point q = (1 + √(1 - 4c))/2
+  JuliaParams p;
+  p.eig = true;
+  p.nr = 40; p.nt = 121;
+  ASSERT_LE(abs(julia_area<double>(p).rho - 0.5), 1e-12);
+  for (const double c : {0.1, 0.2, 0.24}) {
+    p.cx = c;
+    const double rho = julia_area<double>(p).rho, q = (1 + sqrt(1 - 4 * c)) / 2, bound = 1 / (4 * q * q);
+    print("  c = %g: rho %.12f, |f'(q)|^-2 %.12f", c, rho, bound);
+    ASSERT_LE(bound, rho);
+    ASSERT_LE(rho, 1);
+  }
+}
+
 }  // namespace
 }  // namespace mandelbrot

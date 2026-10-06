@@ -105,13 +105,111 @@ template<> void trig_row(const vector<double>& rho_x, const vector<double>& rho_
   for (int j = 0; j < n; j++) row[j] /= sum;
 }
 
-// y = L h for the factored operator: y_i = W_i Σ_k R[i,k] Σ_j T[i,j] H[k,j]
-template<class S> static void apply(const int nr, const int nt, const vector<S>& W, const vector<S>& R,
-                                    const vector<S>& T, const vector<S>& h, vector<S>& y) {
-  const int64_t N = int64_t(nr) * nt;
-  parallel_for(N, [&](const int64_t i) {
-    const S* r = &R[i * nr];
-    const S* t = &T[i * nt];
+// Interpolation grid: nr Chebyshev points (first kind) in s = log r on [s1, s2], with barycentric weights
+// (-1)^k sin((2k+1)π/(2nr)), and nt angles θ_j = 2πj/nt through their half angle phases ρ_j = e^{iπj/nt}
+template<class S> struct Grid {
+  int nr, nt;
+  vector<Arb> s;  // The nodes in arb, for collocation points
+  vector<S> nodes, weights, rho_x, rho_y;
+  int64_t size() const { return int64_t(nr) * nt; }
+};
+template<class S> static Grid<S> make_grid(const arb_t s1, const arb_t s2, const int nr, const int nt) {
+  slow_assert(nt % 2 == 1 && nr >= 2, "need odd nt and nr ≥ 2");
+  Grid<S> g;
+  g.nr = nr; g.nt = nt;
+  g.s.resize(nr);
+  g.nodes.resize(nr); g.weights.resize(nr); g.rho_x.resize(nt); g.rho_y.resize(nt);
+  Arb mid, half_len, a, b;
+  arb_add(mid, s1, s2, prec); arb_mul_2exp_si(mid, mid, -1);
+  arb_sub(half_len, s2, s1, prec); arb_mul_2exp_si(half_len, half_len, -1);
+  for (int k = 0; k < nr; k++) {
+    sin_cos_pi(a, b, 2 * k + 1, 2 * nr);
+    arb_mul(g.s[k], half_len, b, prec);
+    arb_add(g.s[k], g.s[k], mid, prec);
+    if (k & 1) arb_neg(a, a);
+    g.nodes[k] = rnd<S>(g.s[k]); g.weights[k] = rnd<S>(a);
+  }
+  for (int j = 0; j < nt; j++) {
+    sin_cos_pi(a, b, j, nt);
+    g.rho_x[j] = rnd<S>(b); g.rho_y[j] = rnd<S>(a);
+  }
+  return g;
+}
+
+// Preimage data of a collocation point z = e^{s_k} e^{iθ_j}: W = 1/(4|z - c|) = 1/|f'(w)|^2, the preimage log
+// radius ½ log|z - c|, and η = e^{i arg(z - c)/4}, the half angle phase of √(z - c) (the other preimage has iη)
+template<class S> struct Pre { S W, sw, ex, ey; };
+template<class S> static vector<Pre<S>> preimages(const Grid<S>& g, const double cx, const double cy) {
+  vector<Pre<S>> pre(g.size());
+  parallel_for(g.size(), [&](const int64_t i) {
+    const int k = int(i / g.nt), j = int(i % g.nt);
+    Arb r, sn, cs, m, phi, t;
+    acb_t u;
+    acb_init(u);
+    arb_exp(r, g.s[k], prec);
+    sin_cos_pi(sn, cs, 2 * j, g.nt);
+    arb_mul(acb_realref(u), r, cs, prec);
+    arb_mul(acb_imagref(u), r, sn, prec);
+    arb_sub(acb_realref(u), acb_realref(u), exact_arb(cx), prec);
+    arb_sub(acb_imagref(u), acb_imagref(u), exact_arb(cy), prec);
+    acb_abs(m, u, prec);
+    acb_arg(phi, u, prec);
+    acb_clear(u);
+    auto& q = pre[i];
+    arb_mul_2exp_si(t, m, 2);
+    arb_inv(t, t, prec);
+    q.W = rnd<S>(t);
+    arb_log(t, m, prec);
+    arb_mul_2exp_si(t, t, -1);
+    q.sw = rnd<S>(t);
+    arb_mul_2exp_si(phi, phi, -2);
+    arb_sin_cos(sn, cs, phi, prec);
+    q.ex = rnd<S>(cs); q.ey = rnd<S>(sn);
+  });
+  return pre;
+}
+
+// L restricted to some points, acting on functions interpolated from a grid: (L h)_i = W_i Σ_k R[i,k] Σ_j T[i,j] H[k,j]
+template<class S> struct Factors {
+  int nr, nt;
+  vector<S> W, R, T;
+  int64_t rows() const { return int64_t(W.size()); }
+};
+template<class S> static Factors<S> factors(const vector<Pre<S>>& pre, const Grid<S>& g) {
+  Factors<S> F;
+  const int nr = F.nr = g.nr, nt = F.nt = g.nt;
+  const int64_t n = int64_t(pre.size());
+  F.W.resize(n); F.R.resize(n * nr); F.T.resize(n * nt);
+  parallel_for(n, [&](const int64_t i) {
+    const auto& q = pre[i];
+    F.W[i] = q.W;
+    cheb_row(g.nodes, g.weights, q.sw, &F.R[i * nr]);
+    vector<S> t2(nt);
+    trig_row(g.rho_x, g.rho_y, q.ex, q.ey, &F.T[i * nt]);
+    trig_row(g.rho_x, g.rho_y, -q.ey, q.ex, t2.data());
+    for (int l = 0; l < nt; l++) F.T[i * nt + l] += t2[l];
+  });
+  return F;
+}
+template<class S> static Factors<double> to_double(const Factors<S>& F) {
+  Factors<double> D;
+  D.nr = F.nr; D.nt = F.nt;
+  const auto conv = [](const vector<S>& x, vector<double>& y) { y.resize(x.size()); for (size_t i = 0; i < x.size(); i++) y[i] = double(x[i]); };
+  conv(F.W, D.W); conv(F.R, D.R); conv(F.T, D.T);
+  return D;
+}
+template<class S> static vector<Pre<double>> to_double(const vector<Pre<S>>& pre) {
+  vector<Pre<double>> d(pre.size());
+  for (size_t i = 0; i < pre.size(); i++) d[i] = {double(pre[i].W), double(pre[i].sw), double(pre[i].ex), double(pre[i].ey)};
+  return d;
+}
+
+template<class S> static void apply(const Factors<S>& F, const vector<S>& h, vector<S>& y) {
+  const int nr = F.nr, nt = F.nt;
+  y.resize(F.rows());
+  parallel_for(F.rows(), [&](const int64_t i) {
+    const S* r = &F.R[i * nr];
+    const S* t = &F.T[i * nt];
     S sum(0);
     for (int k = 0; k < nr; k++) {
       const S* hk = &h[int64_t(k) * nt];
@@ -119,19 +217,15 @@ template<class S> static void apply(const int nr, const int nt, const vector<S>&
       for (int j = 0; j < nt; j++) dot += t[j] * hk[j];
       sum += r[k] * dot;
     }
-    y[i] = W[i] * sum;
+    y[i] = F.W[i] * sum;
   });
 }
 
-// Restarted GMRES for (1 - L) x = b in double; returns iterations
-static int gmres(const int nr, const int nt, const vector<double>& W, const vector<double>& R,
-                 const vector<double>& T, const vector<double>& b, vector<double>& x, const double tol) {
-  const int64_t N = int64_t(nr) * nt;
+typedef function<void(const vector<double>&, vector<double>&)> Op;
+
+// Restarted GMRES for A x = b; returns iterations
+static int gmres(const int64_t N, const Op& A, const vector<double>& b, vector<double>& x, const double tol) {
   const int m = 60;
-  const auto A = [&](const vector<double>& v, vector<double>& out) {
-    apply(nr, nt, W, R, T, v, out);
-    for (int64_t i = 0; i < N; i++) out[i] = v[i] - out[i];
-  };
   const auto norm = [](const vector<double>& v) { double s = 0; for (const double a : v) s += a * a; return sqrt(s); };
   const double bnorm = norm(b);
   x.assign(N, 0);
@@ -152,18 +246,13 @@ static int gmres(const int nr, const int nt, const vector<double>& W, const vect
     for (; k < m; k++) {
       iters++;
       A(V[k], w);
-      for (int l = 0; l <= k; l++) {  // Modified Gram-Schmidt, twice
-        double d = 0;
-        for (int64_t i = 0; i < N; i++) d += w[i] * V[l][i];
-        H[l][k] = d;
-        for (int64_t i = 0; i < N; i++) w[i] -= d * V[l][i];
-      }
-      for (int l = 0; l <= k; l++) {
-        double d = 0;
-        for (int64_t i = 0; i < N; i++) d += w[i] * V[l][i];
-        H[l][k] += d;
-        for (int64_t i = 0; i < N; i++) w[i] -= d * V[l][i];
-      }
+      for (int pass = 0; pass < 2; pass++)  // Modified Gram-Schmidt, twice
+        for (int l = 0; l <= k; l++) {
+          double d = 0;
+          for (int64_t i = 0; i < N; i++) d += w[i] * V[l][i];
+          H[l][k] += d;
+          for (int64_t i = 0; i < N; i++) w[i] -= d * V[l][i];
+        }
       H[k + 1][k] = norm(w);
       V.push_back(w);
       if (H[k + 1][k]) for (auto& a : V[k + 1]) a /= H[k + 1][k];
@@ -195,76 +284,32 @@ static int gmres(const int nr, const int nt, const vector<double>& W, const vect
 
 template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   const auto t0 = std::chrono::steady_clock::now();
+  const auto elapsed = [&]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
   const int nr = p.nr, nt = p.nt;
   const int64_t N = int64_t(nr) * nt;
-  slow_assert(nt % 2 == 1 && nr >= 2, "need odd nt and nr ≥ 2");
   const double ac = std::hypot(p.cx, p.cy);
   const double r1 = p.r1 ? p.r1 : max(2 * ac, 0.25), r2 = p.r2;
   slow_assert(r1 - ac > r1 * r1 && r2 * r2 - r2 > ac, "annulus %g < |z| < %g does not work for |c| = %g", r1, r2, ac);
   // Preimages of A have radii in [√(r1 - |c|), √(r2 + |c|)], strictly inside (r1, r2)
   slow_assert(sqrt(r1 - ac) > r1 && sqrt(r2 + ac) < r2);
-
-  // Chebyshev nodes in s = log r, barycentric weights (-1)^k sin((2k+1)π/(2nr)), and half angles ρ_j = e^{iπj/nt}
-  Arb s1, s2, mid, half_len, a, b;
+  Arb s1, s2, a;
   arb_set_d(a, r1); arb_log(s1, a, prec);
   arb_set_d(a, r2); arb_log(s2, a, prec);
-  arb_add(mid, s1, s2, prec); arb_mul_2exp_si(mid, mid, -1);
-  arb_sub(half_len, s2, s1, prec); arb_mul_2exp_si(half_len, half_len, -1);
-  vector<Arb> sk(nr);
-  vector<S> nodes(nr), weights(nr), rho_x(nt), rho_y(nt);
-  vector<double> nodes_d(nr), weights_d(nr), rho_xd(nt), rho_yd(nt);
-  for (int k = 0; k < nr; k++) {
-    sin_cos_pi(a, b, 2 * k + 1, 2 * nr);
-    arb_mul(sk[k], half_len, b, prec);
-    arb_add(sk[k], sk[k], mid, prec);
-    if (k & 1) arb_neg(a, a);
-    nodes[k] = rnd<S>(sk[k]); weights[k] = rnd<S>(a);
-    nodes_d[k] = double(nodes[k]); weights_d[k] = double(weights[k]);
-  }
-  for (int j = 0; j < nt; j++) {
-    sin_cos_pi(a, b, j, nt);
-    rho_x[j] = rnd<S>(b); rho_y[j] = rnd<S>(a);
-    rho_xd[j] = double(rho_x[j]); rho_yd[j] = double(rho_y[j]);
-  }
 
-  // Per collocation point z = e^{s_k} e^{iθ_j}: W = 1/(4|z - c|), the preimage log radius ½ log|z - c|, and
-  // η = e^{i arg(z - c)/4}, the half angle phase of √(z - c) (the other preimage has iη).  Rows in S and double.
-  vector<S> W(N), R(N * nr), T(N * nt);
-  vector<double> Wd(N), Rd(N * nr), Td(N * nt);
-  parallel_for(N, [&](const int64_t i) {
-    const int k = int(i / nt), j = int(i % nt);
-    Arb r, sn, cs, m, phi, t;
-    acb_t u;
-    acb_init(u);
-    arb_exp(r, sk[k], prec);
-    sin_cos_pi(sn, cs, 2 * j, nt);
-    arb_mul(acb_realref(u), r, cs, prec);
-    arb_mul(acb_imagref(u), r, sn, prec);
-    arb_sub(acb_realref(u), acb_realref(u), exact_arb(p.cx), prec);
-    arb_sub(acb_imagref(u), acb_imagref(u), exact_arb(p.cy), prec);
-    acb_abs(m, u, prec);
-    acb_arg(phi, u, prec);
-    acb_clear(u);
-    arb_mul_2exp_si(t, m, 2);
-    arb_inv(t, t, prec);
-    W[i] = rnd<S>(t);
-    arb_log(t, m, prec);
-    arb_mul_2exp_si(t, t, -1);
-    const S sw = rnd<S>(t);
-    arb_mul_2exp_si(phi, phi, -2);
-    arb_sin_cos(sn, cs, phi, prec);
-    const S ex = rnd<S>(cs), ey = rnd<S>(sn);
-    cheb_row(nodes, weights, sw, &R[i * nr]);
-    vector<S> t2(nt);
-    trig_row(rho_x, rho_y, ex, ey, &T[i * nt]);
-    trig_row(rho_x, rho_y, -ey, ex, t2.data());
-    for (int l = 0; l < nt; l++) T[i * nt + l] += t2[l];
-    Wd[i] = double(W[i]);
-    for (int l = 0; l < nr; l++) Rd[i * nr + l] = double(R[i * nr + l]);
-    for (int l = 0; l < nt; l++) Td[i * nt + l] = double(T[i * nt + l]);
-  });
+  // The operator on the fine grid, in S and double
+  const auto fine = make_grid<S>(s1, s2, nr, nt);
+  const auto& nodes = fine.nodes;
+  const auto& weights = fine.weights;
+  const auto& rho_x = fine.rho_x;
+  const auto& rho_y = fine.rho_y;
+  const auto pre = preimages(fine, p.cx, p.cy);
+  const auto F = factors(pre, fine);
+  const auto Fd = to_double(F);
 
-  const auto elapsed = [&]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
+  const Op A = [&](const vector<double>& v, vector<double>& out) {
+    apply(Fd, v, out);
+    for (int64_t i = 0; i < N; i++) out[i] = v[i] - out[i];
+  };
   const double t_setup = elapsed();
   double t_apply = 0, t_gmres = 0;
 
@@ -275,7 +320,7 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   const double eps = is_same_v<S, double> ? 1e-15 : is_same_v<S, Expansion<2>> ? 1e-31 : 1e-46;
   for (;;) {
     const double ta = elapsed();
-    apply(nr, nt, W, R, T, h, Lh);
+    apply(F, h, Lh);
     t_apply += elapsed() - ta;
     double rmax = 0;
     for (int64_t i = 0; i < N; i++) {
@@ -289,10 +334,25 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     if (p.verbose) print("  refinement %d: residual %.3g", res.refinements, rmax);
     if (rmax <= eps || stalled || res.refinements >= p.max_refine) break;
     const double tg = elapsed();
-    res.gmres_iters += gmres(nr, nt, Wd, Rd, Td, rd, dx, 1e-14);
+    res.gmres_iters += gmres(N, A, rd, dx, 1e-14);
     t_gmres += elapsed() - tg;
     for (int64_t i = 0; i < N; i++) h[i] += S(dx[i]);
     res.refinements++;
+  }
+
+  // L is positive, so its leading eigenvalue is real and positive: power iteration from 1, normalized in max norm
+  if (p.eig) {
+    vector<double> v(N, 1.0), w(N);
+    double last = 0;
+    for (int it = 0; it < 100000; it++) {
+      apply(Fd, v, w);
+      double m = 0;
+      for (const double a : w) m = max(m, abs(a));
+      for (int64_t i = 0; i < N; i++) v[i] = w[i] / m;
+      res.rho = m;
+      if (it > 10 && abs(m - last) <= 1e-13 * m) break;
+      last = m;
+    }
   }
 
   // ∫_X h, X = {ρ(θ) ≤ |z| ≤ r2} with |ρ^2 e^{2iθ} + c| = r2: trapezoid in θ, Gauss-Legendre in r

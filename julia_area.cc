@@ -24,6 +24,7 @@ template<class S> static void run(const JuliaParams& p) {
   print("c = %.17g + %.17gi, nr %d, nt %d: area %s", p.cx, p.cy, p.nr, p.nt, digits(r.area));
   print("  residual %.3g, %d refinements, %d GMRES iterations, %.2f s", r.residual, r.refinements, r.gmres_iters,
         r.secs);
+  if (p.eig) print("  leading eigenvalue of L: %.12f", r.rho);
 }
 
 int main(int argc, char** argv) {
@@ -36,6 +37,7 @@ int main(int argc, char** argv) {
   program.add_argument("--nq").help("quadrature angles (0: 2 nt + 1)").scan<'i', int>().default_value(0);
   program.add_argument("--ng").help("Gauss-Legendre points (0: nr + 16)").scan<'i', int>().default_value(0);
   program.add_argument("--prec").help("double, dd, or td").default_value(string("double"));
+  program.add_argument("--eig").help("estimate L's leading eigenvalue").default_value(false).implicit_value(true);
   program.add_argument("--verbose").default_value(false).implicit_value(true);
   program.parse_args(argc, argv);
   JuliaParams p;
@@ -45,6 +47,7 @@ int main(int argc, char** argv) {
   p.nr = program.get<int>("--nr"); p.nt = program.get<int>("--nt");
   p.nq = program.get<int>("--nq"); p.ng = program.get<int>("--ng");
   p.verbose = program.get<bool>("--verbose");
+  p.eig = program.get<bool>("--eig");
   const auto prec = program.get<string>("--prec");
   if (prec == "double") run<double>(p);
   else if (prec == "dd") run<Expansion<2>>(p);
