@@ -73,3 +73,35 @@ pinned by Taylor constraints on s = 1 + L₋h (c₀₀ = 1 + h(−1/2) ≈ 3.463
 2.9300020(5) ± 2e-7 at 60 × 121, an independent check of the extrapolation without assuming its power series.
 Convergence is only algebraic: h_reg keeps weak singularities at every scale (poles of the complexified Fatou
 sum at z = 1/2 − 1/n), so full precision would need a Fatou-coordinate patch.
+
+## Satellite roots: centering, and dynamical escape tails (2026-10-07)
+
+**Centering at α.**  `julia_area` now centers the annulus at the attracting fixed point α when |c| ≥ 1/4 (a disk
+|z − α| ≤ r1 maps into itself for r1 < 1 − |λ|).  But the interior disk must contain the critical value: L's
+weight 1/(4|z − c|) makes h singular like 1/|z − p| at every postcritical point p in A.  Around α that needs
+|α||1 − α| < 1 − |λ|, so on the real axis only c ∈ (−0.394, 0.236).  Near the satellite roots the critical orbit
+creeps into α through a pinch (the 2-cycle at α ± i√ε near −3/4), and any forward-invariant region containing it
+is far from round: reaching them needs a boundary-fitted interior region, e.g. a level curve of α's Koenigs
+coordinate, or patches.
+
+**Escape tails at parabolic points** (Monte Carlo, `scratch/julia/satellite_tail.cc`, 2.7e8 samples; interior
+certified in the attracting petals Re u > 50 of the Fatou coordinate u = −1/(q a w^q), f^q = w + a w^{q+1} + …):
+the area escaping after n steps behaves like
+
+  T(n) ~ n^{−(1 + 2/q)}  for a parabolic point with q petals:
+
+| c | q | predicted D_j/D_{j−1} | measured (octaves 7–10) |
+|---|---|---|---|
+| 1/4 (cusp) | 1 | 0.125 | n^{−3.2} overall |
+| −3/4 | 2 | 0.250 | 0.205, 0.228, 0.250, 0.225 |
+| root of the 1/3 bulb | 3 | 0.315 | 0.250, 0.275, 0.298, 0.285 |
+| root of the 1/4 bulb | 4 | 0.354 | 0.264, 0.308, 0.340, 0.324 |
+
+Reason: exterior points near the parabolic point lie in a band of bounded width in the Fatou coordinate u ∝ w^{−q},
+where f^q is translation, escape time is ~Re u, and dA_w ∝ |u|^{−2−2/q} dA_u; integrating the band beyond time n
+gives n^{−1−2/q}.
+
+**For parameter space:** the exponent tends to 1 as q → ∞, matching M's tail T(k) ≈ 1.27/k.  A hypothesis worth
+testing: M's 1/k law is a superposition over satellite-type parabolic points of all periods, each with a tail
+k^{−1−2/q} (with parameter-space time scaling, which differs from the dynamical one), so that the sum over q
+(roots weighted by their sizes) gives 1/k up to slowly varying corrections.
