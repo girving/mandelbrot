@@ -136,6 +136,7 @@ executable('escape_tree', ['escape_tree.cc', 'tree.cc', 'engine.cc', 'escape.cc'
 executable('julia_area', ['julia_area.cc', 'julia.cc'], dependencies: [area])
 executable('parabolic_band', ['analysis/parabolic_band.cc'])
 executable('satellite_tail', ['analysis/satellite_tail.cc'])
+executable('parabolic_tail', ['analysis/parabolic_tail.cc'])
 executable('orbit_bench', ['orbit_bench.cc', 'engine.cc'], dependencies: [base])
 executable('orbit_census', ['orbit_census.cc', 'engine.cc', 'escape.cc'], dependencies: [base])
 executable('orbit_regimes', ['orbit_regimes.cc', 'engine.cc', 'escape.cc'], dependencies: [base])
