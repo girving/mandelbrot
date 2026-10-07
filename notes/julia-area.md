@@ -187,3 +187,19 @@ exactly).  2^34 global samples at −3/4 take 27 s.
 For parameter space: the natural clock near a root is the multiplier, not the parameter.  Near a satellite root
 1 − |λ| ∝ |c − c₀|; near a cusp 1 − λ ∝ √|c − c₀|; the parameter-space gate passage times have the same two
 scalings, which suggests the dynamical crossover and the parameter-space escape time are one function of λ.
+
+**The parameter-space clock near a root is the multiplier** (`analysis/root_escape.cc`, cluster CPU,
+`analysis/results/gate-times.log`).  For exterior parameters c(λ) on circles |λ − λ0| = ρ around the cardioid's
+p/q roots (2^22 angles, ρ = 2^-4 … 2^-14), the shortest escape times (10% quantile) satisfy
+
+  n |λ − λ0| → 2π/q:  6.2831 (cusp), 3.1415 (1/2), 2.0943 (1/3), 1.5707 (1/4), 1.2566 (2/5), 0.8976 (1/7)
+
+against 2π/q = 6.28319, 3.14159, 2.09440, 1.57080, 1.25664, 0.89760: the parabolic gate time, depending on q and
+not p.  Higher quantiles sit at integer multiples of 2π/q (multiple passes through the gate).  The escaping
+fraction of each circle is ∝ ρ (the thin exterior cusps between tangent components), with a coefficient
+growing with q (0.3, 0.8, 1.5, 2.5, 4.7, 7.6 for q = 1, 2, 3, 4, 5, 7).  The dynamical crossover near a root
+(n* ∝ 1/(1 − |λ|)) runs on the same clock.
+
+**−7/4 at 2^40 samples** (107 s on one H200): global B_total plateaus at 3.45 ± 0.2 (octaves 9–10); with local
+0.65, W ≈ 5.3 ± 0.4.  So W ≈ 3.4–3.8 on the cardioid's roots, 4.7 at −5/4 (2-cycle), 5.3 at −7/4 (primitive
+3-cycle): constant within a family, not across families.
