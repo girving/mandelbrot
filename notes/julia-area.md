@@ -105,3 +105,22 @@ gives n^{−1−2/q}.
 testing: M's 1/k law is a superposition over satellite-type parabolic points of all periods, each with a tail
 k^{−1−2/q} (with parameter-space time scaling, which differs from the dynamical one), so that the sum over q
 (roots weighted by their sizes) gives 1/k up to slowly varying corrections.
+
+**Band constants** (`analysis/parabolic_band.cc`, local; `analysis/satellite_tail.cc`, global; 2026-10-07).  In the
+repelling Fatou coordinate u ≈ −1/(q a w^q) exterior points form a translation-invariant band, so near α
+T_local(n) ≈ B_q n^{−(1+2/q)}, B_q = |E₀| |a|^{−2/q} q/(q + 2), with |E₀| the exterior area per unit length of the
+repelling Écalle cylinder.  Every preimage p of α hosts a scaled copy weighted by |(f^m)'(p)|^{−2}, so the whole
+tail is W B_q n^{−(1+2/q)} with W = 1 + |f'(−α)|^{−2} h(−α) = 1 + h(−α) (|f'(−α)| = |λ| = 1).
+
+| root | q | \|a\| | local B_q | \|E₀\| | global B_total | W |
+|---|---|---|---|---|---|---|
+| cusp 1/4 | 1 | 1 | 1.56 ± 0.04 | 4.7 | ≈ 5.6 (noisy) | ≈ 3.5 (c₀₀ = 1 + h(−½) = 3.464 directly) |
+| −3/4 | 2 | 2 | 0.640 ± 0.01 | 2.56 | 2.13 | 3.3 |
+| 1/3 bulb root | 3 | 4.58 | 0.405 ± 0.01 | 1.86 | 1.37 | 3.4 |
+| 1/4 bulb root | 4 | 11.7 | 0.294 ± 0.006 | 1.51 | 1.02 | 3.5 |
+| 1/5 bulb root | 5 | 32.7 | 0.220 ± 0.01 | 1.24 | | |
+| 2/5 bulb root | 5 | 28.1 | 0.224 ± 0.01 | 1.19 | | |
+
+Observations: |E₀| depends on q but barely on p (1/5 vs 2/5 agree to 4%), falling roughly like 0.46 + 4.2/q;
+B_q ≈ 1.1–1.6/q; and the total preimage weight W ≈ 3.3–3.5 at every root measured, i.e. h(−α) ≈ 2.4 (h is
+2.3–2.5 at generic points of A at the cusp too).  The cusp's W agrees with the enrichment prototype's c₀₀.
