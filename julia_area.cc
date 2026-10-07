@@ -36,6 +36,8 @@ int main(int argc, char** argv) {
   program.add_argument("--nt").help("angles (odd)").scan<'i', int>().default_value(101);
   program.add_argument("--grade").help("angular grading toward θ = 0, in [0, 1)").scan<'g', double>().default_value(0.0);
   program.add_argument("--pre").help("parabolic preconditioner: 1 on, 0 off, -1 auto").scan<'i', int>().default_value(-1);
+  program.add_argument("--stencil").help("preconditioner interpolation width").scan<'i', int>().default_value(6);
+  program.add_argument("--oversample").help("preconditioner oversampling").scan<'i', int>().default_value(2);
   program.add_argument("--nq").help("quadrature angles (0: 2 nt + 1)").scan<'i', int>().default_value(0);
   program.add_argument("--ng").help("Gauss-Legendre points (0: nr + 16)").scan<'i', int>().default_value(0);
   program.add_argument("--prec").help("double, dd, or td").default_value(string("double"));
@@ -49,6 +51,8 @@ int main(int argc, char** argv) {
   p.nr = program.get<int>("--nr"); p.nt = program.get<int>("--nt");
   p.grade = program.get<double>("--grade");
   p.pre = program.get<int>("--pre");
+  p.stencil = program.get<int>("--stencil");
+  p.oversample = program.get<int>("--oversample");
   p.nq = program.get<int>("--nq"); p.ng = program.get<int>("--ng");
   p.verbose = program.get<bool>("--verbose");
   p.eig = program.get<bool>("--eig");
