@@ -8,6 +8,7 @@
 #include "print.h"
 #include <flint/acb.h>
 #include <flint/arb_hypgeom.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -256,6 +257,43 @@ template<class S> static void apply(const Factors<S>& F, const vector<S>& h, vec
 
 typedef function<void(const vector<double>&, vector<double>&)> Op;
 
+// Double: the generic loop's inner dot product is a reduction, which strict floating point keeps scalar.  Instead
+// transpose H and accumulate axpys acc[k] += T[i,j] H[k,j] over j, which vectorize, four rows at a time so each
+// load of H feeds four rows.
+template<> void apply(const Factors<double>& F, const vector<double>& h, vector<double>& y) {
+  const int nr = F.nr, nt = F.nt, B = 4;
+  const int64_t n = F.rows();
+  vector<double> ht(int64_t(nt) * nr);
+  for (int k = 0; k < nr; k++)
+    for (int j = 0; j < nt; j++) ht[int64_t(j) * nr + k] = h[int64_t(k) * nt + j];
+  y.resize(n);
+  parallel_for((n + B - 1) / B, [&](const int64_t blk) {
+    const int64_t i0 = blk * B, rows = std::min(int64_t(B), n - i0);
+    double acc[B][512];
+    slow_assert(nr <= 512);
+    for (int b = 0; b < B; b++) for (int k = 0; k < nr; k++) acc[b][k] = 0;
+    const double* t[B];
+    for (int b = 0; b < B; b++) t[b] = &F.T[(i0 + std::min(int64_t(b), rows - 1)) * nt];
+    for (int j = 0; j < nt; j++) {
+      const double* hj = &ht[int64_t(j) * nr];
+      const double t0 = t[0][j], t1 = t[1][j], t2 = t[2][j], t3 = t[3][j];
+      for (int k = 0; k < nr; k++) {
+        const double v = hj[k];
+        acc[0][k] = fma(t0, v, acc[0][k]);
+        acc[1][k] = fma(t1, v, acc[1][k]);
+        acc[2][k] = fma(t2, v, acc[2][k]);
+        acc[3][k] = fma(t3, v, acc[3][k]);
+      }
+    }
+    for (int b = 0; b < rows; b++) {
+      const double* r = &F.R[(i0 + b) * nr];
+      double sum = 0;
+      for (int k = 0; k < nr; k++) sum = fma(r[k], acc[b][k], sum);
+      y[i0 + b] = F.W[i0 + b] * sum;
+    }
+  });
+}
+
 // Right preconditioned restarted GMRES for A x = b: solves A M u = b, x = M u (M may be null).  Stops at tol, or when
 // a restart gains less than a factor of 2 (rounding floors vary with the grid; refinement absorbs them).  Returns
 // iterations.
@@ -366,15 +404,40 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   const double mu = std::abs(2.0 * qf);
   const int J = p.pre == 0 ? 0 : max(0, int(std::ceil(std::log2(std::log(100.0) / (2 * std::log(mu))))));
   const bool use_pre = p.pre == 1 || (p.pre < 0 && J >= 4);
-  vector<Factors<double>> powers;
+  // Each L+^{2^l} evaluates a grid function's spectral interpolant at the points w+^{2^l}(z_i).  Full spectral rows
+  // cost a matvec per level, and local stencils on the collocation grid are not enough: near q, L+ carries even
+  // grid-scale oscillations with weight ≈ μ^-2 ≈ 1, so the slow cluster includes Nyquist-scale modes, which local
+  // interpolation damps.  Instead, per application, evaluate the interpolant on a grid oversampled by os in
+  // α = arccos x (x ∈ [-1, 1] the Chebyshev variable, where T_n = cos nα) and φ, by the tensor product Ps H Ptᵀ,
+  // then interpolate locally from it with a sw x sw Lagrange stencil, accurate even for Nyquist-scale content.
+  // The α direction is even and 2π periodic, so stencils wrap by reflection.  Cost per level: N (os nr + os^2 nt)
+  // for the tensor product plus sw^2 N, a few percent of a matvec.
+  const int os = p.oversample, sw = p.stencil, sw2 = sw * sw, na = os * nr, nf = os * nt;
+  slow_assert(2 <= sw && sw <= 12 && os >= 1, "bad stencil width %d or oversampling %d", sw, os);
+  vector<vector<int32_t>> pidx(use_pre ? J : 0, vector<int32_t>(use_pre ? N * sw2 : 0));
+  vector<vector<double>> pw(use_pre ? J : 0, vector<double>(use_pre ? N * sw2 : 0));
+  vector<double> Ps, PtT;  // na x nr and nt x nf interpolation matrices to the oversampled grid
+  vector<int> ulo(J, na), uhi(J, -1);  // Rows of the oversampled grid each level's stencils touch
   if (use_pre) {
     const auto fine_d = make_grid<double>(s1, s2, nr, nt, p.grade);
-    vector<vector<Pre<double>>> pts(J, vector<Pre<double>>(N));
+    const auto& sn = fine_d.nodes;
+    const double sa = rnd<double>(s1), shalf = (rnd<double>(s2) - sa) / 2;
+    Ps.resize(int64_t(na) * nr); PtT.resize(int64_t(nt) * nf);
+    vector<double> row(nt);
+    for (int u = 0; u < na; u++) {
+      const double alpha = (u + 0.5) * M_PI / na;
+      cheb_row(fine_d.nodes, fine_d.weights, sa + shalf * (1 + std::cos(alpha)), &Ps[int64_t(u) * nr]);
+    }
+    for (int v = 0; v < nf; v++) {
+      const double half = M_PI * v / nf;
+      trig_row(fine_d.rho_x, fine_d.rho_y, std::cos(half), std::sin(half), row.data());
+      for (int j = 0; j < nt; j++) PtT[int64_t(j) * nf + v] = row[j];
+    }
     parallel_for(N, [&](const int64_t i) {
       const int k = int(i / nt), j = int(i % nt);
       const double phi = 2 * M_PI * j / nt;
       const std::complex<double> e = std::polar(1.0, phi), a = p.grade;
-      std::complex<double> z = std::exp(double(fine_d.nodes[k])) * (e + a) / (1.0 + a * e);
+      std::complex<double> z = std::exp(sn[k]) * (e + a) / (1.0 + a * e);
       double jac = 1;
       int64_t m = 0;
       for (int l = 0; l < J; l++) {
@@ -382,30 +445,74 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
           jac /= 4 * std::abs(z - c);
           z = std::sqrt(z - c);
         }
-        const std::complex<double> u = z / std::abs(z), v = (u - a) / (1.0 - a * u);  // e^{iθ}, then e^{iφ}
-        const double half = std::arg(v) / 2;
-        pts[l][i] = {jac, std::log(std::abs(z)), {std::cos(half), 0}, {std::sin(half), 0}};
+        // α = arccos x on the grid α_u = (u + 1/2) π / na, reflected evenly across 0 and π
+        const double x = std::clamp((std::log(std::abs(z)) - sa) / shalf - 1, -1.0, 1.0);
+        const double ua = std::acos(x) / M_PI * na - 0.5;
+        const int u0 = int(std::floor(ua)) - (sw - 1) / 2;
+        // φ on the grid φ_v = 2π v / nf
+        const std::complex<double> uz = z / std::abs(z), vz = (uz - a) / (1.0 - a * uz);  // e^{iθ}, then e^{iφ}
+        double vf = std::arg(vz) / (2 * M_PI) * nf;
+        vf -= nf * std::floor(vf / nf);
+        const int v0 = int(std::floor(vf)) - (sw - 1) / 2;
+        double wa[12], wf[12];
+        for (int q = 0; q < sw; q++) {
+          wa[q] = wf[q] = 1;
+          for (int r = 0; r < sw; r++) if (r != q) {
+            wa[q] *= (ua - u0 - r) / (q - r);
+            wf[q] *= (vf - v0 - r) / (q - r);
+          }
+        }
+        int32_t* idx = &pidx[l][i * sw2];
+        double* w = &pw[l][i * sw2];
+        for (int q = 0; q < sw; q++) {
+          int uu = ((u0 + q) % (2 * na) + 2 * na) % (2 * na);  // Period 2 na in u, even about u = -1/2 and na - 1/2
+          if (uu >= na) uu = 2 * na - 1 - uu;
+          for (int r = 0; r < sw; r++) {
+            const int vv = ((v0 + r) % nf + nf) % nf;
+            idx[sw * q + r] = int32_t(int64_t(uu) * nf + vv);
+            w[sw * q + r] = jac * wa[q] * wf[r];
+          }
+        }
       }
     });
-    for (int l = 0; l < J; l++) {
-      // One branch only, so build the rows directly rather than through factors()
-      Factors<double> P;
-      P.nr = nr; P.nt = nt;
-      P.W.resize(N); P.R.resize(N * nr); P.T.resize(N * nt);
-      parallel_for(N, [&](const int64_t i) {
-        const auto& q = pts[l][i];
-        P.W[i] = q.W;
-        cheb_row(fine_d.nodes, fine_d.weights, q.sw, &P.R[i * nr]);
-        trig_row(fine_d.rho_x, fine_d.rho_y, q.ex[0], q.ey[0], &P.T[i * nt]);
-      });
-      powers.push_back(std::move(P));
-    }
   }
+  if (use_pre)
+    for (int l = 0; l < J; l++)
+      for (int64_t q = 0; q < N * sw2; q++) {
+        const int u = pidx[l][q] / nf;
+        ulo[l] = std::min(ulo[l], u);
+        uhi[l] = std::max(uhi[l], u);
+      }
   const Op M = !use_pre ? Op() : Op([&](const vector<double>& r, vector<double>& out) {
     out = r;
-    vector<double> t;
-    for (const auto& P : powers) {
-      apply(P, out, t);
+    vector<double> G(int64_t(na) * nf), t(N);
+    for (int l = 0; l < J; l++) {
+      // G = Ps H Ptᵀ on the rows of the oversampled grid this level needs, H = out as nr x nt, as axpys
+      parallel_for(uhi[l] - ulo[l] + 1, [&](const int64_t du) {
+        const int64_t u = ulo[l] + du;
+        double g[1024];
+        slow_assert(nt <= 1024);
+        for (int j = 0; j < nt; j++) g[j] = 0;
+        for (int k = 0; k < nr; k++) {
+          const double c = Ps[u * nr + k];
+          const double* hk = &out[int64_t(k) * nt];
+          for (int j = 0; j < nt; j++) g[j] = fma(c, hk[j], g[j]);
+        }
+        double* Gu = &G[u * nf];
+        for (int v = 0; v < nf; v++) Gu[v] = 0;
+        for (int j = 0; j < nt; j++) {
+          const double c = g[j];
+          const double* pj = &PtT[int64_t(j) * nf];
+          for (int v = 0; v < nf; v++) Gu[v] = fma(c, pj[v], Gu[v]);
+        }
+      });
+      parallel_for(N, [&](const int64_t i) {
+        const int32_t* idx = &pidx[l][i * sw2];
+        const double* w = &pw[l][i * sw2];
+        double sum = 0;
+        for (int q = 0; q < sw2; q++) sum = fma(w[q], G[idx[q]], sum);
+        t[i] = sum;
+      });
       for (int64_t i = 0; i < N; i++) out[i] += t[i];
     }
   });
