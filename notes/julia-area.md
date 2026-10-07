@@ -124,3 +124,29 @@ tail is W B_q n^{−(1+2/q)} with W = 1 + |f'(−α)|^{−2} h(−α) = 1 + h(�
 Observations: |E₀| depends on q but barely on p (1/5 vs 2/5 agree to 4%), falling roughly like 0.46 + 4.2/q;
 B_q ≈ 1.1–1.6/q; and the total preimage weight W ≈ 3.3–3.5 at every root measured, i.e. h(−α) ≈ 2.4 (h is
 2.3–2.5 at generic points of A at the cusp too).  The cusp's W agrees with the enrichment prototype's c₀₀.
+
+## Parameter space: the tail's shape is universal (2026-10-07)
+
+Boxes of half-width R (the bulb radius ~ sin(πp/q)/q²) centered on ten roots (cardioid 1/2 … 1/7, 2/5, 3/7; −5/4;
+the primitive −7/4), `escape_tree --box … --base 32 --depth 8`, escape-time octaves 2^6 … 2^24, on a cluster CPU
+node (`analysis/results/roots-boxes.log`, ~5 min total).
+
+* Every box decays like the whole of M: escaping area per octave ∝ 2^{−1.03 … −1.04 j}, i.e. T(k) ~ 1/k with the
+  same slow drift.  A box around a root does not isolate that root: it contains component-boundary arcs lined with
+  satellite roots of every p/q, so 1/k is a property of the boundary everywhere (single roots are much steeper:
+  ~k^{-3} satellite, ~k^{-5} primitive, matching the Böttcher octave energies j^{-4}, j^{-6} near roots).
+* The ratio of the global tail (production run) to each box's tail is constant to within statistics over
+  j = 14 … 23, while the global k·D(k) itself drifts 20% (1.698 → 1.366):
+
+| box | 1/2 | 1/3 | 1/4 | 1/5 | 2/5 | 1/6 | 1/7 | 3/7 | −5/4 | −7/4 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| global / box | 3.48 | 12.7 | 32.3 | 98 | 31.8 | 202 | 386 | 59.7 | 27.0 | 575 |
+
+  So the tail separates, T_region(k) = w(region) Φ(k), with one universal time profile Φ for all of ∂M (satellite
+  and primitive regions alike) and only the amplitude depending on location.  The amplitudes do not collapse under
+  simple size scaling (w ∝ R^{1.4} across q at p = 1, but ∝ R^{2.3} across p at fixed q).
+
+**Use for μ(M).**  The deep tail's shape can be measured in a small box instead of over all of M, and the
+amplitude at moderate k.  E.g. stop the global run at k0 = 2^26 and get A(2^26) − A(2^32) (≈ 3.8e-8) as
+w Σ Φ, which needs w to ~3e-4 relative for 1e-11, cheap at moderate k; Φ beyond 2^32 from a deep run in one box
+replaces the extrapolation.  This reduces the tail and deep-orbit cost, not the statistical error of A(k0) itself.
