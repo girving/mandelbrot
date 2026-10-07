@@ -150,3 +150,23 @@ node (`analysis/results/roots-boxes.log`, ~5 min total).
 amplitude at moderate k.  E.g. stop the global run at k0 = 2^26 and get A(2^26) − A(2^32) (≈ 3.8e-8) as
 w Σ Φ, which needs w to ~3e-4 relative for 1e-11, cheap at moderate k; Φ beyond 2^32 from a deep run in one box
 replaces the extrapolation.  This reduces the tail and deep-orbit cost, not the statistical error of A(k0) itself.
+
+**More roots, and near-parabolic crossovers** (`analysis/results/parabolic-univ.log`, cluster CPU, 2026-10-07):
+
+| root | cycle | global B_total | local B (summed over cycle) | W |
+|---|---|---|---|---|
+| 1/6 | P 1, q 6 | 0.68 ± 0.02 | (run invalid: r0 inside r_min, \|a\| = 101) | |
+| 2/7 | P 1, q 7 | 0.62 ± 0.02 | (invalid, \|a\| = 207) | |
+| 3/7 | P 1, q 7 | 0.61 ± 0.02 | (invalid, \|a\| = 205) | |
+| −5/4 | P 2, q 2 | 2.2 ± 0.2 | 0.465 ± 0.01 | 4.7 ± 0.5 |
+| −7/4 | P 3, q 1 (primitive) | too sparse | 0.65 ± 0.03 | |
+
+Exponents n^{−(1+2/q)} hold at q = 6, 7 and for the 2-cycle at −5/4 and the primitive 3-cycle at −7/4.  The
+global constants at 2/7 and 3/7 agree to 2%, like 1/5 vs 2/5 locally: the constants depend on q, not p.  But W is
+not universal across root types: 4.7 at −5/4 (a parabolic 2-cycle off the cardioid) against 3.3–3.5 at the
+cardioid's roots.
+
+Near-parabolic (c inside the cardioid near −3/4, 1 − |λ| = δ): the n^{-2} tail holds up to a crossover n* and then
+collapses; n* grows like roughly δ^{-0.7} between δ = 2^-9 and 2^-12 (between the 1/δ and 1/√δ guesses), and the
+curves do not yet collapse cleanly.  Near the cusp the tail is too thin for uniform sampling; both need
+importance sampling near α.
