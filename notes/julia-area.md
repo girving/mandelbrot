@@ -203,3 +203,16 @@ growing with q (0.3, 0.8, 1.5, 2.5, 4.7, 7.6 for q = 1, 2, 3, 4, 5, 7).  The dyn
 **−7/4 at 2^40 samples** (107 s on one H200): global B_total plateaus at 3.45 ± 0.2 (octaves 9–10); with local
 0.65, W ≈ 5.3 ± 0.4.  So W ≈ 3.4–3.8 on the cardioid's roots, 4.7 at −5/4 (2-cycle), 5.3 at −7/4 (primitive
 3-cycle): constant within a family, not across families.
+
+## The family expansion (2026-10-07)
+
+Sum M's escape-time tail over types of root families rather than regions:
+
+  T(k) = Σ_types ∫ G_type(k/τ) dN_type(τ),
+
+with G_type the universal local profile of a family type (p/q satellite, primitive cusp, tuned copy), measured
+once, and N_type the distribution of that type's occurrences over all of M by area and time scale, whose Mellin
+transform ζ_type(s) = Σ_occurrences (scale)^s is the family's zeta function (computable from the component tree:
+satellite scalings ~ sin(πp/q)/q², tuned copies by r_W as in D(s)).  One term per family then accounts for the
+family's contribution wherever it occurs.  Premise under test: every occurrence of a root type looks alike in its
+parent's multiplier coordinate, up to area scale |dc/dλ|² and a time shift log2 P (`analysis/multiplier_profile`).
