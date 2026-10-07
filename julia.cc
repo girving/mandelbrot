@@ -256,9 +256,11 @@ template<class S> static void apply(const Factors<S>& F, const vector<S>& h, vec
 
 typedef function<void(const vector<double>&, vector<double>&)> Op;
 
-// Right preconditioned restarted GMRES for A x = b: solves A M u = b, x = M u (M may be null).  Returns iterations.
+// Right preconditioned restarted GMRES for A x = b: solves A M u = b, x = M u (M may be null).  Stops at tol, or when
+// a restart gains less than a factor of 2 (rounding floors vary with the grid; refinement absorbs them).  Returns
+// iterations.
 static int gmres(const int64_t N, const Op& A, const Op& M, const vector<double>& b, vector<double>& x,
-                 const double tol) {
+                 const double tol, const bool verbose = false) {
   const int m = 60;
   const auto norm = [](const vector<double>& v) { double s = 0; for (const double a : v) s += a * a; return sqrt(s); };
   const double bnorm = norm(b);
@@ -266,11 +268,14 @@ static int gmres(const int64_t N, const Op& A, const Op& M, const vector<double>
   if (bnorm == 0) return 0;
   vector<double> r(N), w(N), z(N), mz(N);
   int iters = 0;
+  double last = INFINITY;
   for (int restart = 0; restart < 100; restart++) {
     A(x, w);
     for (int64_t i = 0; i < N; i++) r[i] = b[i] - w[i];
     const double beta = norm(r);
-    if (beta <= tol * bnorm) return iters;
+    if (verbose) print("    gmres restart %d: iterations %d, residual %.3g", restart, iters, beta / bnorm);
+    if (beta <= tol * bnorm || beta > 0.5 * last) return iters;
+    last = beta;
     vector<vector<double>> V(1, r);
     for (auto& a : V[0]) a /= beta;
     vector<vector<double>> H(m + 1, vector<double>(m, 0));
@@ -408,8 +413,24 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   const double t_setup = elapsed();
   double t_apply = 0, t_gmres = 0;
 
-  // Iterative refinement: residuals in S, corrections by GMRES in double
   JuliaResult<S> res;
+  // L is positive, so its leading eigenvalue is real and positive: power iteration from 1, normalized in max norm
+  if (p.eig) {
+    vector<double> v(N, 1.0), w(N);
+    double last = 0;
+    for (int it = 0; it < 100000; it++) {
+      apply(Fd, v, w);
+      double m = 0;
+      for (const double a : w) m = max(m, abs(a));
+      for (int64_t i = 0; i < N; i++) v[i] = w[i] / m;
+      res.rho = m;
+      if (p.verbose && it % 1000 == 0) print("  power iteration %d: %.12f", it, m);
+      if (it > 10 && abs(m - last) <= 1e-13 * m) break;
+      last = m;
+    }
+  }
+
+  // Iterative refinement: residuals in S, corrections by GMRES in double
   vector<S> h(N, S(0)), Lh(N), rs(N);
   vector<double> rd(N), dx;
   const double eps = is_same_v<S, double> ? 1e-15 : is_same_v<S, Expansion<2>> ? 1e-31 : 1e-46;
@@ -426,28 +447,13 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     // Stop at the precision's floor, or once a refinement stops helping (rounding in S limits the residual)
     const bool stalled = res.refinements && rmax > 0.1 * res.residual;
     res.residual = rmax;
-    if (p.verbose) print("  refinement %d: residual %.3g", res.refinements, rmax);
+    if (p.verbose) print("  refinement %d: residual %.3g%s", res.refinements, rmax, p.eig ? tfm::format(" (rho %.12f)", res.rho) : "");
     if (rmax <= eps || stalled || res.refinements >= p.max_refine) break;
     const double tg = elapsed();
-    res.gmres_iters += gmres(N, A, M, rd, dx, 1e-14);
+    res.gmres_iters += gmres(N, A, M, rd, dx, 1e-14, p.verbose);
     t_gmres += elapsed() - tg;
     for (int64_t i = 0; i < N; i++) h[i] += S(dx[i]);
     res.refinements++;
-  }
-
-  // L is positive, so its leading eigenvalue is real and positive: power iteration from 1, normalized in max norm
-  if (p.eig) {
-    vector<double> v(N, 1.0), w(N);
-    double last = 0;
-    for (int it = 0; it < 100000; it++) {
-      apply(Fd, v, w);
-      double m = 0;
-      for (const double a : w) m = max(m, abs(a));
-      for (int64_t i = 0; i < N; i++) v[i] = w[i] / m;
-      res.rho = m;
-      if (it > 10 && abs(m - last) <= 1e-13 * m) break;
-      last = m;
-    }
   }
 
   // ∫_X h, X = {ρ(θ) ≤ |z| ≤ r2} with |ρ^2 e^{2iθ} + c| = r2: trapezoid in φ (weighted by dθ/dφ), Gauss-Legendre
