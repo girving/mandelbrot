@@ -127,6 +127,28 @@ TEST(fast_operator) {
   ASSERT_LE(abs(d), 1e-45);
 }
 
+TEST(centered) {
+  // Centered at the attracting fixed point α: the same areas where both centers work, and c beyond |c| < 1/4
+  JuliaParams p;
+  p.nr = 40; p.nt = 121;
+  for (const double c : {-0.2, 0.15}) {
+    p.cx = c;
+    p.center = 0;
+    const double origin = julia_area<double>(p).area;
+    p.center = 1;
+    const double alpha = julia_area<double>(p).area;
+    print("  c = %g: origin %.16f, α %.16f", c, origin, alpha);
+    ASSERT_LE(abs(origin - alpha), 1e-13);
+  }
+  p.center = -1;
+  p.cx = -0.35;
+  const double a1 = julia_area<double>(p).area;
+  p.nr = 60; p.nt = 181;
+  const double a2 = julia_area<double>(p).area;
+  print("  c = -0.35: %.16f, %.16f", a1, a2);
+  ASSERT_LE(abs(a1 - a2), 1e-12);
+}
+
 TEST(eigenvalue) {
   // L's leading eigenvalue e^{P(2)}: exactly 1/2 at c = 0 (L^n 1 = 2^-n |z|^-2 (1 - 2^-n)), and at real c ≥ the
   // variational bound |f'(q)|^-2 from the delta measure at the repelling fixed point q = (1 + √(1 - 4c))/2

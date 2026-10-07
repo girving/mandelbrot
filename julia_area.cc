@@ -30,8 +30,9 @@ template<class S> static void run(const JuliaParams& p) {
 int main(int argc, char** argv) {
   argparse::ArgumentParser program("julia_area");
   program.add_argument("--c").help("c = x y").nargs(2).scan<'g', double>().default_value(vector<double>{0, 0});
-  program.add_argument("--r1").help("inner radius (0: max(2|c|, 1/4))").scan<'g', double>().default_value(0.0);
-  program.add_argument("--r2").help("outer radius").scan<'g', double>().default_value(1.5);
+  program.add_argument("--r1").help("inner radius (0: default)").scan<'g', double>().default_value(0.0);
+  program.add_argument("--r2").help("outer radius (0: default)").scan<'g', double>().default_value(0.0);
+  program.add_argument("--center").help("annulus center: 0 the origin, 1 the attracting fixed point, -1 auto").scan<'i', int>().default_value(-1);
   program.add_argument("--nr").help("Chebyshev points in log r").scan<'i', int>().default_value(32);
   program.add_argument("--nt").help("angles (odd)").scan<'i', int>().default_value(101);
   program.add_argument("--grade").help("angular grading toward θ = 0, in [0, 1)").scan<'g', double>().default_value(0.0);
@@ -50,6 +51,7 @@ int main(int argc, char** argv) {
   const auto c = program.get<vector<double>>("--c");
   p.cx = c[0]; p.cy = c[1];
   p.r1 = program.get<double>("--r1"); p.r2 = program.get<double>("--r2");
+  p.center = program.get<int>("--center");
   p.nr = program.get<int>("--nr"); p.nt = program.get<int>("--nt");
   p.grade = program.get<double>("--grade");
   p.pre = program.get<int>("--pre");

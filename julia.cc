@@ -163,20 +163,23 @@ template<class S> static Grid<S> make_grid(const arb_t s1, const arb_t s2, const
   return g;
 }
 
-// Preimage data of a collocation point z = e^{s_k} e^{iθ_j}: W = 1/(4|z - c|) = 1/|f'(w)|^2, the preimage log
-// radius ½ log|z - c|, and for each preimage ±√(z - c), the half phase e^{iφ/2} of its interpolation angle φ
-template<class S> struct Pre { S W, sw, ex[2], ey[2]; };
-template<class S> static vector<Pre<S>> preimages(const Grid<S>& g, const double cx, const double cy) {
+// Preimage data of a collocation point z = z0 + e^{s_k} e^{iθ_j} (z0 the annulus center): W = 1/(4|z - c|) =
+// 1/|f'(w)|^2 and, for each preimage w = ±√(z - c), its log radius log|w - z0| and the half phase e^{iφ/2} of its
+// interpolation angle φ.  With z0 = 0 both preimages share a radius.
+template<class S> struct Pre { S W, sw[2], ex[2], ey[2]; };
+template<class S> static vector<Pre<S>> preimages(const Grid<S>& g, const double cx, const double cy,
+                                                   const acb_t z0) {
   vector<Pre<S>> pre(g.size());
   parallel_for(g.size(), [&](const int64_t i) {
     const int k = int(i / g.nt), j = int(i % g.nt);
     Arb r, sn, cs, m, phi, t;
-    acb_t u, e;
-    acb_init(u); acb_init(e);
+    acb_t u, e, w, d;
+    acb_init(u); acb_init(e); acb_init(w); acb_init(d);
     arb_exp(r, g.s[k], prec);
     sin_cos_pi(acb_imagref(e), acb_realref(e), 2 * j, g.nt);
     mobius(u, e, g.grade);
     acb_mul_arb(u, u, r, prec);
+    acb_add(u, u, z0, prec);
     arb_sub(acb_realref(u), acb_realref(u), exact_arb(cx), prec);
     arb_sub(acb_imagref(u), acb_imagref(u), exact_arb(cy), prec);
     acb_abs(m, u, prec);
@@ -185,48 +188,62 @@ template<class S> static vector<Pre<S>> preimages(const Grid<S>& g, const double
     arb_mul_2exp_si(t, m, 2);
     arb_inv(t, t, prec);
     q.W = rnd<S>(t);
-    arb_log(t, m, prec);
-    arb_mul_2exp_si(t, t, -1);
-    q.sw = rnd<S>(t);
-    // The preimages have angles arg(z - c)/2 and that plus π; map each back to φ
+    // The preimages ±w, w = √|z - c| e^{i arg(z - c)/2}, relative to the center; map each angle back to φ
+    arb_sqrt(r, m, prec);
     arb_mul_2exp_si(phi, phi, -1);
-    arb_sin_cos(acb_imagref(e), acb_realref(e), phi, prec);
+    arb_sin_cos(acb_imagref(w), acb_realref(w), phi, prec);
+    acb_mul_arb(w, w, r, prec);
     for (int b = 0; b < 2; b++) {
-      if (b) acb_neg(e, e);
+      if (b) acb_neg(w, w);
+      acb_sub(d, w, z0, prec);
+      acb_abs(t, d, prec);
+      acb_div_arb(e, d, t, prec);
+      arb_log(t, t, prec);
+      q.sw[b] = rnd<S>(t);
       mobius(u, e, -g.grade);
       half_phase(cs, sn, u);
       q.ex[b] = rnd<S>(cs); q.ey[b] = rnd<S>(sn);
     }
-    acb_clear(u); acb_clear(e);
+    acb_clear(u); acb_clear(e); acb_clear(w); acb_clear(d);
   });
   return pre;
 }
 
-// L restricted to some points, acting on functions interpolated from a grid: (L h)_i = W_i Σ_k R[i,k] Σ_j T[i,j] H[k,j]
+// L restricted to some points, acting on functions interpolated from a grid, with nb rows (R, T) per point:
+//   (L h)_i = W_i Σ_b Σ_k R[i nb + b, k] Σ_j T[i nb + b, j] H[k, j]
+// nb = 1 when both preimages share a radius (annulus centered at 0), summing their angular rows; else nb = 2.
 template<class S> struct Factors {
-  int nr, nt;
+  int nr, nt, nb;
   vector<S> W, R, T;
   int64_t rows() const { return int64_t(W.size()); }
 };
-template<class S> static Factors<S> factors(const vector<Pre<S>>& pre, const Grid<S>& g) {
+template<class S> static Factors<S> factors(const vector<Pre<S>>& pre, const Grid<S>& g, const int nb) {
   Factors<S> F;
   const int nr = F.nr = g.nr, nt = F.nt = g.nt;
+  F.nb = nb;
   const int64_t n = int64_t(pre.size());
-  F.W.resize(n); F.R.resize(n * nr); F.T.resize(n * nt);
+  F.W.resize(n); F.R.resize(n * nb * nr); F.T.resize(n * nb * nt);
   parallel_for(n, [&](const int64_t i) {
     const auto& q = pre[i];
     F.W[i] = q.W;
-    cheb_row(g.nodes, g.weights, q.sw, &F.R[i * nr]);
-    vector<S> t2(nt);
-    trig_row(g.rho_x, g.rho_y, q.ex[0], q.ey[0], &F.T[i * nt]);
-    trig_row(g.rho_x, g.rho_y, q.ex[1], q.ey[1], t2.data());
-    for (int l = 0; l < nt; l++) F.T[i * nt + l] += t2[l];
+    if (nb == 1) {
+      cheb_row(g.nodes, g.weights, q.sw[0], &F.R[i * nr]);
+      vector<S> t2(nt);
+      trig_row(g.rho_x, g.rho_y, q.ex[0], q.ey[0], &F.T[i * nt]);
+      trig_row(g.rho_x, g.rho_y, q.ex[1], q.ey[1], t2.data());
+      for (int l = 0; l < nt; l++) F.T[i * nt + l] += t2[l];
+    } else {
+      for (int b = 0; b < 2; b++) {
+        cheb_row(g.nodes, g.weights, q.sw[b], &F.R[(2 * i + b) * nr]);
+        trig_row(g.rho_x, g.rho_y, q.ex[b], q.ey[b], &F.T[(2 * i + b) * nt]);
+      }
+    }
   });
   return F;
 }
 template<class S> static Factors<double> to_double(const Factors<S>& F) {
   Factors<double> D;
-  D.nr = F.nr; D.nt = F.nt;
+  D.nr = F.nr; D.nt = F.nt; D.nb = F.nb;
   const auto conv = [](const vector<S>& x, vector<double>& y) { y.resize(x.size()); for (size_t i = 0; i < x.size(); i++) y[i] = double(x[i]); };
   conv(F.W, D.W); conv(F.R, D.R); conv(F.T, D.T);
   return D;
@@ -234,23 +251,25 @@ template<class S> static Factors<double> to_double(const Factors<S>& F) {
 template<class S> static vector<Pre<double>> to_double(const vector<Pre<S>>& pre) {
   vector<Pre<double>> d(pre.size());
   for (size_t i = 0; i < pre.size(); i++)
-    d[i] = {double(pre[i].W), double(pre[i].sw), {double(pre[i].ex[0]), double(pre[i].ex[1])},
-            {double(pre[i].ey[0]), double(pre[i].ey[1])}};
+    d[i] = {double(pre[i].W), {double(pre[i].sw[0]), double(pre[i].sw[1])},
+            {double(pre[i].ex[0]), double(pre[i].ex[1])}, {double(pre[i].ey[0]), double(pre[i].ey[1])}};
   return d;
 }
 
 template<class S> static void apply(const Factors<S>& F, const vector<S>& h, vector<S>& y) {
-  const int nr = F.nr, nt = F.nt;
+  const int nr = F.nr, nt = F.nt, nb = F.nb;
   y.resize(F.rows());
   parallel_for(F.rows(), [&](const int64_t i) {
-    const S* r = &F.R[i * nr];
-    const S* t = &F.T[i * nt];
     S sum(0);
-    for (int k = 0; k < nr; k++) {
-      const S* hk = &h[int64_t(k) * nt];
-      S dot(0);
-      for (int j = 0; j < nt; j++) dot += t[j] * hk[j];
-      sum += r[k] * dot;
+    for (int b = 0; b < nb; b++) {
+      const S* r = &F.R[(i * nb + b) * nr];
+      const S* t = &F.T[(i * nb + b) * nt];
+      for (int k = 0; k < nr; k++) {
+        const S* hk = &h[int64_t(k) * nt];
+        S dot(0);
+        for (int j = 0; j < nt; j++) dot += t[j] * hk[j];
+        sum += r[k] * dot;
+      }
     }
     y[i] = F.W[i] * sum;
   });
@@ -262,12 +281,12 @@ typedef function<void(const vector<double>&, vector<double>&)> Op;
 // transpose H and accumulate axpys acc[k] += T[i,j] H[k,j] over j, which vectorize, four rows at a time so each
 // load of H feeds four rows.
 template<> void apply(const Factors<double>& F, const vector<double>& h, vector<double>& y) {
-  const int nr = F.nr, nt = F.nt, B = 4;
-  const int64_t n = F.rows();
+  const int nr = F.nr, nt = F.nt, nb = F.nb, B = 4;
+  const int64_t n = F.rows() * nb;  // Rows (point, branch)
+  vector<double> v(n);
   vector<double> ht(int64_t(nt) * nr);
   for (int k = 0; k < nr; k++)
     for (int j = 0; j < nt; j++) ht[int64_t(j) * nr + k] = h[int64_t(k) * nt + j];
-  y.resize(n);
   parallel_for((n + B - 1) / B, [&](const int64_t blk) {
     const int64_t i0 = blk * B, rows = std::min(int64_t(B), n - i0);
     double acc[B][512];
@@ -290,9 +309,11 @@ template<> void apply(const Factors<double>& F, const vector<double>& h, vector<
       const double* r = &F.R[(i0 + b) * nr];
       double sum = 0;
       for (int k = 0; k < nr; k++) sum = fma(r[k], acc[b][k], sum);
-      y[i0 + b] = F.W[i0 + b] * sum;
+      v[i0 + b] = sum;
     }
   });
+  y.resize(F.rows());
+  for (int64_t i = 0; i < F.rows(); i++) y[i] = F.W[i] * (nb == 1 ? v[i] : v[2 * i] + v[2 * i + 1]);
 }
 
 // Right preconditioned restarted GMRES for A x = b: solves A M u = b, x = M u (M may be null).  Stops at tol, or when
@@ -378,6 +399,7 @@ struct Oversampled {
   int nr, nt, os, sw, na, nf;
   bool es;
   double sa, shalf, grade, beta;
+  std::complex<double> z0;  // Annulus center
   vector<double> Ps, PtT;  // na x nr and nt x nf
   struct Stencil { int32_t u[16], v[16]; double wu[16], wv[16]; };
 
@@ -397,9 +419,9 @@ struct Oversampled {
   }
 
   Oversampled(const Grid<double>& g, const double sa, const double sb, const double grade, const int os, const int sw,
-              const bool es)
+              const bool es, const std::complex<double> z0)
       : nr(g.nr), nt(g.nt), os(os), sw(sw), na(os * g.nr), nf(os * g.nt), es(es), sa(sa), shalf((sb - sa) / 2),
-        grade(grade), beta(2.30 * sw) {
+        grade(grade), beta(2.30 * sw), z0(z0) {
     slow_assert(2 <= sw && sw <= 16 && sw <= na && os >= 1, "bad stencil width %d or oversampling %d", sw, os);
     Ps.resize(int64_t(na) * nr); PtT.resize(int64_t(nt) * nf);
     if (!es) {
@@ -434,7 +456,8 @@ struct Oversampled {
   }
 
   // Stencil for weight times the interpolant at z
-  void stencil(const std::complex<double> z, const double weight, Stencil& st) const {
+  void stencil(const std::complex<double> zabs, const double weight, Stencil& st) const {
+    const std::complex<double> z = zabs - z0;
     // α on the grid α_u = (u + 1/2) π / na, reflected evenly across 0 and π
     const double x = std::clamp((std::log(std::abs(z)) - sa) / shalf - 1, -1.0, 1.0);
     const double ua = std::acos(x) / M_PI * na - 0.5;
@@ -501,11 +524,46 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   const auto elapsed = [&]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
   const int nr = p.nr, nt = p.nt;
   const int64_t N = int64_t(nr) * nt;
-  const double ac = std::hypot(p.cx, p.cy);
-  const double r1 = p.r1 ? p.r1 : max(2 * ac, 0.25), r2 = p.r2;
-  slow_assert(r1 - ac > r1 * r1 && r2 * r2 - r2 > ac, "annulus %g < |z| < %g does not work for |c| = %g", r1, r2, ac);
-  // Preimages of A have radii in [√(r1 - |c|), √(r2 + |c|)], strictly inside (r1, r2)
-  slow_assert(sqrt(r1 - ac) > r1 && sqrt(r2 + ac) < r2);
+  // The annulus A = {r1 < |z - z0| < r2}.  Centered at the attracting fixed point α = (1 - √(1 - 4c))/2, with
+  // multiplier λ = 2α, f(z) - α = (z - α)(z + α), so |f(z) - α| ≤ |z - α| (|z - α| + |λ|): the disk |z - α| ≤ r1
+  // maps strictly into itself if r1 < 1 - |λ|, and |z - α| ≥ r2 grows to escape if r2 > 1 + |λ|.  This covers
+  // the whole main cardioid.  Centered at 0 (|c| < 1/4): r1 - |c| > r1^2 and r2^2 - r2 > |c|, and both preimages
+  // of a point share a radius, halving the operator's rows.
+  //
+  // Either way V must contain the critical value c, and so the whole postcritical orbit: L's weight 1/(4|z - c|)
+  // makes h singular like 1/|z - p| at each postcritical point p in A.  Around α that needs |c - α| =
+  // |α||1 - α| < r1 < 1 - |λ|, which on the real axis reaches only c ∈ (-0.394, 0.236): beyond, near the
+  // cardioid's satellite roots, the forward-invariant region containing the postcritical orbit is far from round.
+  const std::complex<double> c(p.cx, p.cy), alpha = (1.0 - std::sqrt(1.0 - 4.0 * c)) / 2.0, lambda = 2.0 * alpha;
+  const double ac = std::abs(c), al = std::abs(lambda), cd = std::abs(c - alpha);
+  const bool centered = p.center == 1 || (p.center < 0 && ac >= 0.25);  // Auto: the origin when it works
+  slow_assert(!centered || (al < 1 && cd < 1 - al), "c = %g + %gi has no round interior disk at 0 or at α "
+              "(|c - α| = %g, 1 - |λ| = %g)", p.cx, p.cy, cd, 1 - al);
+  const double r1 = p.r1 ? p.r1 : centered ? (cd + 1 - al) / 2 : max(2 * ac, 0.25);
+  const double r2 = p.r2 ? p.r2 : centered ? 1.5 + al : 1.5;
+  if (centered)
+    slow_assert(cd < r1 && r1 + al < 1 && r2 > 1 + al, "annulus %g < |z - α| < %g does not work for |λ| = %g, "
+                "|c - α| = %g", r1, r2, al, cd);
+  else {
+    slow_assert(r1 - ac > r1 * r1 && r2 * r2 - r2 > ac, "annulus %g < |z| < %g does not work for |c| = %g", r1, r2, ac);
+    slow_assert(sqrt(r1 - ac) > r1 && sqrt(r2 + ac) < r2);  // Preimage radii [√(r1 - |c|), √(r2 + |c|)] inside
+  }
+  const std::complex<double> z0 = centered ? alpha : 0.0;
+  acb_t z0a;  // The center in arb
+  acb_init(z0a);
+  if (centered) {
+    acb_t t;
+    acb_init(t);
+    acb_set_d_d(t, p.cx, p.cy);
+    acb_mul_2exp_si(t, t, 2);
+    acb_neg(t, t);
+    acb_add_ui(t, t, 1, prec);
+    acb_sqrt(t, t, prec);
+    acb_neg(t, t);
+    acb_add_ui(t, t, 1, prec);
+    acb_mul_2exp_si(z0a, t, -1);
+    acb_clear(t);
+  }
   Arb s1, s2, a;
   arb_set_d(a, r1); arb_log(s1, a, prec);
   arb_set_d(a, r2); arb_log(s2, a, prec);
@@ -516,25 +574,26 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   const auto& weights = fine.weights;
   const auto& rho_x = fine.rho_x;
   const auto& rho_y = fine.rho_y;
-  const auto pre = preimages(fine, p.cx, p.cy);
-  const auto F = factors(pre, fine);
+  const auto pre = preimages(fine, p.cx, p.cy, z0a);
+  const auto F = factors(pre, fine, centered ? 2 : 1);
   const auto Fd = to_double(F);
 
   const Op A = [&](const vector<double>& v, vector<double>& out) {
     apply(Fd, v, out);
     for (int64_t i = 0; i < N; i++) out[i] = v[i] - out[i];
   };
-  // Preconditioner for the slow modes near the repelling fixed point q = (1 + √(1 - 4c))/2.  The principal branch
-  // w+(z) = √(z - c) has q as an attracting fixed point with multiplier 1/μ, μ = f'(q), and its iterates converge to
-  // q from the whole annulus.  Split L = L+ + L- by branch: near c = 1/4, μ → 1 and L+ carries a cluster of
-  // eigenvalues μ^{-2-a-b} → 1 (dilations in q's Koenigs coordinate), while L- adds only O(ε^2) to the leading
-  // eigenvalue, so L- (1 - L+)^-1 stays well conditioned.  And L+^m g(z) = |(w+^m)'(z)|^2 g(w+^m(z)) has L's
-  // factored form for any m: one interpolation row at the point w+^m(z).  So
+  // Preconditioner for the slow modes as α nears the boundary of the cardioid (|λ| → 1).  Let w+ = σ√(z - c) be
+  // the inverse branch fixing α (σ = ±1).  Near a parabolic parameter the cycle born from α (the fixed point q near
+  // the cusp, the 2-cycle near -3/4, ...) is attracting for w+ with rate ~|λ|, and w+'s iterates converge to it
+  // from the whole annulus.  Split L = L+ + L- by branch: L+ carries a cluster of eigenvalues → 1 (dilations in the
+  // cycle's Koenigs coordinate), while L- adds little to the leading eigenvalue (O(ε^2) at the cusp), so
+  // L- (1 - L+)^-1 stays well conditioned.  And L+^m g(z) = |(w+^m)'(z)|^2 g(w+^m(z)) has L's factored form for
+  // any m: one interpolation row at the point w+^m(z).  So
   //   M = Π_{j<J} (1 + L+^{2^j}) = Σ_{n<2^J} L+^n ≈ (1 - L+)^-1
-  // costs J single-row matvecs, with 2^J steps enough that |μ|^{-2^{J+1}} ≤ 1/100.
-  const std::complex<double> c(p.cx, p.cy), qf = (1.0 + std::sqrt(1.0 - 4.0 * c)) / 2.0;
-  const double mu = std::abs(2.0 * qf);
-  const int J = p.pre == 0 ? 0 : max(0, int(std::ceil(std::log2(std::log(100.0) / (2 * std::log(mu))))));
+  // costs J single-row matvecs, with 2^J steps enough that |λ|^{2^{J+1}} ≤ 1/100.
+  const double sigma = std::abs(std::sqrt(alpha - c) - alpha) < std::abs(std::sqrt(alpha - c) + alpha) ? 1 : -1;
+  const double mu = 1 / al;
+  const int J = p.pre == 0 || al == 0 ? 0 : max(0, int(std::ceil(std::log2(std::log(100.0) / (2 * std::log(mu))))));
   const bool use_pre = p.pre == 1 || (p.pre < 0 && J >= 4);
   // Each level L+^{2^l} evaluates a grid function's spectral interpolant at the points w+^{2^l}(z_i).  Full spectral
   // rows cost a matvec per level, and local stencils on the collocation grid are not enough: near q, L+ carries even
@@ -542,12 +601,12 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   // interpolation damps.  Oversampled interpolation handles them, and each level computes only the oversampled rows
   // its points touch, a narrow band at deep levels where every point is near q.
   const auto fine_d = make_grid<double>(s1, s2, nr, nt, p.grade);
-  const Oversampled over(fine_d, rnd<double>(s1), rnd<double>(s2), p.grade, p.oversample, p.stencil, false);
-  const Oversampled over_fast(fine_d, rnd<double>(s1), rnd<double>(s2), p.grade, 2, p.fast_width, true);
+  const Oversampled over(fine_d, rnd<double>(s1), rnd<double>(s2), p.grade, p.oversample, p.stencil, false, z0);
+  const Oversampled over_fast(fine_d, rnd<double>(s1), rnd<double>(s2), p.grade, 2, p.fast_width, true, z0);
   vector<std::complex<double>> zs(N);  // Collocation points in double
   for (int64_t i = 0; i < N; i++) {
     const std::complex<double> e = std::polar(1.0, 2 * M_PI * (i % nt) / nt), a = p.grade;
-    zs[i] = std::exp(fine_d.nodes[i / nt]) * (e + a) / (1.0 + a * e);
+    zs[i] = z0 + std::exp(fine_d.nodes[i / nt]) * (e + a) / (1.0 + a * e);
   }
   vector<vector<Oversampled::Stencil>> levels(use_pre ? J : 0, vector<Oversampled::Stencil>(N));
   vector<int> ulo(J, over.na), uhi(J, -1);
@@ -559,7 +618,7 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
       for (int l = 0; l < J; l++) {
         for (; m < (int64_t(1) << l); m++) {  // Advance to w+^{2^l}(z), accumulating |w+'|^2 = 1/(4|z - c|)
           jac /= 4 * std::abs(z - c);
-          z = std::sqrt(z - c);
+          z = sigma * std::sqrt(z - c);
         }
         over.stencil(z, jac, levels[l][i]);
       }
@@ -610,7 +669,9 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     for (int64_t i = 0; i < N; i++) { d = max(d, abs(e[i] - f[i])); m = max(m, abs(v[i])); }
     print("  fast L: max |(L - L_fast) v| / max |v| = %.3g on random v", d / m);
   }
-  if (p.verbose && use_pre) print("  parabolic preconditioner: mu %.6f, J = %d", mu, J);
+  if (p.verbose)
+    print("  annulus %.6g < |z - (%.6g + %.6gi)| < %.6g, |λ| %.6f%s", r1, z0.real(), z0.imag(), r2, al,
+          use_pre ? tfm::format(", parabolic preconditioner: branch %+g, J = %d", sigma, J) : "");
   const double t_setup = elapsed();
   double t_apply = 0, t_gmres = 0;
 
@@ -657,8 +718,8 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     res.refinements++;
   }
 
-  // ∫_X h, X = {ρ(θ) ≤ |z| ≤ r2} with |ρ^2 e^{2iθ} + c| = r2: trapezoid in φ (weighted by dθ/dφ), Gauss-Legendre
-  // in r
+  // ∫_X h, X = {ρ(θ) ≤ |z - z0| ≤ r2} = {z ∈ A : |f(z) - z0| ≥ r2}: trapezoid in φ (weighted by dθ/dφ),
+  // Gauss-Legendre in r.  Centered at 0, |ρ^2 e^{2iθ} + c| = r2; at α, ρ |ρ e^{iθ} + λ| = r2.
   const int nq = p.nq ? p.nq : 2 * nt + 1, ng = p.ng ? p.ng : nr + 16;
   vector<Arb> gx(ng), gw(ng);
   for (int g = 0; g < ng; g++) arb_hypgeom_legendre_p_ui_root(gx[g], gw[g], ng, g, prec);
@@ -676,19 +737,52 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     arb_sqr(jac, jac, prec);
     arb_set_d(u, p.grade); arb_sqr(u, u, prec); arb_set_ui(t, 1); arb_sub(t, t, u, prec);
     arb_div(jac, t, jac, prec);
-    acb_sqr(et, et, prec);
-    arb_mul(bb, acb_realref(et), exact_arb(p.cx), prec);
-    arb_mul(t, acb_imagref(et), exact_arb(p.cy), prec);
-    arb_add(bb, bb, t, prec);
+    if (!centered) {
+      acb_sqr(e, et, prec);
+      arb_mul(bb, acb_realref(e), exact_arb(p.cx), prec);
+      arb_mul(t, acb_imagref(e), exact_arb(p.cy), prec);
+      arb_add(bb, bb, t, prec);
+      arb_sqr(t, bb, prec);
+      arb_set_d(u, r2); arb_sqr(u, u, prec);
+      arb_add(t, t, u, prec);
+      arb_set_d(u, p.cx); arb_sqr(u, u, prec); arb_sub(t, t, u, prec);
+      arb_set_d(u, p.cy); arb_sqr(u, u, prec); arb_sub(t, t, u, prec);
+      arb_sqrt(t, t, prec);
+      arb_sub(rho, t, bb, prec);
+      arb_sqrt(rho, rho, prec);
+    } else {
+      // g(ρ) = ρ^2 (ρ^2 + 2 b ρ + |λ|^2) - r2^2 with b = Re(λ e^{-iθ}), increasing on the root's bracket: a double
+      // bisection, then Newton in arb
+      acb_t lam;
+      acb_init(lam);
+      acb_mul_2exp_si(lam, z0a, 1);
+      acb_conj(e, et);
+      acb_mul(e, e, lam, prec);
+      arb_set(bb, acb_realref(e));
+      Arb l2;
+      acb_abs(l2, lam, prec);
+      arb_sqr(l2, l2, prec);
+      acb_clear(lam);
+      const double bd = rnd<double>(bb), l2d = rnd<double>(l2);
+      const auto g = [&](const double x) { return x * x * (x * x + 2 * bd * x + l2d) - r2 * r2; };
+      double lo = r1, hi = r2;
+      slow_assert(g(lo) < 0 && g(hi) > 0);
+      for (int it = 0; it < 60; it++) { const double md = (lo + hi) / 2; (g(md) < 0 ? lo : hi) = md; }
+      arb_set_d(rho, (lo + hi) / 2);
+      Arb gv, dg, x2, r22;
+      arb_set_d(r22, r2); arb_sqr(r22, r22, prec);
+      for (int it = 0; it < 5; it++) {  // g = x^4 + 2b x^3 + l2 x^2 - r2^2, g' = 4x^3 + 6b x^2 + 2 l2 x
+        arb_sqr(x2, rho, prec);
+        arb_mul(gv, bb, rho, prec); arb_mul_2exp_si(gv, gv, 1); arb_add(gv, gv, x2, prec); arb_add(gv, gv, l2, prec);
+        arb_mul(gv, gv, x2, prec); arb_sub(gv, gv, r22, prec);
+        arb_mul_2exp_si(dg, x2, 2); arb_mul(t, bb, rho, prec); arb_mul_ui(t, t, 6, prec); arb_add(dg, dg, t, prec);
+        arb_mul_2exp_si(t, l2, 1); arb_add(dg, dg, t, prec); arb_mul(dg, dg, rho, prec);
+        arb_div(gv, gv, dg, prec);
+        arb_sub(rho, rho, gv, prec);
+        mag_zero(arb_radref(rho.x));  // Newton's iterate is just a point; keep the ball from growing
+      }
+    }
     acb_clear(e); acb_clear(et);
-    arb_sqr(t, bb, prec);
-    arb_set_d(u, r2); arb_sqr(u, u, prec);
-    arb_add(t, t, u, prec);
-    arb_set_d(u, p.cx); arb_sqr(u, u, prec); arb_sub(t, t, u, prec);
-    arb_set_d(u, p.cy); arb_sqr(u, u, prec); arb_sub(t, t, u, prec);
-    arb_sqrt(t, t, prec);
-    arb_sub(rho, t, bb, prec);
-    arb_sqrt(rho, rho, prec);
     // h along this angle: v[k] = Σ_j T(φ)[j] H[k,j], with η = e^{iφ/2} = e^{iπq/nq}
     sin_cos_pi(sn, cs, q, nq);
     vector<S> trow(nt), v(nr), crow(nr);
@@ -728,6 +822,7 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   arb_sqr(a, a, prec);
   arb_mul(pi_r2, pi_r2, a, prec);
   res.area = rnd<S>(pi_r2) - tw * integral;
+  acb_clear(z0a);
   res.secs = elapsed();
   if (p.verbose)
     print("  time: setup %.2f s, residuals %.2f s, GMRES %.2f s, area %.2f s", t_setup, t_apply, t_gmres,
