@@ -170,3 +170,20 @@ Near-parabolic (c inside the cardioid near −3/4, 1 − |λ| = δ): the n^{-2} 
 collapses; n* grows like roughly δ^{-0.7} between δ = 2^-9 and 2^-12 (between the 1/δ and 1/√δ guesses), and the
 curves do not yet collapse cleanly.  Near the cusp the tail is too thin for uniform sampling; both need
 importance sampling near α.
+
+**GPU runs** (`julia_tail.h/cc`, H200, `analysis/results/parabolic-gpu.log`; CPU and GPU histograms agree
+exactly).  2^34 global samples at −3/4 take 27 s.
+
+* Higher q on the cardioid: local B₆ ≈ 0.19 (1/6), B₇ ≈ 0.16 (1/7, 2/7, 3/7 agree); global 0.68 (1/6),
+  0.60–0.62 (1/7, 2/7, 3/7).  W ≈ 3.6–3.8: the cardioid's roots keep W ≈ 3.4–3.8 for q = 1 … 7.
+* −7/4 (primitive 3-cycle), 2^38 global samples: B_total still falling at octave 10 (4.30, 3.58, 2.86 ± 0.45), so
+  W ≲ 4.4 there; not yet asymptotic.
+* **Near-parabolic crossover collapses**: with δ = 1 − |λ| (λ the multiplier of α), near −3/4 the ratio of the
+  tail to the root's, B_j(δ)/B_j(root), depends only on j + log₂ δ (≈ 0.71 at −2, 0.45 at −1, 0.15 at 0, for
+  δ = 2^-8 … 2^-12), i.e. T(n; δ) ≈ T_root(n) F(n δ) with crossover n* ∝ 1/δ.  Near the cusp (δ = 1 − λ = 2√ε) the
+  cutoff likewise moves one octave of n per octave of δ.  So in both cases the crossover time is 1/(1 − |λ|), the
+  multiplier's distance from the unit circle.
+
+For parameter space: the natural clock near a root is the multiplier, not the parameter.  Near a satellite root
+1 − |λ| ∝ |c − c₀|; near a cusp 1 − λ ∝ √|c − c₀|; the parameter-space gate passage times have the same two
+scalings, which suggests the dynamical crossover and the parameter-space escape time are one function of λ.
