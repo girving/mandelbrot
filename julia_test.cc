@@ -105,6 +105,28 @@ TEST(parabolic_preconditioner) {
   ASSERT_LE(4 * pre.gmres_iters, plain.gmres_iters);
 }
 
+TEST(fast_operator) {
+  // Corrections with the fast NUFFT-style L converge to the same discrete solution as with the exact L
+  JuliaParams p;
+  p.cx = 0.25 - std::ldexp(1, -12);
+  p.nr = 80; p.nt = 181; p.grade = 0.744;
+  const auto exact = julia_area<double>(p);
+  p.fast = true;
+  const auto fast = julia_area<double>(p);
+  print("  c = 1/4 - 2^-12: exact L %.16f (%.2f s), fast L %.16f (%d refinements, %.2f s)", exact.area, exact.secs,
+        fast.area, fast.refinements, fast.secs);
+  ASSERT_LE(abs(exact.area - fast.area), 1e-13);
+  ASSERT_LE(fast.residual, 1e-12);
+  // And in Expansion<3>, refinement still reaches the precision floor
+  p.cx = 0.2; p.nr = 40; p.nt = 121; p.grade = 0;
+  const auto e3 = julia_area<Expansion<3>>(p);
+  p.fast = false;
+  const auto x3 = julia_area<Expansion<3>>(p);
+  const double d = double(e3.area - x3.area);
+  print("  c = 0.2, Expansion<3>: fast - exact %.3g, residual %.3g, %d refinements", d, e3.residual, e3.refinements);
+  ASSERT_LE(abs(d), 1e-45);
+}
+
 TEST(eigenvalue) {
   // L's leading eigenvalue e^{P(2)}: exactly 1/2 at c = 0 (L^n 1 = 2^-n |z|^-2 (1 - 2^-n)), and at real c ≥ the
   // variational bound |f'(q)|^-2 from the delta measure at the repelling fixed point q = (1 + √(1 - 4c))/2

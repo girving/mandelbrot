@@ -33,6 +33,8 @@ struct JuliaParams {
   int pre = -1;            // Parabolic preconditioner (1 - L+)^-1: 1 on, 0 off, -1 when |f'(q)| is near 1
   int stencil = 6;         // Its local interpolation width, on a grid oversampled by
   int oversample = 2;
+  bool fast = false;       // Corrections with a fast approximate L (NUFFT style), O(N (nr + nt)) rather than O(N^2)
+  int fast_width = 16;     // Its kernel width at 2x oversampling
   int max_refine = 20;
   bool eig = false;  // Also estimate L's leading eigenvalue (power iteration in double)
   bool verbose = false;

@@ -14,6 +14,7 @@
 #include <cmath>
 #include <complex>
 #include <functional>
+#include <random>
 #include <thread>
 namespace mandelbrot {
 
@@ -364,6 +365,137 @@ static int gmres(const int64_t N, const Op& A, const Op& M, const vector<double>
   die("gmres did not converge");
 }
 
+// Fast evaluation of grid functions' spectral interpolants at many points, NUFFT style.  The interpolant is a
+// cosine series in α = arccos x (x ∈ [-1, 1] the Chebyshev variable: T_n = cos nα, so even and 2π periodic in α)
+// times a Fourier series in φ.  Put it on a grid oversampled by os in both, by a tensor product Ps H Ptᵀ costing
+// N (os nr + os^2 nt), then interpolate locally with separable sw-point stencils.  Two kernels:
+//   es: the exponential of semicircle ψ(x) = exp(β (√(1 - (2x/(sw h))^2) - 1)), with the grid values deconvolved
+//       by 1/ψ̂ (Poisson summation: Σ_u ψ(α - α_u) e^{inα_u} ≈ ψ̂(n) e^{inα} / h), accurate to ~1e-13 at os = 2,
+//       sw = 13;
+//   Lagrange interpolation of the plain oversampled values, cheaper but only ~1e-3 at os = 2, sw = 6, which is
+//       plenty for the preconditioner.
+struct Oversampled {
+  int nr, nt, os, sw, na, nf;
+  bool es;
+  double sa, shalf, grade, beta;
+  vector<double> Ps, PtT;  // na x nr and nt x nf
+  struct Stencil { int32_t u[16], v[16]; double wu[16], wv[16]; };
+
+  // The kernel in units of the grid spacing, and its Fourier transform at frequency ω (radians per spacing)
+  double psi(const double x) const {
+    const double t = 2 * x / sw;
+    return std::abs(t) < 1 ? std::exp(beta * (std::sqrt(1 - t * t) - 1)) : 0;
+  }
+  double psi_hat(const double omega) const {
+    double sum = 0;  // ∫ ψ(x) cos(ωx) dx over [-sw/2, sw/2], midpoint rule (ψ is smooth and vanishes to all orders)
+    const int n = 2000;
+    for (int i = 0; i < n; i++) {
+      const double x = (i + 0.5) / n * sw - sw / 2.0;
+      sum += psi(x) * std::cos(omega * x);
+    }
+    return sum * sw / n;
+  }
+
+  Oversampled(const Grid<double>& g, const double sa, const double sb, const double grade, const int os, const int sw,
+              const bool es)
+      : nr(g.nr), nt(g.nt), os(os), sw(sw), na(os * g.nr), nf(os * g.nt), es(es), sa(sa), shalf((sb - sa) / 2),
+        grade(grade), beta(2.30 * sw) {
+    slow_assert(2 <= sw && sw <= 16 && sw <= na && os >= 1, "bad stencil width %d or oversampling %d", sw, os);
+    Ps.resize(int64_t(na) * nr); PtT.resize(int64_t(nt) * nf);
+    if (!es) {
+      vector<double> row(nt);
+      for (int u = 0; u < na; u++)
+        cheb_row(g.nodes, g.weights, sa + shalf * (1 + std::cos((u + 0.5) * M_PI / na)), &Ps[int64_t(u) * nr]);
+      for (int v = 0; v < nf; v++) {
+        trig_row(g.rho_x, g.rho_y, std::cos(M_PI * v / nf), std::sin(M_PI * v / nf), row.data());
+        for (int j = 0; j < nt; j++) PtT[int64_t(j) * nf + v] = row[j];
+      }
+      return;
+    }
+    // α: nodal values at α_k = (2k+1)π/(2nr) → coefficients a_n = (2 - δ_n0)/nr Σ_k f_k cos(n α_k) → grid values
+    // g_u = Σ_n a_n cos(n α_u) / ψ̂(n h), with α_u = (u + 1/2) h, h = π/na, the kernel in units of h
+    vector<double> da(nr), df(nt / 2 + 1);
+    for (int n = 0; n < nr; n++) da[n] = 1 / psi_hat(n * M_PI / na);
+    for (int m = 0; m <= nt / 2; m++) df[m] = 1 / psi_hat(m * 2 * M_PI / nf);
+    for (int u = 0; u < na; u++)
+      for (int k = 0; k < nr; k++) {
+        double sum = 0;
+        for (int n = 0; n < nr; n++)
+          sum += (n ? 2.0 : 1.0) / nr * std::cos(n * (2 * k + 1) * M_PI / (2 * nr)) * da[n] * std::cos(n * (u + 0.5) * M_PI / na);
+        Ps[int64_t(u) * nr + k] = sum;
+      }
+    // φ: nodal values at φ_j = 2πj/nt → c_m = Σ_j f_j e^{-imφ_j} / nt → g_v = Σ_|m|≤nt/2 c_m e^{imφ_v} / ψ̂(m h_φ)
+    for (int v = 0; v < nf; v++)
+      for (int j = 0; j < nt; j++) {
+        double sum = df[0];
+        for (int m = 1; m <= nt / 2; m++) sum += 2 * df[m] * std::cos(m * (2 * M_PI * v / nf - 2 * M_PI * j / nt));
+        PtT[int64_t(j) * nf + v] = sum / nt;
+      }
+  }
+
+  // Stencil for weight times the interpolant at z
+  void stencil(const std::complex<double> z, const double weight, Stencil& st) const {
+    // α on the grid α_u = (u + 1/2) π / na, reflected evenly across 0 and π
+    const double x = std::clamp((std::log(std::abs(z)) - sa) / shalf - 1, -1.0, 1.0);
+    const double ua = std::acos(x) / M_PI * na - 0.5;
+    const int u0 = int(std::floor(ua)) - (sw - 1) / 2;
+    // φ on the grid φ_v = 2π v / nf, from e^{iθ} by the inverse grading map
+    const std::complex<double> a = grade, e = z / std::abs(z), ef = (e - a) / (1.0 - a * e);
+    double vf = std::arg(ef) / (2 * M_PI) * nf;
+    vf -= nf * std::floor(vf / nf);
+    const int v0 = int(std::floor(vf)) - (sw - 1) / 2;
+    for (int q = 0; q < sw; q++) {
+      if (es) {
+        st.wu[q] = weight * psi(ua - u0 - q);
+        st.wv[q] = psi(vf - v0 - q);
+      } else {
+        st.wu[q] = weight;
+        st.wv[q] = 1;
+        for (int r = 0; r < sw; r++) if (r != q) {
+          st.wu[q] *= (ua - u0 - r) / (q - r);
+          st.wv[q] *= (vf - v0 - r) / (q - r);
+        }
+      }
+      int uu = ((u0 + q) % (2 * na) + 2 * na) % (2 * na);  // Period 2 na in u, even about u = -1/2 and na - 1/2
+      if (uu >= na) uu = 2 * na - 1 - uu;
+      st.u[q] = uu;
+      st.v[q] = ((v0 + q) % nf + nf) % nf;
+    }
+  }
+
+  // G = Ps H Ptᵀ on rows [ulo, uhi] of the oversampled grid, H = h as nr x nt, as vectorizable axpys
+  void grid(const vector<double>& h, vector<double>& G, const int ulo, const int uhi) const {
+    G.resize(int64_t(na) * nf);
+    parallel_for(uhi - ulo + 1, [&](const int64_t du) {
+      const int64_t u = ulo + du;
+      vector<double> g(nt, 0.0);
+      for (int k = 0; k < nr; k++) {
+        const double c = Ps[u * nr + k];
+        const double* hk = &h[int64_t(k) * nt];
+        for (int j = 0; j < nt; j++) g[j] = fma(c, hk[j], g[j]);
+      }
+      double* Gu = &G[u * nf];
+      for (int v = 0; v < nf; v++) Gu[v] = 0;
+      for (int j = 0; j < nt; j++) {
+        const double c = g[j];
+        const double* pj = &PtT[int64_t(j) * nf];
+        for (int v = 0; v < nf; v++) Gu[v] = fma(c, pj[v], Gu[v]);
+      }
+    });
+  }
+
+  double eval(const vector<double>& G, const Stencil& st) const {
+    double sum = 0;
+    for (int q = 0; q < sw; q++) {
+      const double* Gu = &G[int64_t(st.u[q]) * nf];
+      double t = 0;
+      for (int r = 0; r < sw; r++) t = fma(st.wv[r], Gu[st.v[r]], t);
+      sum = fma(st.wu[q], t, sum);
+    }
+    return sum;
+  }
+};
+
 template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   const auto t0 = std::chrono::steady_clock::now();
   const auto elapsed = [&]() { return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(); };
@@ -404,40 +536,24 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
   const double mu = std::abs(2.0 * qf);
   const int J = p.pre == 0 ? 0 : max(0, int(std::ceil(std::log2(std::log(100.0) / (2 * std::log(mu))))));
   const bool use_pre = p.pre == 1 || (p.pre < 0 && J >= 4);
-  // Each L+^{2^l} evaluates a grid function's spectral interpolant at the points w+^{2^l}(z_i).  Full spectral rows
-  // cost a matvec per level, and local stencils on the collocation grid are not enough: near q, L+ carries even
+  // Each level L+^{2^l} evaluates a grid function's spectral interpolant at the points w+^{2^l}(z_i).  Full spectral
+  // rows cost a matvec per level, and local stencils on the collocation grid are not enough: near q, L+ carries even
   // grid-scale oscillations with weight ≈ μ^-2 ≈ 1, so the slow cluster includes Nyquist-scale modes, which local
-  // interpolation damps.  Instead, per application, evaluate the interpolant on a grid oversampled by os in
-  // α = arccos x (x ∈ [-1, 1] the Chebyshev variable, where T_n = cos nα) and φ, by the tensor product Ps H Ptᵀ,
-  // then interpolate locally from it with a sw x sw Lagrange stencil, accurate even for Nyquist-scale content.
-  // The α direction is even and 2π periodic, so stencils wrap by reflection.  Cost per level: N (os nr + os^2 nt)
-  // for the tensor product plus sw^2 N, a few percent of a matvec.
-  const int os = p.oversample, sw = p.stencil, sw2 = sw * sw, na = os * nr, nf = os * nt;
-  slow_assert(2 <= sw && sw <= 12 && os >= 1, "bad stencil width %d or oversampling %d", sw, os);
-  vector<vector<int32_t>> pidx(use_pre ? J : 0, vector<int32_t>(use_pre ? N * sw2 : 0));
-  vector<vector<double>> pw(use_pre ? J : 0, vector<double>(use_pre ? N * sw2 : 0));
-  vector<double> Ps, PtT;  // na x nr and nt x nf interpolation matrices to the oversampled grid
-  vector<int> ulo(J, na), uhi(J, -1);  // Rows of the oversampled grid each level's stencils touch
+  // interpolation damps.  Oversampled interpolation handles them, and each level computes only the oversampled rows
+  // its points touch, a narrow band at deep levels where every point is near q.
+  const auto fine_d = make_grid<double>(s1, s2, nr, nt, p.grade);
+  const Oversampled over(fine_d, rnd<double>(s1), rnd<double>(s2), p.grade, p.oversample, p.stencil, false);
+  const Oversampled over_fast(fine_d, rnd<double>(s1), rnd<double>(s2), p.grade, 2, p.fast_width, true);
+  vector<std::complex<double>> zs(N);  // Collocation points in double
+  for (int64_t i = 0; i < N; i++) {
+    const std::complex<double> e = std::polar(1.0, 2 * M_PI * (i % nt) / nt), a = p.grade;
+    zs[i] = std::exp(fine_d.nodes[i / nt]) * (e + a) / (1.0 + a * e);
+  }
+  vector<vector<Oversampled::Stencil>> levels(use_pre ? J : 0, vector<Oversampled::Stencil>(N));
+  vector<int> ulo(J, over.na), uhi(J, -1);
   if (use_pre) {
-    const auto fine_d = make_grid<double>(s1, s2, nr, nt, p.grade);
-    const auto& sn = fine_d.nodes;
-    const double sa = rnd<double>(s1), shalf = (rnd<double>(s2) - sa) / 2;
-    Ps.resize(int64_t(na) * nr); PtT.resize(int64_t(nt) * nf);
-    vector<double> row(nt);
-    for (int u = 0; u < na; u++) {
-      const double alpha = (u + 0.5) * M_PI / na;
-      cheb_row(fine_d.nodes, fine_d.weights, sa + shalf * (1 + std::cos(alpha)), &Ps[int64_t(u) * nr]);
-    }
-    for (int v = 0; v < nf; v++) {
-      const double half = M_PI * v / nf;
-      trig_row(fine_d.rho_x, fine_d.rho_y, std::cos(half), std::sin(half), row.data());
-      for (int j = 0; j < nt; j++) PtT[int64_t(j) * nf + v] = row[j];
-    }
     parallel_for(N, [&](const int64_t i) {
-      const int k = int(i / nt), j = int(i % nt);
-      const double phi = 2 * M_PI * j / nt;
-      const std::complex<double> e = std::polar(1.0, phi), a = p.grade;
-      std::complex<double> z = std::exp(sn[k]) * (e + a) / (1.0 + a * e);
+      std::complex<double> z = zs[i];
       double jac = 1;
       int64_t m = 0;
       for (int l = 0; l < J; l++) {
@@ -445,77 +561,55 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
           jac /= 4 * std::abs(z - c);
           z = std::sqrt(z - c);
         }
-        // α = arccos x on the grid α_u = (u + 1/2) π / na, reflected evenly across 0 and π
-        const double x = std::clamp((std::log(std::abs(z)) - sa) / shalf - 1, -1.0, 1.0);
-        const double ua = std::acos(x) / M_PI * na - 0.5;
-        const int u0 = int(std::floor(ua)) - (sw - 1) / 2;
-        // φ on the grid φ_v = 2π v / nf
-        const std::complex<double> uz = z / std::abs(z), vz = (uz - a) / (1.0 - a * uz);  // e^{iθ}, then e^{iφ}
-        double vf = std::arg(vz) / (2 * M_PI) * nf;
-        vf -= nf * std::floor(vf / nf);
-        const int v0 = int(std::floor(vf)) - (sw - 1) / 2;
-        double wa[12], wf[12];
-        for (int q = 0; q < sw; q++) {
-          wa[q] = wf[q] = 1;
-          for (int r = 0; r < sw; r++) if (r != q) {
-            wa[q] *= (ua - u0 - r) / (q - r);
-            wf[q] *= (vf - v0 - r) / (q - r);
-          }
-        }
-        int32_t* idx = &pidx[l][i * sw2];
-        double* w = &pw[l][i * sw2];
-        for (int q = 0; q < sw; q++) {
-          int uu = ((u0 + q) % (2 * na) + 2 * na) % (2 * na);  // Period 2 na in u, even about u = -1/2 and na - 1/2
-          if (uu >= na) uu = 2 * na - 1 - uu;
-          for (int r = 0; r < sw; r++) {
-            const int vv = ((v0 + r) % nf + nf) % nf;
-            idx[sw * q + r] = int32_t(int64_t(uu) * nf + vv);
-            w[sw * q + r] = jac * wa[q] * wf[r];
-          }
-        }
+        over.stencil(z, jac, levels[l][i]);
       }
     });
-  }
-  if (use_pre)
     for (int l = 0; l < J; l++)
-      for (int64_t q = 0; q < N * sw2; q++) {
-        const int u = pidx[l][q] / nf;
-        ulo[l] = std::min(ulo[l], u);
-        uhi[l] = std::max(uhi[l], u);
-      }
+      for (const auto& st : levels[l])
+        for (int q = 0; q < over.sw; q++) {
+          ulo[l] = std::min(ulo[l], int(st.u[q]));
+          uhi[l] = std::max(uhi[l], int(st.u[q]));
+        }
+  }
   const Op M = !use_pre ? Op() : Op([&](const vector<double>& r, vector<double>& out) {
     out = r;
-    vector<double> G(int64_t(na) * nf), t(N);
+    vector<double> G, t(N);
     for (int l = 0; l < J; l++) {
-      // G = Ps H Ptᵀ on the rows of the oversampled grid this level needs, H = out as nr x nt, as axpys
-      parallel_for(uhi[l] - ulo[l] + 1, [&](const int64_t du) {
-        const int64_t u = ulo[l] + du;
-        double g[1024];
-        slow_assert(nt <= 1024);
-        for (int j = 0; j < nt; j++) g[j] = 0;
-        for (int k = 0; k < nr; k++) {
-          const double c = Ps[u * nr + k];
-          const double* hk = &out[int64_t(k) * nt];
-          for (int j = 0; j < nt; j++) g[j] = fma(c, hk[j], g[j]);
-        }
-        double* Gu = &G[u * nf];
-        for (int v = 0; v < nf; v++) Gu[v] = 0;
-        for (int j = 0; j < nt; j++) {
-          const double c = g[j];
-          const double* pj = &PtT[int64_t(j) * nf];
-          for (int v = 0; v < nf; v++) Gu[v] = fma(c, pj[v], Gu[v]);
-        }
-      });
-      parallel_for(N, [&](const int64_t i) {
-        const int32_t* idx = &pidx[l][i * sw2];
-        const double* w = &pw[l][i * sw2];
-        double sum = 0;
-        for (int q = 0; q < sw2; q++) sum = fma(w[q], G[idx[q]], sum);
-        t[i] = sum;
-      });
+      over.grid(out, G, ulo[l], uhi[l]);
+      parallel_for(N, [&](const int64_t i) { t[i] = over.eval(G, levels[l][i]); });
       for (int64_t i = 0; i < N; i++) out[i] += t[i];
     }
   });
+
+  // Fast approximate L for the double precision corrections: both preimages of each collocation point through the
+  // oversampled grid, O(N (nr + nt)) rather than O(N^2).  Refinement residuals still use the exact L in S.
+  vector<Oversampled::Stencil> fast(p.fast ? 2 * N : 0);
+  if (p.fast)
+    parallel_for(N, [&](const int64_t i) {
+      const std::complex<double> w = std::sqrt(zs[i] - c);
+      const double W = 1 / (4 * std::abs(zs[i] - c));
+      over_fast.stencil(w, W, fast[2 * i]);
+      over_fast.stencil(-w, W, fast[2 * i + 1]);
+    });
+  const Op Afast = [&](const vector<double>& v, vector<double>& out) {
+    vector<double> G;
+    over_fast.grid(v, G, 0, over_fast.na - 1);
+    out.resize(N);
+    parallel_for(N, [&](const int64_t i) {
+      out[i] = v[i] - (over_fast.eval(G, fast[2 * i]) + over_fast.eval(G, fast[2 * i + 1]));
+    });
+  };
+  if (p.fast && p.verbose) {  // Accuracy of the fast L on a random vector
+    std::mt19937_64 rng(5);
+    std::uniform_real_distribution<double> u(-1, 1);
+    vector<double> v(N), e, f;
+    for (auto& x : v) x = u(rng);
+    A(v, e);
+    Afast(v, f);
+    double d = 0, m = 0;
+    for (int64_t i = 0; i < N; i++) { d = max(d, abs(e[i] - f[i])); m = max(m, abs(v[i])); }
+    print("  fast L: max |(L - L_fast) v| / max |v| = %.3g on random v", d / m);
+  }
   if (p.verbose && use_pre) print("  parabolic preconditioner: mu %.6f, J = %d", mu, J);
   const double t_setup = elapsed();
   double t_apply = 0, t_gmres = 0;
@@ -557,7 +651,7 @@ template<class S> JuliaResult<S> julia_area(const JuliaParams& p) {
     if (p.verbose) print("  refinement %d: residual %.3g%s", res.refinements, rmax, p.eig ? tfm::format(" (rho %.12f)", res.rho) : "");
     if (rmax <= eps || stalled || res.refinements >= p.max_refine) break;
     const double tg = elapsed();
-    res.gmres_iters += gmres(N, A, M, rd, dx, 1e-14, p.verbose);
+    res.gmres_iters += gmres(N, p.fast ? Afast : A, M, rd, dx, 1e-14, p.verbose);
     t_gmres += elapsed() - tg;
     for (int64_t i = 0; i < N; i++) h[i] += S(dx[i]);
     res.refinements++;
