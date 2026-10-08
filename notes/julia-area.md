@@ -562,5 +562,16 @@ on failure), and the Expansion<2> polish is adaptive (a second step only when th
   comparison built Decimals from printed %.17g strings of the high parts, which differ from the doubles by up to half
   an ulp; exact conversion (Decimal(float(s))) removes it.  One polish step alone really does leave ~1e-16 on
   near-parabolic bulbs.
-- H200 (first version, fixed continuation): 24k bulbs (q ≤ 400) in 1.3 s vs 12.2 s on the pod's 22 CPU threads;
-  152k (q ≤ 1000) in 9.0 s; 608k (q ≤ 2000) in 55 s; 304k children (q ≤ 1000) of the 1/3 bulb in 44 s.
+- The area is π Σ k |a_k|² from a DFT of the polished boundary values, so the polish needs c(μ_j) only: residual in
+  Expansion<2>, Jacobian from double (simplified Newton).  It agrees with the Green's-sum version to median 6e-26
+  and with the 50-digit 5/21 bulb to 6e-31.
+- H200, bit-identical to the CPU:
+
+| batch | first port | predictor-corrector | + Fourier area, simplified polish |
+|---|---|---|---|
+| cardioid bulbs q ≤ 400 (24k) | 1.3 s | 0.53 s | 0.44 s |
+| cardioid bulbs q ≤ 1000 (152k) | 9.0 s | 1.9 s | 1.3 s (117k bulbs/s) |
+| cardioid bulbs q ≤ 2000 (608k) | 55 s | 10.7 s | 5.9 s (100k bulbs/s) |
+| 1/3 bulb's children q ≤ 1000 (304k) | 44 s | 8.8 s | 4.8 s (63k bulbs/s) |
+
+  The pod's 22 CPU threads take 3.1 s for the first row; the laptop's 10, 2.1 s.
