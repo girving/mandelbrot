@@ -332,3 +332,28 @@ Parameter-space reading: near-parabolic renormalization is a dynamical-space ope
 and parameter-space bulb areas inherit its contraction (fading memory in the Gauss map) and its context dependence
 (the parent's word).  That is the dynamical → parameter transfer working.  Whether it yields an exponentially
 convergent μ(M) depends on the spectral structure of the fading.
+
+**The fading has a spectral expansion** (`bulb_cascade.py modes`).  Take periodic suffix families s_L = block^L +
+[last] (blocks [1], [2], [3], [1,2], [4]), 12 prefixes u, and D(L, u) = F(u s_L) − F(u_0 s_L).  If the fading is a
+sum of modes, D = Σ_k a_k λ_k^L φ_k(u), and a matrix pencil over the prefixes recovers the λ_k.  872 bulbs up to
+q = 40000 (accurate to 1e-9: mirror pairs agree to 1.1e-9):
+- D is numerically low-rank: singular values 0.94, 0.04, 0.01, 3e-4, 6e-5, 5e-6 for block [1]; 0.77, 0.04, 6e-4,
+  5e-5, 1e-5, 3e-7 for [2].  Each added mode cuts the fit residual 10–30×; for [1,2] three modes leave 4e-9.
+- The eigenvalues are set by the Gauss map's contraction along the periodic orbit [block]^∞: λ = (Π y_i^2)^γ with
+  universal exponents.
+
+| block | Π y_i^2 | γ (leading ± pair) | γ (next) |
+|---|---|---|---|
+| [1] | 0.382 | 0.678, 0.718 | 0.943 |
+| [2] | 0.172 | 0.693, 0.698 | 1.045 |
+| [3] | 0.0917 | 0.686, 0.697 | 1.044 |
+| [1,2] | 0.0718 | 0.707, 0.707 | 1.033 |
+| [4] | 0.0557 | 0.663, 0.775 | — (too few L) |
+
+So F has the structure of a weighted Gauss transfer operator with weight |T'|^-γ: a leading pair λ = ±(Π y^2)^0.70
+(the sign from the orientation reversal of each inverse branch), then γ ≈ 1.04, then more.  Equivalently,
+Ψ(y) is Hölder with exponent ≈ 0.70 on continued fraction cylinders, with a discrete spectrum of corrections.  It is
+a Brjuno-type function (the Brjuno function has γ = 1/2).  If F satisfies such a functional equation with analytic
+data, the sum over all bulbs is the resolvent of a two-sided Mayer operator.  Mayer's operator is nuclear on
+holomorphic functions, so that sum would converge super-exponentially: the exponential route.  Next test: fit the
+functional equation directly and check that it reproduces the bulb sum to many digits.
