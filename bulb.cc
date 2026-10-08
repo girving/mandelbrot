@@ -68,6 +68,40 @@ __host__ __device__ static bool solve(const int n, const int shift, const Cd mu,
   return last < accept;
 }
 
+// Jacobian of (f^n(z) - z, (f^n)'(z) - mu) in double at (z, c): a = ∂/∂z, b = ∂/∂c of the first, d, e of the second
+__host__ __device__ static void jacobian(const int n, const int shift, const Cd z, const Cd c, Cd& a, Cd& b, Cd& d,
+                                         Cd& e) {
+  const Cd s(shift), one(1);
+  Cd x = z, xz(1), xc(0), xzz(0), xzc(0);
+  for (int i = 0; i < n; i++) {
+    const Cd df = twice(x) + s;
+    const Cd nxzz = twice(xz * xz) + df * xzz, nxzc = twice(xc * xz) + df * xzc;
+    xzz = nxzz; xzc = nxzc;
+    xc = df * xc + one;
+    xz = df * xz;
+    x = sqr(x) + s * x + c;
+  }
+  a = xz - one; b = xc; d = xzz; e = xzc;
+}
+
+// Simplified Newton step in Expansion<2>: the residual in E, the Jacobian (a, b, d, e) from double.  The Jacobian's
+// relative error ~1e-16 makes one step take a 1e-15 point to ~1e-30, with only f and f' carried in E.
+__host__ __device__ static double polish_e(const int n, const int shift, const Ce mu, Ce& z, Ce& c, const Cd a,
+                                           const Cd b, const Cd d, const Cd e) {
+  const Ce s(shift);
+  Ce x = z, xz(1);
+  for (int i = 0; i < n; i++) {
+    xz = (twice(x) + s) * xz;
+    x = sqr(x) + s * x + c;
+  }
+  const Ce F1 = x - z, F2 = xz - mu;
+  const Cd det = a * e - b * d;
+  const Ce ae = to_e(cdiv(a, det)), be = to_e(cdiv(b, det)), de = to_e(cdiv(d, det)), ee = to_e(cdiv(e, det));
+  const Ce dz = F1 * ee - be * F2, dc = ae * F2 - de * F1;
+  z -= dz; c -= dc;
+  return cabs(to_d(dz)) + cabs(to_d(dc));
+}
+
 // Predictor-corrector continuation of (z, c) from mu0 to mu1: an Euler predictor along (z', c'), then at most 8
 // Newton steps; on failure, split the step (along the chord, projected to the circle if both ends are on it).
 // (z', c') are kept current at the final point.
@@ -105,7 +139,10 @@ __host__ __device__ static bool radial(const int n, const int shift, const Cd mu
   return true;
 }
 
-__host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* mu_e, const E2 pi, const BulbParams p) {
+constexpr int kMaxN = 128;
+
+// tw: the 2N twiddles e^{iπm/N}, m = 0..2N-1 (boundary points μ_j = tw_{2j+1})
+__host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* tw, const E2 pi, const BulbParams p) {
   BulbResult r;
   r.status = bulb_parent;
   r.conv = 0; r.w = 0;
@@ -154,34 +191,48 @@ __host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* mu_
       ce -= cdiv(x - crit_e, dx);
     }
   }
-  // Boundary: continuation in double, E polish at each point, Green's sum in E
+  // Boundary: continuation in double, simplified-Newton E polish at each point μ_j = tw_{2j+1}, then the area from
+  // the Taylor coefficients of c(μ) - c0 = Σ a_k μ^k: area = π Σ k |a_k|², with a_k by DFT of the boundary values
   r.status = bulb_area;
   const int N = p.N;
+  Ce cj[kMaxN];
   Cd z = crit, cb = to_d(ce), dz, dc;
-  if (!radial(n, shift, to_d(mu_e[0]), z, cb, dz, dc, p.radial_steps, p.accept)) return r;
-  E2 sum(0.0), half_sum(0.0);
+  if (!radial(n, shift, to_d(tw[1]), z, cb, dz, dc, p.radial_steps, p.accept)) return r;
   for (int j = 0; j < N; j++) {
+    const Cd muj = to_d(tw[2 * j + 1]);
     if (j) {
       // Along the circle from the previous point, in `substeps` initial pieces
+      const Cd mup = to_d(tw[2 * j - 1]);
       for (int s = 1; s <= p.substeps; s++) {
-        Cd a = to_d(mu_e[j - 1]) + scale(double(s - 1) / p.substeps, to_d(mu_e[j]) - to_d(mu_e[j - 1]));
-        Cd b = to_d(mu_e[j - 1]) + scale(double(s) / p.substeps, to_d(mu_e[j]) - to_d(mu_e[j - 1]));
+        Cd a = mup + scale(double(s - 1) / p.substeps, muj - mup);
+        Cd b = mup + scale(double(s) / p.substeps, muj - mup);
         a = scale(1 / cabs(a), a); b = scale(1 / cabs(b), b);
         if (!track(n, shift, a, b, z, cb, dz, dc, p.accept)) return r;
       }
     }
-    // E polish: one Newton step, and more (up to p.polish) only while steps are still large (near-parabolic bulbs,
-    // where the double solution stalls short of full precision)
-    Ce ze = to_e(z), cee = to_e(cb), dze, dce;
-    for (int it = 0; it < p.polish; it++) {
-      const double step = newton_step(n, shift, mu_e[j], ze, cee, dze, dce);
-      if (step < 1e-24 * (1 + cabs(cb))) break;
-    }
-    const E2 t = (conj(cee - ce) * mu_e[j] * dce).r;
-    sum = sum + t;
-    if (j % 2 == 0) half_sum = half_sum + t;
+    // One simplified-Newton step, and more (up to p.polish) only while it still moves (near-parabolic bulbs, where
+    // the double solution stalls short of full precision)
+    Cd ja, jb, jd, je;
+    jacobian(n, shift, z, cb, ja, jb, jd, je);
+    Ce ze = to_e(z), cee = to_e(cb);
+    for (int it = 0; it < p.polish; it++)
+      if (polish_e(n, shift, tw[2 * j + 1], ze, cee, ja, jb, jd, je) < 1e-24 * (1 + cabs(cb))) break;
+    cj[j] = cee - ce;
   }
-  const E2 A = pi * sum / E2(int64_t(N)), A2 = pi * half_sum / E2(int64_t(N / 2));
+  // a_k = (1/N) Σ_j c_j μ_j^-k, μ_j^-k = conj(tw_{k(2j+1) mod 2N}); the N/2 subrule uses even j only
+  E2 sum(0.0), half_sum(0.0);
+  for (int k = 1; k < N; k++) {
+    Ce ak(0), hk(0);
+    for (int j = 0; j < N; j++) {
+      const Ce t = cj[j] * conj(tw[(int64_t(k) * (2 * j + 1)) % (2 * N)]);
+      ak += t;
+      if (j % 2 == 0 && k < N / 2) hk += t;
+    }
+    sum = sum + E2(int64_t(k)) * (sqr(ak.r) + sqr(ak.i));
+    if (k < N / 2) half_sum = half_sum + E2(int64_t(k)) * (sqr(hk.r) + sqr(hk.i));
+  }
+  const E2 NN(int64_t(N) * N), hN(int64_t(N / 2) * (N / 2));
+  const E2 A = pi * sum / NN, A2 = pi * half_sum / hN;
   r.conv = double((A - A2) / A);
   // |c_W'(λ0)|²: exact for the cardioid, else from the double continuation
   E2 w(dW.r * dW.r + dW.i * dW.i);
@@ -199,10 +250,10 @@ __host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* mu_
 }
 
 #ifdef __CUDACC__
-__global__ static void bulb_kernel(const int n, const BulbJob* jobs, const Ce* mu_e, const E2 pi, const BulbParams p,
+__global__ static void bulb_kernel(const int n, const BulbJob* jobs, const Ce* tw, const E2 pi, const BulbParams p,
                                    BulbResult* out) {
   for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < n; i += blockDim.x * gridDim.x)
-    out[i] = bulb_one(jobs[i], mu_e, pi, p);
+    out[i] = bulb_one(jobs[i], tw, pi, p);
 }
 #endif
 
@@ -224,9 +275,9 @@ BulbJob bulb_job(const int P, const Complex<double> center, const int p, const i
 
 vector<BulbResult> bulb_areas(const vector<BulbJob>& jobs, const BulbParams& params) {
   const int N = params.N;
-  slow_assert(N >= 2 && N % 2 == 0, "bulb_areas: N must be even");
-  vector<Ce> mu(N);
-  for (int j = 0; j < N; j++) mu[j] = nearest_twiddle<E2>(2 * j + 1, 2 * N);
+  slow_assert(N >= 4 && N % 4 == 0 && N <= kMaxN, "bulb_areas: need 4 | N ≤ %d", kMaxN);
+  vector<Ce> mu(2 * N);
+  for (int m = 0; m < 2 * N; m++) mu[m] = nearest_twiddle<E2>(m, 2 * N);
   const E2 pi = nearest_pi<E2>();
   // Sort by period so that neighboring threads do similar work
   vector<int64_t> order(jobs.size());
@@ -240,10 +291,10 @@ vector<BulbResult> bulb_areas(const vector<BulbJob>& jobs, const BulbParams& par
   if (params.cuda) {
 #ifdef __CUDACC__
     Mem<BulbJob> dj(n, true);
-    Mem<Ce> dmu(N, true);
+    Mem<Ce> dmu(2 * N, true);
     Mem<BulbResult> dout(n, true);
     dj.from_host(sorted.data(), n);
-    dmu.from_host(mu.data(), N);
+    dmu.from_host(mu.data(), 2 * N);
     bulb_kernel<<<32 * num_sms(), 128, 0, stream()>>>(int(n), dj.p, dmu.p, pi, params, dout.p);
     cuda_check(cudaGetLastError());
     dout.to_host(out_sorted.data(), n);
