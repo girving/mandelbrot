@@ -506,3 +506,22 @@ linear transforms of it (by composition with the child's multiplier map).
   state has to be learned from a block with many contexts, with the separator from row closure
   P[(r1, ·)] = P[root r1] N(#).  A context-rich block (128 contexts × short prefixes as rows, digit suffixes and
   separator futures as columns, ~226k bulbs) is computing.
+- Context-rich block (`learn5.py`; 1457 rows: root prefixes and 111 training contexts r1 (q1 ≤ 20) × prefixes
+  q_u ≤ 4; 617 columns: digit suffixes and separator futures; ~226k bulbs, ~55 min).  Its spectrum decays smoothly
+  (2.3e-6 at mode 95).  The separator from row closure fits its training contexts well (residual 3.7e-4 at K = 20,
+  4e-9 at K = 100).  But digit matrices from row closure are unstable: they are fixed only on the span of training
+  row states, so long words amplify spurious eigenvalues and predictions blow up.  Digits want suffix closure (as in
+  learn3, which is stable); the separator wants many contexts.
+- Contexts span many directions (`ctx_pca.py`).  F(r1; s) − F_card(s) over 127 contexts × 489 suffixes has singular
+  values 10, 0.8, 0.6, 0.1, 0.04, …, 4e-6 at 30: ×0.6–0.7 per direction.  Weighted by each suffix's share of the
+  sum, 2e-8 at 30.  So ~40 coefficients per context, readable from ~40 children (not ~500), but the map from r1 to
+  those coefficients still has to be learned.
+
+**Where the tree stands.**  Proven so far: within a level, context enters as a start vector of a jointly learned
+digit automaton, geometrically in K (3.8e-11 at K = 60); context fades ~20× per level; every quantity measured
+(normalized areas, the full cascade factor, profiles) is low-rank across separators with geometric spectra.  Open:
+(1) a stable learner for the separator, i.e. the map from a context's combinatorics to its start vector (suffix
+closure for digits, separator from many contexts); (2) a linear form for the multiplicative cascade, since products
+of per-level automaton outputs need tensor-power states unless the cumulative product itself has low rank, which
+fast fading suggests (to be measured at depth ≤ 3); (3) the primitive copies (0.08% of the area, via tuning, with
+copy bulbs universal to 2e-4).
