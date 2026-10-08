@@ -24,7 +24,8 @@ template<class S> __host__ __device__ static inline Complex<S> cdiv(const Comple
   const Complex<S> n = a * conj(b);
   return Complex<S>(n.r / d, n.i / d);
 }
-__host__ __device__ static inline double cabs(const Cd z) { return hypot(z.r, z.i); }
+// sqrt is correctly rounded on host and device (hypot is not), so CPU and GPU take identical paths
+__host__ __device__ static inline double cabs(const Cd z) { return sqrt(z.r * z.r + z.i * z.i); }
 __host__ __device__ static inline Cd scale(const double a, const Cd z) { return Cd(a * z.r, a * z.i); }
 __host__ __device__ static inline Ce to_e(const Cd z) { return Ce(E2(z.r), E2(z.i)); }
 __host__ __device__ static inline Cd to_d(const Ce z) { return Cd(double(z.r), double(z.i)); }
