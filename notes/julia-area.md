@@ -760,3 +760,19 @@ from the model map z + a z³ + perturbation instead of from M.
   finite t (their Λ^-4 relative to E0 runs 0.05 → 0.34 from t = 0.8 to 0.25, while β agrees to 3–8%), so the
   landing law depends on the family; and at fixed t all sequences drift by a further ~m^-0.6 over m = 4..32 that
   the model lacks (log-drifting phase σ(m)?).  Larger m needs the δ-coordinate centers above.
+
+**Deep areas and the family pipeline** (`bulb.cc` local jobs, `family_jobs.py`, `family_constants.py`, `skeletons.py`,
+`family_sum.py`, `cluster_pipe.sh`).
+- `bulb_job_local`: a P = 0 job from a double-double center, tracked in c = c0 + L Δ with L = |1/(βΛ²)| and the whole
+  continuation in Expansion<2>.  Double tracking cannot work there: a double periodic point carries ~1e-16 n |Λ|²
+  relative error (the ordinary path survives small components only because its tolerance is absolute in c).
+  Ordinary jobs bitwise unchanged; local agrees with ordinary to 3e-24 where both run; 428 two-pass components to
+  m = 1024, k = 16781 (areas to 4e-39, period 35,611) all succeed in 27 s on 2 threads.
+- The size estimate in the k → ∞ limit is excellent for long runs: F_∞ − 1 = +2.7e-4, +3.1e-5, +3.8e-6 (E0) and
+  −2.4e-4, −3.0e-5, −3.7e-6 (E2) at m = 64, 256, 1024, i.e. ∝ m^{-3/2}.
+- Pipeline: digit word → keys_for → size engine (centers) → bulb_batch --local (areas) → C = lim k^4 area (polynomial
+  in t = n/2k with the gate shape divided out).  Pilot class ('1', 3, *) even: matches the census to 4e-9 relative for
+  its heaviest word (3e-6 at n = 10); C n^6 still falls at n = 40 (local exponent −0.46), so classes need large n.
+- Every word belongs to one class (skeleton = first maximal digit as '*', plus its parity); the 60 heaviest classes
+  hold 99.76% of the census mass at digit sum ≥ 9.  Campaign: 2546 words (n ≤ 64 dense, sparse to 512), 163,564
+  points, on the cluster's cpu queue.
