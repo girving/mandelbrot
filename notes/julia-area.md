@@ -738,3 +738,25 @@ cpu queue: 147,447 census components and 24,448 grid components in 61 s on 30 co
 Next: compute families' constants from the dynamics (the size estimate in the Lavaurs limit) rather than from
 components, which makes long runs cheap, and learn the small correction F - 1 (O(1e-4), smooth) by WFA; get Φ(t)
 from the model map z + a z³ + perturbation instead of from M.
+
+**Family areas split into an exact orbit factor and a learnable O(1) correction; Φ(m/k) from the gate model**
+(`limb_families size`, `family_size.py`, `family_wfa_F.py`, `two_pass_grid.py`).
+- Size-estimate engine (`limb_families size`): centers by rays only at a family's first three k, then Newton
+  continuation in k from a quadratic extrapolation of 1/δ (continuity-checked, rays as fallback), and |s|², |Λ|, |β|
+  from the orbit; no boundary tracing.  On the two-pass grid it reproduces the centers to 1e-14 |δ| with 24 ray
+  pairs for 864 points.  Limit: centers are doubles, so components below ~1e-13 across (two-pass m ≳ 100–160)
+  need Newton on δ = c + 3/4 or Expansion<2>.
+- WFA on h = F_t(k) − 1 at fixed k (exact, no k-extrapolation noise; |h| median 1.8e-3, range −0.035..0.080):
+  trained on tails ≤ 12, tested on all 8192 tails of length 13, the error in F is median 3.9e-8, 99% 1.5e-6, max
+  3.4e-5 at rank 32 (k = 64; k = 32 alike), against 1–6% total error for the raw constants.  So
+  area = A_card |s|² F with |s|² exact from the critical orbit and F learnable to ~1e-6: the remaining hard part
+  is the sum of |s|² over families, which is where the dynamics (transfer operator) has to come in.
+- Gate model for Φ: near α = −1/2 with δ = iπ/(2k), f² is a rotation by θ ≈ π/k plus a cubic term, linear in
+  u = 1/w²: u ↦ e^{2iθ}(u + 2).  A partial pass of m turns ending at the exit starts at
+  |u_0| = 2|sin mθ/sin θ| ≈ (2k/π) sin πt and contributes |u_0|^{3/2} to Λ (β is unaffected), so
+  area ∝ m^-6 (πt/sin πt)^6.  Checks: the landing depth max|z+1/2|^-2 of the second pass follows (sin πt)
+  (ratios 0.724, 0.930 between t = 1/2, 1/3, 1/4 vs 0.707, 0.918); with that factor g = a k^4 m^6 is flat in t for
+  E0 and OL (m = 32: 7.82e-4, 8.40e-4, 8.41e-4 at t = 1/2, 1/3, 1/4).  E2 and O1 land deeper than the sine law at
+  finite t (their Λ^-4 relative to E0 runs 0.05 → 0.34 from t = 0.8 to 0.25, while β agrees to 3–8%), so the
+  landing law depends on the family; and at fixed t all sequences drift by a further ~m^-0.6 over m = 4..32 that
+  the model lacks (log-drifting phase σ(m)?).  Larger m needs the δ-coordinate centers above.

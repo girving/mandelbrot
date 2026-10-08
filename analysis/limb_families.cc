@@ -4,6 +4,7 @@
 //   ./build/release/limb_families jobs J k1,k2,... [threads]   # bulb_batch P = 0 jobs for each family at each k
 //   ./build/release/limb_families keys J                       # j, index, key words per family
 //   ./build/release/limb_families custom threads < lines "name lo hi k1,k2,..."   # jobs for given keys
+//   ./build/release/limb_families size threads < lines "name lo hi k1,k2,..."     # centers and size estimates only
 //
 // Every angle in the limb k/(2k+1) starts with (01)^{k-1}0 (the common prefix of its wake words (01)^{k-1}001 and
 // (01)^{k-1}010), and stripping (01)^{k-1} from both angle words of a component gives a key independent of k: the
@@ -14,6 +15,7 @@
 // Newton for the center from each endpoint; the two must agree.  Output lines "j<j>_<i>_<k> 0 c_re c_im 0 p" on
 // stdout, failures on stderr.
 #include "angles.h"
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <complex>
@@ -154,6 +156,76 @@ int main(int argc, char** argv) {
     return ks;
   };
   int threads = 2, nfam = 0;
+  if (mode == "size") {  // stdin lines "name lo hi k1,k2,...": centers and size estimates only (no areas)
+    // Per family, rays at the first three k (increasing); later k by Newton from a quadratic extrapolation of
+    // 1/δ in k, accepted if it lands within 5% of the last spacing from the prediction (else rays again).  Output
+    // "name_k c_re c_im p |s|^2 |Λ| |β|" with s = 1/(β Λ²), Λ = Π_{i<p} 2 z_i, β = Σ_{i<p} 1/Π_{j≤i} 2 z_j.
+    threads = atoi(argv[2]);
+    struct Fam { string name, lo, hi; vector<int> ks; };
+    vector<Fam> fams;
+    char name[256], lo[4096], hi[4096], ks[65536];
+    while (scanf("%255s %4095s %4095s %65535s", name, lo, hi, ks) == 4) {
+      auto k = parse_ks(ks);
+      std::sort(k.begin(), k.end());
+      fams.push_back({name, lo, hi, k});
+    }
+    vector<string> out(fams.size());
+    std::atomic<int64_t> next(0), rays(0), failed(0);
+    vector<std::thread> pool;
+    for (int t = 0; t < threads; t++)
+      pool.emplace_back([&]() {
+        for (int64_t n; (n = next.fetch_add(1)) < int64_t(fams.size());) {
+          const auto& f = fams[n];
+          vector<C> cs;
+          vector<int> done;
+          string text;
+          for (const int k : f.ks) {
+            string pre;
+            for (int i = 1; i < k; i++) pre += "01";
+            const string lo = pre + f.lo, hi = pre + f.hi;
+            const int p = lo.size();
+            C c;
+            bool ok = false;
+            const int m = cs.size();
+            if (m >= 3) {
+              // Lagrange extrapolation of u = 1/δ through the last three (k, u)
+              const double k0 = done[m-3], k1 = done[m-2], k2 = done[m-1];
+              const C u0 = 1.0 / (cs[m-3] + 0.75), u1 = 1.0 / (cs[m-2] + 0.75), u2 = 1.0 / (cs[m-1] + 0.75);
+              const double x = k;
+              const C u = u0 * ((x - k1) * (x - k2) / ((k0 - k1) * (k0 - k2))) +
+                          u1 * ((x - k0) * (x - k2) / ((k1 - k0) * (k1 - k2))) +
+                          u2 * ((x - k0) * (x - k1) / ((k2 - k0) * (k2 - k1)));
+              const C pred = 1.0 / u - 0.75;
+              c = pred;
+              ok = center(c, p) && std::abs(c - pred) < 0.05 * std::abs(cs[m-1] - cs[m-2]);
+            }
+            if (!ok) {
+              rays++;
+              C a = ray_in(lo, 2 * p + 4), b = ray_in(hi, 2 * p + 4);
+              const bool oka = center(a, p), okb = center(b, p);
+              ok = oka && okb && std::abs(a - b) < 1e-9 * std::abs(a + 0.75);
+              c = a;
+            }
+            if (!ok) { failed++; fprintf(stderr, "%s_%d: failed\n", f.name.c_str(), k); continue; }
+            C z = 0, prod = 1, beta = 0;
+            for (int i = 1; i < p; i++) { z = z * z + c; prod *= 2.0 * z; beta += 1.0 / prod; }
+            const double s2 = 1 / std::norm(beta * prod * prod);
+            char line[512];
+            snprintf(line, sizeof(line), "%s_%d %.17g %.17g %d %.17g %.17g %.17g\n", f.name.c_str(), k, c.real(),
+                     c.imag(), p, s2, std::abs(prod), std::abs(beta));
+            text += line;
+            cs.push_back(c);
+            done.push_back(k);
+          }
+          out[n] = text;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& s : out) fputs(s.c_str(), stdout);
+    fprintf(stderr, "limb_families size: %zu families, %lld ray pairs, %lld failed\n", fams.size(), (long long)rays,
+            (long long)failed);
+    return 0;
+  }
   if (mode == "custom") {  // stdin lines "name lo hi k1,k2,...": the key words need not come from a census
     threads = atoi(argv[2]);
     char name[256], lo[1024], hi[1024], ks[1024];
