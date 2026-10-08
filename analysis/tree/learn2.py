@@ -71,11 +71,16 @@ for f in glob.glob(T + 'd3/*.out'):
     for x, v in read_out(f).items(): d3.append((cf(r1) + ('#',) + cf(r2) + ('#',) + cf(x), v[0]))
 root = [(cf(x), store.F((x,))) for x in rationals(60) if x.denominator > 20]
 
+Hp_full = fill(Pc, [()])[:, 0]        # F(p) for every candidate prefix (empty suffix)
+pidx = {p: i for i, p in enumerate(Pc)}; sidx = {c: j for j, c in enumerate(Sc)}
+ip = [pidx[p] for p in Psel]; js = [sidx[c] for c in Ssel]
 for K in map(int, sys.argv[1:]):
-    U, S, Vh = np.linalg.svd(np.nan_to_num(Hb), full_matrices=False)
-    P = U[:, :K] * S[:K]; Q = Vh[:K]; Pp = np.linalg.pinv(P); Qp = np.linalg.pinv(Q)
-    N = {s: Pp @ np.nan_to_num(Hs[s]) @ Qp for s in syms}
-    al = np.nan_to_num(He) @ Qp; be = Pp @ np.nan_to_num(Hp)
+    # P, Q from the full candidate Hankel; the basis only indexes the shifted blocks
+    P = Uu[:, :K] * Ss[:K]; Q = Vt[:K]
+    Pb = np.linalg.pinv(P[ip]); Qb = np.linalg.pinv(Q[:, js])
+    N = {s: Pb @ np.nan_to_num(Hs[s]) @ Qb for s in syms}
+    al = P[pidx[()]]; be = np.linalg.pinv(P) @ np.nan_to_num(Hp_full)
+    print('K=%d: cond P[basis] %.1e, cond Q[basis] %.1e' % (K, np.linalg.cond(P[ip]), np.linalg.cond(Q[:, js])))
     def Fm(w):
         if any(s not in N for s in w): return None
         v = al
