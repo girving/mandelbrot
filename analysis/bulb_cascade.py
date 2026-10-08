@@ -5,6 +5,7 @@
   bulb_cascade.py fade DIR             memory of the first continued fraction digit (needs DIR/fade.out)
   bulb_cascade.py levels DIR           bulbs of other parents against the cardioid's (needs DIR/card.out, DIR/lv_*.out)
   bulb_cascade.py psi DIR              F(p/q) against y = (p^-1 mod q)/q, and the per-q average F̄(q)
+  bulb_cascade.py modes DIR            spectral expansion of the fading (needs DIR/modes.out, from DIR/modes.txt)
 
 bulb_areas prints "p q center_re center_im area F |c_W'|^2 conv root_err"; F = area q^4 / (π |c_W'(λ0)|^2) is
 the bulb's area normalized by its parent's multiplier map at the root.
@@ -41,6 +42,24 @@ def fade_suffixes():
 FIRST = [1, 2, 3, 5, 10]
 
 
+# Modes: prefixes u in front of periodic suffix families s_L = (repeated block)^L + [last digit]
+MODE_PREFIXES = [[1], [2], [3], [4], [5], [1, 1], [1, 2], [2, 1], [2, 2], [1, 1, 1], [3, 1], [1, 3]]
+MODE_FAMILIES = {'1': ([1], 2, 17), '2': ([2], 2, 10), '3': ([3], 2, 7), '12': ([1, 2], 2, 8), '4': ([4], 3, 6)}
+MODE_QMAX = 40000
+
+
+def mode_words():
+    """{(family, L, prefix index): word}, keeping only complete rows (every prefix with q ≤ MODE_QMAX)"""
+    out = {}
+    for name, (block, last, Lmax) in MODE_FAMILIES.items():
+        for L in range(Lmax + 1):
+            row = {i: u + block * L + [last] for i, u in enumerate(MODE_PREFIXES)}
+            if all(cf_value(w).denominator <= MODE_QMAX for w in row.values()):
+                for i, w in row.items():
+                    out[(name, L, i)] = w
+    return out
+
+
 def read(path):
     F = {}
     for line in open(path):
@@ -61,6 +80,15 @@ def lists(d):
             for p in range(1, q):
                 if gcd(p, q) == 1:
                     print(p, q, file=f)
+    seen = set()
+    with open(os.path.join(d, 'modes.txt'), 'w') as f:
+        for w in mode_words().values():
+            x = cf_value(w)
+            if x not in seen:
+                seen.add(x)
+                # Both p/q and its mirror (q-p)/q: equal areas by symmetry, so their difference measures the error
+                print(x.numerator, x.denominator, file=f)
+                print(x.denominator - x.numerator, x.denominator, file=f)
     seen = set()
     with open(os.path.join(d, 'fade.txt'), 'w') as f:
         for s in fade_suffixes().values():
@@ -147,5 +175,50 @@ def psi(d):
         print('cardioid bulbs through q = %3d: %.12f' % (Q, (w2 * A)[q <= Q].sum()))
 
 
+def modes(d):
+    """Matrix pencil: D[L, u] = F(u s_L) - F(u_0 s_L) = Σ_k a_k λ_k^L φ_k(u) for each suffix family"""
+    F = read(os.path.join(d, 'modes.out'))
+    err = max(abs(F[(p, q)][1] - F[(q - p, q)][1]) for (p, q) in F if (q - p, q) in F)
+    print('max |F(p/q) - F((q-p)/q)| (accuracy): %.1e' % err)
+    words = mode_words()
+    for name, (block, last, Lmax) in MODE_FAMILIES.items():
+        Ls = sorted({L for (n, L, i) in words if n == name})
+        M = np.array([[F[(cf_value(words[(name, L, i)]).numerator, cf_value(words[(name, L, i)]).denominator)][1]
+                       for i in range(len(MODE_PREFIXES))] for L in Ls])
+        D = M[:, 1:] - M[:, :1]
+        sv = np.linalg.svd(D, compute_uv=False)
+        print('family %s^L + [%d], L = %d..%d: singular values of D %s' % (block, last, Ls[0], Ls[-1],
+                                                                       ' '.join('%.1e' % x for x in sv[:6])))
+        print('  row norms |D[L]|: %s' % ' '.join('%.1e' % np.linalg.norm(r) for r in D))
+        # Contraction of the Gauss map's inverse branches along the periodic orbit [block]^∞: Π y_i^2 over a block
+        y = [0.5] * len(block)
+        for _ in range(200):
+            for j in reversed(range(len(block))):
+                y[j] = 1 / (block[j] + y[(j + 1) % len(block)])
+        contraction = np.prod(np.array(y) ** 2)
+        best = None
+        for K in (1, 2, 3, 4):
+            for L0 in (0, 2):
+                X0, X1 = D[L0:-1], D[L0 + 1:]
+                if len(X0) <= K:
+                    continue
+                U, S, Vt = np.linalg.svd(X0, full_matrices=False)
+                Z = U[:, :K].T @ X1 @ Vt[:K].T @ np.diag(1 / S[:K])
+                lam = np.linalg.eigvals(Z)
+                lam = lam[np.argsort(-abs(lam))]
+                # Residual of the K-mode fit: least squares of D on the modes λ^L
+                V = np.array([[l ** L for l in lam] for L in range(L0, len(D))])
+                coef = np.linalg.lstsq(V, D[L0:], rcond=None)[0]
+                res = np.abs(V @ coef - D[L0:]).max()
+                if L0 == 2 and len(D) - L0 > K + 1 and (best is None or res < best[0]):
+                    best = (res, K, lam)
+                print('  K=%d from L=%d: λ = %s   max residual %.1e' % (
+                    K, Ls[L0], '  '.join('%.4f%+.4fi' % (l.real, l.imag) if abs(l.imag) > 1e-6 else '%.4f' % l.real
+                                         for l in lam), res))
+        res, K, lam = best
+        print('  block contraction Π y_i^2 = %.5f; best fit (K=%d from L=2): γ = log|λ| / log(Π y_i^2) = %s' % (
+            contraction, K, ' '.join('%.3f' % (np.log(abs(l)) / np.log(contraction)) for l in lam)))
+
+
 if __name__ == '__main__':
-    {'lists': lists, 'fade': fade, 'levels': levels, 'psi': psi}[sys.argv[1]](sys.argv[2])
+    {'lists': lists, 'fade': fade, 'levels': levels, 'psi': psi, 'modes': modes}[sys.argv[1]](sys.argv[2])
