@@ -9,7 +9,8 @@
 // Components come from `hyperbolic max_p N 1 dump.txt` (center and area per component); their roots come from
 // Lavaurs' algorithm, and tuning from the angles (maximal_tuning).  Each root is matched to its center by
 // tracing its lower parameter ray inward to near the root and taking the nearest center of that period; the
-// matching must be a bijection.  Weights: r_W = area(W) / area(cardioid).
+// matching must be a bijection.  Weights: r_W = area(W) / area(cardioid).  $TUNING_DUMP names a file for one line
+// per root: index, period, lo and hi angle words, satellite flag, maximal tuning (root index or -1), center, area.
 
 #include "angles.h"
 #include "debug.h"
@@ -116,6 +117,18 @@ void run(const string& path, const int P, const int extra_levels, const double w
   print("ray matching: %.2f s, %d centers hit twice, %d missed, worst second/first distance ratio %.2f",
         (wall_time() - t0).seconds(), dup, missing, worst);
   slow_assert(!dup && !missing, "root-center matching is not a bijection");
+  if (const char* dump = getenv("TUNING_DUMP")) {
+    // Per root: index, period, lo and hi angle words, satellite, maximal tuning (root index or -1), center, area
+    FILE* f = fopen(dump, "w");
+    slow_assert(f, "can't open %s", dump);
+    for (size_t i = 0; i < roots.size(); i++) {
+      const auto& r = roots[i];
+      const auto& cp = comps[match[i]];
+      fprintf(f, "%zu %d %llu %llu %d %d %.17g %.17g %.17g\n", i, r.w.lo.q, (unsigned long long)r.w.lo.k,
+              (unsigned long long)r.w.hi.k, int(r.satellite), parent[i], cp.c.real(), cp.c.imag(), cp.area);
+    }
+    fclose(f);
+  }
 
   // Shortcut check: classify each center by its closest returns (the n where |z_n| reaches a new minimum,
   // approximating the internal address): renormalizable with period d iff d is a closest return, 1 < d < p,

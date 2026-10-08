@@ -575,3 +575,33 @@ on failure), and the Expansion<2> polish is adaptive (a second step only when th
 | 1/3 bulb's children q ≤ 1000 (304k) | 44 s | 8.8 s | 4.8 s (63k bulbs/s) |
 
   The pod's 22 CPU threads take 3.1 s for the first row; the laptop's 10, 2.1 s.
+
+## The copy layer (primitive components)
+
+μ(M) by hyperbolic areas needs more than the satellite tree: primitive copies hold ~0.1–0.2% of the area.  Every
+component factors uniquely under tuning into non-renormalizable letters: satellite letters (the cardioid's p/q
+bulbs) and non-renormalizable primitive components (NRPs).  So μ(M) = S_tree + Σ_X μ(M_X) over maximal primitive
+copies X = σ ⋆ P (σ a satellite path, P an NRP).  First measurements (`analysis/copies/`, from tuning's new
+TUNING_DUMP: 65,242 roots through period 16 with angle words, tuning, centers, areas):
+- NRP area per period decays like p^-3 (p³ × area ≈ 0.01–0.026, prime periods higher; total 8.9e-4 through period
+  16, ~3e-5 beyond).  Summing all periods needs structure, not enumeration.
+- Copies are far from area-conformal: κ = area(W0⋆V) A_card / (area(W0) area(V)) for primitive W0 has median 0.998
+  but ranges 0.79–1.61 (the airplane copy: −14% to +61%).  Most of it is the copy cardioid's profile
+  |c_X'(e^{2πiθ})|² differing from sin²(πθ); the copy's own bulbs, normalized by its own profile, are universal to
+  2e-4.  So a copy's satellite-tree total is a linear functional Σ_k ĝ_k(X) T_k of its profile's Fourier
+  coefficients, with universal T_k: per copy, the multiplier map only, no bulbs.
+- Satellite tuning of primitive letters is wildly non-uniform (κ from 0.2 to 235), so primitive components must be
+  handled where they sit, in the decorations of satellite nodes.
+- External-angle words are the wrong alphabet.  g(w) = area of the component whose root receives angle w̄ is
+  defined for every binary word, but its Hankel block (255 × 510, |u| ≤ 7, |s| ≤ 8) has rank 205 at 1e-8 with
+  singular values decaying very slowly, for any geometric weight.  Lavaurs' pairing is non-local, and satellite
+  structure (Sturmian in binary) is irregular there.
+- Misiurewicz families are exactly summable.  The real primitives accumulating at −2 (words 01^{p−1}, periods 3–16)
+  have area ratios → 1/256 = 4^-4 (diameter ~16^-n: both the distance to −2 and the component's scale shrink by
+  the multiplier 4), with deviations 1.1e-3, 4.4e-4, 1.6e-4, …, 2.5e-9, shrinking ×0.3–0.4 per step, toward 1/4.
+  That is Tan Lei's asymptotic similarity with geometric corrections.
+Proposed structure: near a Misiurewicz point a, the copies at depth n come from backward orbits of the critical
+point under f_a landing near a, with areas ~|Df^N|^-4.  Their total should be a Ruelle transfer operator on J(a)
+with weight |f'|^-4 (pressure P(4) < 0, so geometrically convergent): a dynamical-space operator.  The
+Misiurewicz points are then summed over the satellite tree (limb branch points and tips), whose automaton can
+carry them.  Open: assigning each NRP to its family canonically (nested scales; on the real line, kneading).
