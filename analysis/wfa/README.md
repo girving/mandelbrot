@@ -13,3 +13,10 @@ read bulb_areas outputs from `$BULB_DATA` and run from this directory (they `exe
 
 Data (local, 10 threads): words.out 111k bulbs (14 min), hankel.out 18k (2 min), hankel20.out 37k (6 min),
 large2.out 7k (4 min; 523 retried with BULB_TOL=1e-9).
+
+High-precision pipeline (bulb_areas with BULB_EXP=1, double-double polish):
+- `wfa_hp.py`: double-double data, suffix-closure learning (N(b) from H[u, b·s]), held-out error against K.
+- `basis.py`: a well-conditioned 56 × 56 basis of short prefixes/suffixes for shifted blocks F(u·b·s).
+- `wfa_hp_sum.py K ...`: exact head (all q ≤ 1000) + automaton control variate; N(4..256) from shifted blocks.
+- `diag.py K`: model error on 400 < q ≤ 500 by word class; `knobs.py`: Chebyshev degree and digit cutoff.
+Results: analysis/results/bulb-total.log.

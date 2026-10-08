@@ -17,8 +17,15 @@
 // step accepted when roundoff stops it short of 1e-15: bulbs with large interior digits (hundreds of near-parabolic
 // passes per cycle) need 1e-9.  $BULB_STEPS, $BULB_SUBSTEPS set the continuation steps (64, 4).
 //   ./build/release/bulb_areas P c_re c_im N < list
-// reads lines "p q" and prints "p q center_re center_im area F |c_W'|^2 (2N - N)/area root_err/size".  The
+// reads lines "p q" and prints "p q center_re center_im area F |c_W'|^2 (2N - N)/area root_err/size".  With
+// $BULB_EXP=1 boundary points are polished in Expansion<2>, conv is the N/2 subrule's relative change, and two more
+// columns give the low parts of area and F (area = col5 + col10, F = col6 + col11).  With $BULB_PROFILE=1 (double
+// mode) ten more columns: the parent's κ = λ c_W''/c_W' at the root (re, im) and the child's Fourier coefficients
+// h_1..h_4 of log|c'(e^{iθ})|^2 on its boundary (re, im each).  The
 // parent's (c_re, c_im) is its center (0 0 for the cardioid).  CPU threads: $MANDELBROT_THREADS.
+#include "complex.h"
+#include "expansion_arith.h"
+#include "nearest.h"
 #include <atomic>
 #include <cmath>
 #include <complex>
@@ -27,6 +34,9 @@
 #include <thread>
 #include <vector>
 typedef std::complex<double> Cx;
+using mandelbrot::Complex;
+typedef mandelbrot::Expansion<2> E;
+typedef Complex<E> CE;
 
 // The map is x ↦ x^2 + s x + c, with s = 0 (z ↦ z^2 + c) or s = 1: cusp coordinates ζ = z - 1/2, δ = c - 1/4 for
 // the cardioid's bulbs, where ζ ↦ ζ^2 + ζ + δ keeps full relative precision in bulbs near the cusp (tiny δ and
@@ -68,8 +78,64 @@ static bool radial(const int n, const Cx mu, Cx& z, Cx& c, const int steps, Cx* 
   return true;
 }
 
-// Area of the period n component with center c0, at N boundary points
-static double area(const int n, const Cx c0, const int N, bool& ok) {
+// Double-double (Expansion<2>) polish, for areas to ~1e-25 relative ($BULB_EXP=1)
+static CE to_e(const Cx z) { return CE(E(z.real()), E(z.imag())); }
+static Cx to_d(const CE z) { return Cx(double(z.r), double(z.i)); }
+static CE cdiv(const CE a, const CE b) {
+  const E d = sqr(b.r) + sqr(b.i);
+  const CE n = a * conj(b);
+  return CE(n.r / d, n.i / d);
+}
+static const CE shift_e() { return CE(E(shift), E(0.0)); }
+
+// One Newton step in E for f^n(z) = z, (f^n)'(z) = mu; returns dc/dμ
+static CE step_e(const int n, const CE mu, CE& z, CE& c) {
+  const CE s = shift_e(), one(1), two(2);
+  CE x = z, xz(1), xc(0), xzz(0), xzc(0);
+  for (int i = 0; i < n; i++) {
+    const CE df = twice(x) + s;
+    const CE nxzz = twice(sqr(xz)) + df * xzz, nxzc = twice(xc * xz) + df * xzc;
+    xzz = nxzz; xzc = nxzc;
+    xc = df * xc + one;
+    xz = df * xz;
+    x = sqr(x) + s * x + c;
+  }
+  const CE F1 = x - z, F2 = xz - mu, a = xz - one, b = xc, d = xzz, e = xzc, det = a * e - b * d;
+  z -= cdiv(F1 * e - b * F2, det);
+  c -= cdiv(a * F2 - d * F1, det);
+  return cdiv(a, det);
+}
+
+// Area of the period n component with center c0 in E, at N boundary points (double continuation, E polish), and
+// the relative change from the N/2 subrule (every other point: a rotated trapezoid rule)
+static E area_e(const int n, const CE c0, const int N, double& conv, bool& ok) {
+  const Cx c0d = to_d(c0);
+  Cx z = -shift / 2, c = c0d;
+  ok = radial(n, std::polar(1.0, M_PI / N), z, c, radial_steps);
+  E sum(0.0), half_sum(0.0);
+  for (int j = 0; j < N && ok; j++) {
+    const Cx mu = std::polar(1.0, M_PI * (2 * j + 1) / N);
+    if (j) {
+      const Cx prev = std::polar(1.0, M_PI * (2 * j - 1) / N);
+      for (int s = 1; s <= substeps && ok; s++)
+        ok = solve(n, prev * std::polar(1.0, 2 * M_PI * s / (double(substeps) * N)), z, c);
+    }
+    ok = ok && solve(n, mu, z, c);
+    if (!ok) break;
+    const CE mu_e = mandelbrot::nearest_twiddle<E>(2 * j + 1, 2 * N);
+    CE ze = to_e(z), ce = to_e(c), dc;
+    for (int it = 0; it < 3; it++) dc = step_e(n, mu_e, ze, ce);
+    const E t = (conj(ce - c0) * mu_e * dc).r;
+    sum += t;
+    if (j % 2 == 0) half_sum += t;
+  }
+  const E A = sum / E(int64_t(N)), A2 = half_sum / E(int64_t(N / 2));
+  conv = double((A - A2) / A);
+  return A;  // Times π by the caller
+}
+
+// Area of the period n component with center c0, at N boundary points; optionally log|c'(μ_j)|^2 at the points
+static double area(const int n, const Cx c0, const int N, bool& ok, std::vector<double>* prof = nullptr) {
   Cx z = -shift / 2, c = c0;
   ok = radial(n, std::polar(1.0, M_PI / N), z, c, radial_steps);
   double sum = 0;
@@ -84,6 +150,7 @@ static double area(const int n, const Cx c0, const int N, bool& ok) {
     }
     ok = ok && solve(n, mu, z, c, &dc);
     sum += (std::conj(c - c0) * mu * dc).real();  // Relative to the center: bulbs are tiny
+    if (prof) prof->push_back(std::log(std::norm(dc)));
   }
   return M_PI * sum / N;
 }
@@ -94,6 +161,8 @@ int main(int argc, char** argv) {
   if (getenv("BULB_STEPS")) radial_steps = atoi(getenv("BULB_STEPS"));
   if (getenv("BULB_SUBSTEPS")) substeps = atoi(getenv("BULB_SUBSTEPS"));
   if (getenv("BULB_TOL")) accept = atof(getenv("BULB_TOL"));
+  const bool exp2 = getenv("BULB_EXP") && atoi(getenv("BULB_EXP"));
+  const E pi_e = mandelbrot::nearest_pi<E>();
   Cx center(atof(argv[2]), atof(argv[3]));
   if (P == 1) {  // Cusp coordinates for the cardioid
     shift = 1;
@@ -103,7 +172,8 @@ int main(int argc, char** argv) {
   std::vector<std::pair<int, int>> jobs;
   int p, q;
   while (scanf("%d %d", &p, &q) == 2) jobs.push_back({p, q});
-  struct Out { Cx cc; double A, F, w, conv, root_err; bool ok; const char* why; };
+  struct Out { Cx cc; double A, F, w, conv, root_err; bool ok; const char* why; E Ae, Fe; Cx kappa, h[4]; };
+  const bool profile = getenv("BULB_PROFILE") && atoi(getenv("BULB_PROFILE"));
   std::vector<Out> out(jobs.size());
   std::atomic<size_t> next(0);
   const char* te = getenv("MANDELBROT_THREADS");
@@ -144,8 +214,48 @@ int main(int argc, char** argv) {
         Cx zc = crit, cc = c;
         const double size = std::abs(dW) / (q * q);
         o.root_err = radial(n, 1 - 1e-4, zc, cc, 128) ? std::abs(cc - cr) / size : INFINITY;
+        if (exp2) {
+          // Polish the center in E, then the area at N points
+          CE ce = to_e(c), crit_e = to_e(crit);
+          const CE sh = shift_e(), one(1);
+          for (int it = 0; it < 3; it++) {
+            CE x = crit_e, dx(0);
+            for (int k = 0; k < n; k++) { dx = (twice(x) + sh) * dx + one; x = sqr(x) + sh * x + ce; }
+            ce -= cdiv(x - crit_e, dx);
+          }
+          bool ok;
+          double conv;
+          const E A = pi_e * area_e(n, ce, N, conv, ok);
+          o.why = "area";
+          if (!ok) continue;
+          // |c_W'(λ0)|^2: exact for the cardioid, |1 - λ0|^2 / 4; else from the double continuation
+          E w(std::norm(dW));
+          if (P == 1) {
+            const CE l0e = mandelbrot::nearest_twiddle<E>(p, q), d = CE(1) - l0e;
+            w = (sqr(d.r) + sqr(d.i)) / E(int64_t(4));
+          }
+          const E q4 = E(int64_t(q) * q * q * q);
+          o.cc = to_d(ce) + 0.25 * shift; o.Ae = A; o.Fe = A * q4 / (pi_e * w);
+          o.A = double(A); o.F = double(o.Fe); o.w = double(w); o.conv = conv; o.ok = true;
+          continue;
+        }
         bool ok1, ok2;
-        const double A1 = area(n, c, N, ok1), A2 = area(n, c, 2 * N, ok2);
+        std::vector<double> prof;
+        const double A1 = area(n, c, N, ok1), A2 = area(n, c, 2 * N, ok2, profile ? &prof : nullptr);
+        if (profile && ok2) {
+          // Parent: κ = λ c_W''(λ0) / c_W'(λ0) by central differences along the ray; child: harmonics of log|c'|^2
+          const double h = 1e-4;
+          Cx zp = crit, cp = center, dp, zm = crit, cm = center, dm;
+          radial(P, l0 * (1 + h), zp, cp, 128, &dp);
+          radial(P, l0 * (1 - h), zm, cm, 128, &dm);
+          o.kappa = (dp - dm) / (2 * h * dW);
+          const int M = int(prof.size());
+          for (int k = 1; k <= 4; k++) {
+            Cx sk = 0;
+            for (int j = 0; j < M; j++) sk += prof[j] * std::polar(1.0, -k * M_PI * (2 * j + 1) / M);
+            o.h[k - 1] = sk / double(M);
+          }
+        }
         o.why = "area";
         if (!ok1 || !ok2) continue;
         o.cc = c + 0.25 * shift; o.A = A2; o.w = std::norm(dW);
@@ -157,7 +267,15 @@ int main(int argc, char** argv) {
   for (auto& th : pool) th.join();
   for (size_t i = 0; i < jobs.size(); i++) {
     const auto& o = out[i];
-    if (o.ok)
+    if (o.ok && exp2)  // Two more columns: the E low parts of area and F
+      printf("%d %d %.17g %.17g %.17g %.17g %.17g %.1e %.1e %.17g %.17g\n", jobs[i].first, jobs[i].second,
+             o.cc.real(), o.cc.imag(), o.Ae.x[0], o.Fe.x[0], o.w, o.conv, o.root_err, o.Ae.x[1], o.Fe.x[1]);
+    else if (o.ok && profile) {
+      printf("%d %d %.17g %.17g %.17g %.15f %.17g %.1e %.1e %.12g %.12g", jobs[i].first, jobs[i].second, o.cc.real(),
+             o.cc.imag(), o.A, o.F, o.w, o.conv, o.root_err, o.kappa.real(), o.kappa.imag());
+      for (int k = 0; k < 4; k++) printf(" %.12g %.12g", o.h[k].real(), o.h[k].imag());
+      printf("\n");
+    } else if (o.ok)
       printf("%d %d %.17g %.17g %.17g %.15f %.17g %.1e %.1e\n", jobs[i].first, jobs[i].second, o.cc.real(),
              o.cc.imag(), o.A, o.F, o.w, o.conv, o.root_err);
     else

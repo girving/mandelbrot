@@ -1,0 +1,67 @@
+# Cardioid bulb total to ~14 digits: double-double bulbs + automaton control variate (analysis/wfa/)
+# data: all_e.out 173k bulbs (14 min), stage2.out 108k (23 min), stage3.out 15k (27 min); local, 10 threads, BULB_EXP=1
+
+=== wfa_hp.py: suffix-closure learning, held-out long words (q > 2000)
+Hankel 256x1101 singular values: 6.6e+02 6.9e-01 2.2e-01 3.9e-02 7.3e-03 1.5e-03 5.8e-04 2.2e-04 8.1e-05 3.7e-05 2.1e-05 1.4e-05 8.0e-06 4.6e-06 2.4e-06 1.5e-06 8.9e-07 6.5e-07 3.4e-07 2.2e-07 1.2e-07 8.3e-08 4.9e-08 3.6e-08 2.4e-08 1.8e-08 1.5e-08 9.7e-09 4.9e-09 3.7e-09 2.7e-09 2.1e-09 1.5e-09 1.0e-09 8.2e-10 (every other)
+195 held-out long words (q > 2000, interior digits ≤ 4)
+K=10: median 6.1e-05  90% 1.2e-04  max 1.5e-04
+K=15: median 3.8e-06  90% 9.8e-06  max 1.5e-05
+K=20: median 1.2e-06  90% 2.9e-06  max 4.5e-06
+K=25: median 5.8e-07  90% 1.3e-06  max 2.0e-06
+K=30: median 4.1e-07  90% 7.8e-07  max 1.2e-06
+K=35: median 2.6e-08  90% 8.0e-08  max 1.6e-07
+K=40: median 1.7e-08  90% 5.8e-08  max 1.7e-07
+K=44: median 1.9e-08  90% 3.7e-08  max 7.7e-08
+K=48: median 7.1e-09  90% 1.0e-06  max 3.2e-06
+K=52: median 2.7e-09  90% 9.0e-08  max 1.3e-07
+K=56: median 1.8e-09  90% 7.8e-01  max 4.2e+00
+K=60: median 1.4e-09  90% 2.0e+00  max 2.0e+00
+K=64: median 1.3e-09  90% 2.0e+00  max 2.0e+00
+K=68: median 7.5e-10  90% 2.0e+00  max 2.1e+00
+K=72: median 6.0e-10  90% 1.9e+00  max 2.0e+00
+K=76: median 4.5e-10  90% 2.0e+00  max 2.0e+00
+K=80: median 6.1e-10  90% 1.8e+00  max 1.8e+00
+
+=== wfa_hp_sum.py 36 40 44
+K=36: S_model = 0.2933015125432736
+  Q= 200: S_exact 0.2932867670753642  head error -3.9e-15  estimate 0.2933015125432776
+  Q= 300: S_exact 0.2932949260542208  head error -5.8e-15  estimate 0.2933015125432795
+  Q= 400: S_exact 0.2932978043367516  head error -7.0e-15  estimate 0.2933015125432807
+  Q= 500: S_exact 0.2932991414964908  head error -7.9e-15  estimate 0.2933015125432816
+  Q= 600: S_exact 0.2932998640471521  head error -8.7e-15  estimate 0.2933015125432823
+  Q= 700: S_exact 0.2933003013358977  head error -9.4e-15  estimate 0.2933015125432830
+  Q= 800: S_exact 0.2933005858182752  head error -1.0e-14  estimate 0.2933015125432837
+  Q= 900: S_exact 0.2933007798296222  head error -1.1e-14  estimate 0.2933015125432843
+  Q=1000: S_exact 0.2933009192093737  head error -1.1e-14  estimate 0.2933015125432848
+K=40: S_model = 0.2933015125432689
+  Q= 200: S_exact 0.2932867670753642  head error -9.0e-15  estimate 0.2933015125432779
+  Q= 300: S_exact 0.2932949260542208  head error -1.2e-14  estimate 0.2933015125432807
+  Q= 400: S_exact 0.2932978043367516  head error -1.4e-14  estimate 0.2933015125432825
+  Q= 500: S_exact 0.2932991414964908  head error -1.5e-14  estimate 0.2933015125432837
+  Q= 600: S_exact 0.2932998640471521  head error -1.6e-14  estimate 0.2933015125432846
+  Q= 700: S_exact 0.2933003013358977  head error -1.6e-14  estimate 0.2933015125432853
+  Q= 800: S_exact 0.2933005858182752  head error -1.7e-14  estimate 0.2933015125432859
+  Q= 900: S_exact 0.2933007798296222  head error -1.8e-14  estimate 0.2933015125432864
+  Q=1000: S_exact 0.2933009192093737  head error -1.8e-14  estimate 0.2933015125432868
+K=44: S_model = 0.2933015125432746
+  Q= 200: S_exact 0.2932867670753642  head error -4.4e-15  estimate 0.2933015125432790
+  Q= 300: S_exact 0.2932949260542208  head error -6.9e-15  estimate 0.2933015125432815
+  Q= 400: S_exact 0.2932978043367516  head error -8.6e-15  estimate 0.2933015125432831
+  Q= 500: S_exact 0.2932991414964908  head error -9.7e-15  estimate 0.2933015125432843
+  Q= 600: S_exact 0.2932998640471521  head error -1.0e-14  estimate 0.2933015125432850
+  Q= 700: S_exact 0.2933003013358977  head error -1.1e-14  estimate 0.2933015125432856
+  Q= 800: S_exact 0.2933005858182752  head error -1.2e-14  estimate 0.2933015125432862
+  Q= 900: S_exact 0.2933007798296222  head error -1.2e-14  estimate 0.2933015125432867
+  Q=1000: S_exact 0.2933009192093737  head error -1.2e-14  estimate 0.2933015125432870
+
+=== diag.py 40: Σ W (F_model - F) over 400 < q ≤ 500 by word class
+interior 4..64               n=22457  Σ W·(F_model - F) -3.24e-16   max |F_model - F| 1.4e-07
+interior 4..64, last > 60    n=  201  Σ W·(F_model - F) -2.47e-17   max |F_model - F| 7.7e-08
+interior > 64                n=  820  Σ W·(F_model - F) -1.12e-17   max |F_model - F| 1.2e-08
+interior ≤ 3                 n= 3261  Σ W·(F_model - F) -9.82e-17   max |F_model - F| 3.0e-08
+interior ≤ 3, last > 60      n=  699  Σ W·(F_model - F) -7.43e-16   max |F_model - F| 9.4e-07
+
+=== knobs.py: Chebyshev degree n and digit cutoff Bmax
+K=40 n=40 Bmax=2000: S_model 0.2933015125432689  estimate(Q=1000) 0.2933015125432868
+K=40 n=56 Bmax=2000: S_model 0.2933015125432689  estimate(Q=1000) 0.2933015125432868
+K=40 n=40 Bmax=4000: S_model 0.2933015125432664  estimate(Q=1000) 0.2933015125432843
