@@ -357,3 +357,33 @@ a Brjuno-type function (the Brjuno function has γ = 1/2).  If F satisfies such 
 data, the sum over all bulbs is the resolvent of a two-sided Mayer operator.  Mayer's operator is nuclear on
 holomorphic functions, so that sum would converge super-exponentially: the exponential route.  Next test: fit the
 functional equation directly and check that it reproduces the bulb sum to many digits.
+
+**An exact telescoping identity puts the number theory in a Mayer operator** (`bulb_cascade.py telescope`).  With T
+the Gauss map and Δ(x) = F(x) − F(Tx), F(x) = Σ_j Δ(T^j x).  Prepending a digit maps x ↦ 1/(a+x) and multiplies q by
+a+x, so summing over prefixes gives, exactly,
+
+  Σ_x π sin²(πx) F(x) / q^4 = Σ_x Δ(x) G(x) / q^4,   G = (I − L)^-1 π sin²(π·),   (Lf)(x) = Σ_a (a+x)^-4 f(1/(a+x)).
+
+G is analytic, and Chebyshev collocation gets it to 1e-16 with 36 modes in 0.4 s (check: Σ_{a≥2} a^-4 G(1/a) =
+(π/2)(ζ(3) − 1)/ζ(4)).  Because Δ fades, the right side converges faster.  Its increments per doubling of Q are 2.2e-4,
+3.0e-5, 3.9e-6 (Q^-2.9), against 4e-4, 1.1e-4 (Q^-2) for the direct sum.  The cardioid's bulbs total
+0.2933010 (Q = 128 telescoped, ± a few 1e-7).  The rate is limited by words with a large first digit, where Δ does not
+fade.
+
+**Large digits** (`bulb_cascade.py large`, to n = 16384).  This needed cusp coordinates in `bulb_areas`: in c, a bulb
+of radius 1e-9 near 0.25 loses most of its digits.
+- A large last digit is analytic: F([2, n]) − F_∞ halves per doubling of n (ratios 2.00–2.03), F_∞ = 1.06004.
+- A large first digit (deep in the reversed continued fraction) is not.  F([n, 2]) → 1.2393643 and F(1/n) → 1.0808167
+  with differences shrinking 3.3 → 2.2 per doubling: a fractional power (about n^-2γ ≈ n^-1.4 to n^-1.7) giving way to
+  a small 1/n term.  So the parabolic-implosion limit is approached with the renormalization exponents.
+
+**Functional equations tried.**
+- Ψ(y) = α(y) + β(y) Ψ(Ty), with α, β polynomials: rms 2.9e-3 (from 9.3e-3 for α alone).  Not exact.
+- Δ(x) p^{2γ} = h(x) (x = p/q, since the denominator of Tx is p): not smooth.
+The structure the data point to is a linear response through the renormalization tower.  A front digit perturbs the
+starting state, and the perturbation propagates through later levels by matrices M(b, x) depending on the forward
+variable x (each level's renormalization depends on its own rotation number).  Then Σ_x Δ(x) G(x)/q^4 is the
+resolvent of a matrix-valued Mayer operator (𝓛V)(x) = Σ_b (b+x)^-4 M(b, x) V(1/(b+x)).  That operator is still
+nuclear when M is analytic, hence super-exponential.  The ± pair and γ ≈ 0.70, 1.04 are M's spectrum along periodic
+orbits.  Next: learn M (K = 2–4 modes, analytic in x) from bulbs on many short words, and test whether the resolvent
+reproduces the telescoped totals to many digits.

@@ -6,6 +6,14 @@
   bulb_cascade.py levels DIR           bulbs of other parents against the cardioid's (needs DIR/card.out, DIR/lv_*.out)
   bulb_cascade.py psi DIR              F(p/q) against y = (p^-1 mod q)/q, and the per-q average F̄(q)
   bulb_cascade.py modes DIR            spectral expansion of the fading (needs DIR/modes.out, from DIR/modes.txt)
+  bulb_cascade.py telescope DIR        bulb total via the Mayer-operator telescoping identity (needs DIR/card.out)
+  bulb_cascade.py large DIR            large continued fraction digits (needs DIR/large.out, from DIR/large.txt)
+
+Telescoping identity: with T the Gauss map and Δ(x) = F(x) - F(Tx) (F(0) = 0), F(x) = Σ_j Δ(T^j x), and summing
+over prefixes (x ↦ 1/(a+x) multiplies q by a+x)
+    Σ_{x ∈ Q ∩ (0,1)} π sin^2(πx) F(x) / q^4  =  Σ_x Δ(x) G(x) / q^4,    G = (I - L)^-1 π sin^2(π·),
+with L Mayer's operator (L f)(x) = Σ_{a≥1} (a+x)^-4 f(1/(a+x)), solved by Chebyshev collocation (nuclear, so
+exponentially convergent).  Δ fades, so the right side converges faster in q than the left.
 
 bulb_areas prints "p q center_re center_im area F |c_W'|^2 conv root_err"; F = area q^4 / (π |c_W'(λ0)|^2) is
 the bulb's area normalized by its parent's multiplier map at the root.
@@ -60,6 +68,22 @@ def mode_words():
     return out
 
 
+def solve_G(n=40, A=100000):
+    """G = (I - L)^-1 g on [0,1], g = π sin^2(πx), as a Chebyshev series in 2x - 1"""
+    from numpy.polynomial import chebyshev as C
+    xs = (1 - np.cos(np.pi * (np.arange(n) + 0.5) / n)) / 2
+    a = np.arange(1, A + 1, dtype=float)
+    V0 = C.chebvander(np.array([-1.0]), n - 1)[0]
+    dV0 = np.array([2 * C.chebval(-1.0, C.chebder(np.eye(n)[j])) for j in range(n)])
+    Lm = np.zeros((n, n))
+    for i, x in enumerate(xs):
+        Lm[i] = (a + x) ** -4.0 @ C.chebvander(2 / (a + x) - 1, n - 1)
+        # Tail a > A: f(t) ≈ f(0) + f'(0) t, Σ_{a>A} (a+x)^-s ≈ (A + 1/2 + x)^(1-s) / (s-1)
+        Lm[i] += (A + 0.5 + x) ** -3 / 3 * V0 + (A + 0.5 + x) ** -4 / 4 * dV0
+    coef = np.linalg.solve(C.chebvander(2 * xs - 1, n - 1) - Lm, np.pi * np.sin(np.pi * xs) ** 2)
+    return lambda x: C.chebval(2 * np.asarray(x, dtype=float) - 1, coef)
+
+
 def read(path):
     F = {}
     for line in open(path):
@@ -80,6 +104,11 @@ def lists(d):
             for p in range(1, q):
                 if gcd(p, q) == 1:
                     print(p, q, file=f)
+    with open(os.path.join(d, 'large.txt'), 'w') as f:
+        for k in range(2, 15):
+            n = 2 ** k
+            for x in (Fraction(1, n), 1 / (2 + Fraction(1, n)), 1 / (n + Fraction(1, 2))):
+                print(x.numerator, x.denominator, file=f)
     seen = set()
     with open(os.path.join(d, 'modes.txt'), 'w') as f:
         for w in mode_words().values():
@@ -220,5 +249,39 @@ def modes(d):
             contraction, K, ' '.join('%.3f' % (np.log(abs(l)) / np.log(contraction)) for l in lam)))
 
 
+def telescope(d):
+    G = solve_G()
+    a = np.arange(2, 200001, dtype=float)
+    check = (a ** -4 * G(1 / a)).sum() + 200000.5 ** -3 / 3 * G(0.0)
+    z3, z4 = 1.2020569031595942, np.pi ** 4 / 90
+    print('G check: Σ_{a≥2} a^-4 G(1/a) - (π/2)(ζ(3) - 1)/ζ(4) = %.1e' % (check - np.pi / 2 * (z3 - 1) / z4))
+    F, A = {Fraction(0): 0.0}, {}
+    for (p, q), (area, f) in read(os.path.join(d, 'card.out')).items():
+        for x in (Fraction(p, q), Fraction(q - p, q)):
+            F[x], A[x] = f, area
+    rows = sorted((x.denominator, A[x], (F[x] - F[1 / x - int(1 / x)]) * G(float(x)) / x.denominator ** 4)
+                  for x in A)
+    q = np.array([r[0] for r in rows])
+    print('  Q    direct Σ_{q≤Q} area     telescoped Σ_{q≤Q} Δ G / q^4')
+    for Q in (8, 16, 32, 64, 96, 128):
+        m = q <= Q
+        print('  %3d  %.15f   %.15f' % (Q, sum(r[1] for r, k in zip(rows, m) if k),
+                                      sum(r[2] for r, k in zip(rows, m) if k)))
+
+
+def large(d):
+    F = {Fraction(p, q): v[1] for (p, q), v in read(os.path.join(d, 'large.out')).items()}
+    fams = {'F(1/n)': lambda n: Fraction(1, n), 'F([2, n])': lambda n: 1 / (2 + Fraction(1, n)),
+            'F([n, 2])': lambda n: 1 / (n + Fraction(1, 2))}
+    for name, x in fams.items():
+        ns = [n for n in (2 ** k for k in range(2, 15)) if x(n) in F]
+        v = [F[x(n)] for n in ns]
+        dif = np.diff(v)
+        print('%-10s %s' % (name, ' '.join('%d:%.10f' % t for t in zip(ns, v))))
+        print('           differences at doubling n: %s; ratios %s' % (
+            ' '.join('%.2e' % t for t in dif), ' '.join('%.2f' % (dif[i] / dif[i + 1]) for i in range(len(dif) - 1))))
+
+
 if __name__ == '__main__':
-    {'lists': lists, 'fade': fade, 'levels': levels, 'psi': psi, 'modes': modes}[sys.argv[1]](sys.argv[2])
+    {'lists': lists, 'fade': fade, 'levels': levels, 'psi': psi, 'modes': modes, 'telescope': telescope,
+     'large': large}[sys.argv[1]](sys.argv[2])
