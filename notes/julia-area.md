@@ -491,3 +491,18 @@ matrices N(b).  So
 with Ē and f̄ matrix-valued Mayer sums over all words.  Physically c(α) is a finite-dimensional proxy for the
 derivative kernel c_α'(μ) conj(c_α'(ν)): children's areas are linear functionals of it, and children's kernels are
 linear transforms of it (by composition with the child's multiplier map).
+
+**Learning the tree's automaton (first attempts, `analysis/tree/learn2.py`–`learn4.py`).**
+- A small mixed Hankel block over the extended alphabet (632 candidate prefixes, 361 suffixes, 80 × 80 basis) gives
+  a poor automaton: median errors of 1e-2 even at the root level.  Its spectrum decays far more slowly (6e-5 at mode
+  76) than the single-level block's, because a split inside a child word mixes context and within-level modes.
+- Digits learned jointly from root rows and context rows (r1#u, 11 contexts r1 with q1 ≤ 8) over 489 digit suffixes
+  predict the children of those contexts geometrically in K: depth-2 children are good to median 2e-6, 6.7e-8,
+  6.4e-9, 4.9e-10, 3.8e-11 at K = 20, 30, 40, 50, 60.  So within a level the context enters as a start vector α(ctx),
+  provided the digit matrices are learned with context rows present.
+- The map from context to start vector is the hard part.  Regressing α(r1) on the root state after reading r1's
+  digits (127 contexts, 70% training) leaves 1e-2 even in training, and analytic dependence on x_{r1} overfits.  The
+  root-level state carries what predicts the cardioid's continuations, not what predicts r1's children; the joint
+  state has to be learned from a block with many contexts, with the separator from row closure
+  P[(r1, ·)] = P[root r1] N(#).  A context-rich block (128 contexts × short prefixes as rows, digit suffixes and
+  separator futures as columns, ~226k bulbs) is computing.
