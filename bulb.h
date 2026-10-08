@@ -3,10 +3,9 @@
 // A job is the p/q satellite of a parent hyperbolic component W of period P, given by W's center.  W's multiplier
 // map c_W(λ) is continued from the center to the root λ0 = e^{2πip/q} (explicit for the cardioid); the child's center
 // solves f_c^{qP}(crit) = crit by Newton from c_r + λ0 c_W'(λ0)/q^2; its boundary c(μ), |μ| = 1, is traced by
-// continuation in double and polished pointwise in Expansion<2>, and Green's theorem
-//   area = 1/2 ∫ Re((c - c0)‾ μ c'(μ)) dθ
-// (relative to the center, against cancellation) is summed in Expansion<2> by the trapezoid rule, which is spectral
-// since c is analytic.  Cardioid parents use cusp coordinates ζ = z - 1/2, δ = c - 1/4 (ζ ↦ ζ² + ζ + δ), so bulbs
+// continuation in double and polished pointwise in Expansion<2> (simplified Newton: residual in E, Jacobian in
+// double), and the area is π Σ k |a_k|² for the Taylor coefficients of c(μ) - c0 = Σ a_k μ^k (c0 the center, against
+// cancellation), the a_k by DFT of the boundary values, which is spectral since c is analytic.  Cardioid parents use cusp coordinates ζ = z - 1/2, δ = c - 1/4 (ζ ↦ ζ² + ζ + δ), so bulbs
 // near the cusp keep full relative precision.  Continuation is predictor-corrector (Euler along (z', c'), then
 // Newton) with adaptive step splitting.  F = area q^4 / (π |c_W'(λ0)|^2) normalizes by the parent.
 //
