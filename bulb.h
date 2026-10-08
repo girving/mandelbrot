@@ -52,7 +52,8 @@ struct BulbParams {
 // Areas for all jobs (in job order)
 vector<BulbResult> bulb_areas(const vector<BulbJob>& jobs, const BulbParams& params);
 
-// A job for the p/q bulb of the parent with period P and (unshifted) center c
+// A job for the p/q bulb of the parent with period P and (unshifted) center c.  P = 0: the component of period q
+// whose center Newton finds from c (any component, e.g. primitive); then w = 1 and F = area q^4 / π.
 BulbJob bulb_job(const int P, const Complex<double> center, const int p, const int q);
 
 }  // namespace mandelbrot
