@@ -39,11 +39,31 @@ static bool solve(const int P, const C lam, C& z, C& c) {
   return false;
 }
 
+// Whether Newton on f^Q(w) = w from z finds a cycle with |multiplier| < 1 (Q = q P, the child component's period):
+// certifies c interior long before a near-parabolic orbit converges
+static int Q = 1;
+static bool attracting(const C c, C w) {
+  for (int it = 0; it < 30; it++) {
+    C x = w, d = 1;
+    for (int i = 0; i < Q; i++) { d = 2.0 * x * d; x = x * x + c; }
+    const C step = (x - w) / (d - 1.0);
+    w -= step;
+    if (!(std::norm(step) < 1e10)) return false;
+    if (std::norm(step) < 1e-28 * (1 + std::norm(w))) {
+      C y = w, m = 1;
+      for (int i = 0; i < Q; i++) { m = 2.0 * y * m; y = y * y + c; }
+      return std::norm(m) < 1 - 1e-9 && std::norm(y - w) < 1e-20;
+    }
+  }
+  return false;
+}
+
 int main(int argc, char** argv) {
   if (argc < 6) { fprintf(stderr, "usage: multiplier_profile P p q samples_log2 max_iter_log2 [c_re c_im]\n"); return 1; }
   const int P = atoi(argv[1]), pp = atoi(argv[2]), q = atoi(argv[3]);
   const int64_t S = int64_t(1) << atoi(argv[4]), max_iter = int64_t(1) << atoi(argv[5]);
   const C lam0 = std::polar(1.0, 2 * M_PI * pp / q);
+  Q = q * P;
   const double rho0 = 0.125;
   const int bins = 12;  // Down to ρ0 2^-12: escape times there (~2πP/(qρ)) stay well below max_iter
   // The root: explicit for P = 1, 2; else continue from the center (λ = 0, z = 0) to λ0
@@ -89,7 +109,11 @@ int main(int argc, char** argv) {
             if (std::norm(z) > 4) { out = 63 - __builtin_clzll(uint64_t(i) | 1); break; }
             z = z * z + c;
             if (std::norm(z - check) < 1e-24) { out = 64; break; }
-            if (i == next_check) { check = z; next_check *= 2; }
+            if (i == next_check) {
+              check = z;
+              next_check *= 2;
+              if (attracting(c, z)) { out = 64; break; }
+            }
           }
         }
         hist[t][b * 66 + out]++;
