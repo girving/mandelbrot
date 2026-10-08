@@ -525,3 +525,10 @@ closure for digits, separator from many contexts); (2) a linear form for the mul
 of per-level automaton outputs need tensor-power states unless the cumulative product itself has low rank, which
 fast fading suggests (to be measured at depth ≤ 3); (3) the primitive copies (0.08% of the area, via tuning, with
 copy bulbs universal to 2e-4).
+- `learn6.py` (stable suffix-closure digits on a digit-only block with 111 contexts, separator by row closure):
+  the separator residual is 0.13.  A context's start vector is not a linear function of the root-level state of r1.
+  That state predicts the cardioid's bulbs near r1, not r1's own children.  A joint state needs separator-visible
+  directions, and stable digit learning in those directions needs columns w#s' (digits, then a separator), which by
+  brute force is ~2M bulbs.  Next: a better representation rather than more data.  Candidates: per-context
+  coefficients on ~40 context directions, read from ~40 children each, with their own fading-memory model in r1; or
+  a physically motivated context state (the parent's multiplier-map jet and the near-parabolic germ at its root).
