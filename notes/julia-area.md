@@ -425,3 +425,45 @@ three things stand between this and many digits:
 2. bulb data beyond double (Hankel singular values below ~1e-8 sit under the noise of 1e-11 bulb areas; hyperbolic's
    Expansion<2> polish would do);
 3. the rest of the satellite tree: the parent-word dependence suggests an automaton over words of words, untested.
+
+**The cardioid's bulbs to 14 digits** (`analysis/wfa/wfa_hp_sum.py`, `analysis/results/bulb-total.log`).  Two
+pieces of engineering:
+1. Double-double bulbs (`bulb_areas` with BULB_EXP=1).  Continuation in double, then Newton polish of the center and
+   each boundary point in Expansion<2>, with Green's sum in Expansion<2>.  The 1/2 bulb comes out π/16 to 3e-31;
+   N = 64 boundary points converge to ~1e-20 (N/2 subrule).  It is about 2× faster than the double mode, which
+   computed N and 2N separately.
+2. Learning without the prefix-closure cap.  N(b) for b ≤ 3 from suffix closure (H[u, b·s] = P N(b) Q[:, s]); for
+   4 ≤ b ≤ 256 from shifted blocks F(u·b·s) on a 56 × 56 basis of short words chosen by pivoted QR (smallest
+   singular values 4e-2, 3e-3 in orthonormal coordinates).  Cubic interpolation in 1/b between measured digits.
+With clean data the Hankel singular values (256 × 1101) fall smoothly to 8e-10 by mode 68; held-out error on long
+words (q > 2000) is 1.7e-8 at K = 40 and 4.5e-10 at K = 76 (median).
+
+Exact head (every bulb with q ≤ 1000, double-double, fsum) plus the automaton tail, K = 36, 40, 44:
+
+| | K = 36 | K = 40 | K = 44 |
+|---|---|---|---|
+| model total S_model | 0.2933015125432736 | 0.2933015125432689 | 0.2933015125432746 |
+| estimate, Q = 200 | …432776 | …432779 | …432790 |
+| estimate, Q = 1000 | …432848 | …432868 | …432870 |
+
+The model reproduces the exact head through q = 1000 to ~1e-14 in total.  Chebyshev degree 40 → 56 changes
+nothing; the digit cutoff 2000 → 4000 changes 2.5e-15.  The coarse 16 × 16 blocks used before for digits 65–400
+had O(1) errors on words with such interior digits (−6e-10 in total); proper blocks bring that class to −1e-17.
+**The cardioid's bulbs total 0.293301512543286 ± 1e-14**, from about 300k bulbs (an hour of laptop time).  Direct
+summation of the same bulbs is good to 1.5e-6 (q ≤ 1000).
+
+**The tree is a words-of-words automaton** (first checks).  Each satellite component is a sequence of rotation
+numbers (r1, …, r_m).  Joining their continued fractions with a separator keeps the indexing a regular language, so
+if each level's factors are automaton-representable, the tree sum is still one linear resolvent.
+- Depth 2 is low-rank across the separator.  Bulbs of all 40 cardioid children with q1 ≤ 16, over child words
+  q2 ≤ 30: the matrix F(r1; r2) has singular values 120, 0.58, 0.38, 0.10, 0.015, 0.011, 6.5e-3, 2.3e-3, 1.6e-3, ….
+- The parent's derivative profile |c_W'(e^{2πiθ})|² is real-analytic around the circle (log's Fourier coefficients
+  fall ~10× per harmonic; exactly constant for the 2-disk).  The geometric transport of the parent's curvature
+  κ = λ c_W''/c_W' explains little of the child-to-child variation (residual 2.2e-3 → 1.7e-3 at first order), so the
+  context is mainly combinatorial.
+- Children-to-parent area ratios ρ(r1) (children with q2 ≤ 30) are 0.10–0.14, with the same continued fraction
+  structure as F: ρ(1/n) → 0.1154, ρ([n, 2]) → 0.135, ρ([2, n]) → 0.124, deeper words 0.13–0.14.  Consistent with
+  (μ(M) − 3π/8) / (cardioid bulbs) = 0.3285 / 0.2933 ≈ 1.12.
+Plan: the subtree totals satisfy a linear fixed point τ(node) = 1 + Σ_children (A_child/A_node) τ(child).  With
+the per-level factors as automata (digits, separator) times analytic profiles, that is a resolvent of one
+matrix-Mayer operator for the whole satellite tree; the primitive copies (0.08%) enter through tuning.
