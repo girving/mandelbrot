@@ -11,6 +11,8 @@
 //     rule (spectral: c is analytic), at N and 2N points.
 // Normalized area F = area q^4 / (π |c_W'(λ0)|^2): about 1 for every bulb if bulbs are universal in the parent's
 // multiplier coordinate.
+// For the cardioid (P = 1) it works in cusp coordinates ζ = z - 1/2, δ = c - 1/4, where bulbs near c = 1/4 keep
+// full relative precision (in c itself, a bulb of radius 1e-9 near 0.25 loses most of its digits).
 //   ./build/release/bulb_areas P c_re c_im N < list
 // reads lines "p q" and prints "p q center_re center_im area F |c_W'|^2 (2N - N)/area root_err/size".  The
 // parent's (c_re, c_im) is its center (0 0 for the cardioid).  CPU threads: $MANDELBROT_THREADS.
@@ -23,17 +25,23 @@
 #include <vector>
 typedef std::complex<double> Cx;
 
+// The map is x ↦ x^2 + s x + c, with s = 0 (z ↦ z^2 + c) or s = 1: cusp coordinates ζ = z - 1/2, δ = c - 1/4 for
+// the cardioid's bulbs, where ζ ↦ ζ^2 + ζ + δ keeps full relative precision in bulbs near the cusp (tiny δ and
+// orbits lingering near ζ = 0).  The critical point is x = -s/2.
+static double shift = 0;
+
 // Newton for (z, c) with f_c^n(z) = z, (f_c^n)'(z) = mu; also returns dc/dμ.  True if converged.
 static bool solve(const int n, const Cx mu, Cx& z, Cx& c, Cx* dcdmu = nullptr) {
   double last = INFINITY;
   for (int it = 0; it < 40; it++) {
     Cx x = z, xz = 1, xc = 0, xzz = 0, xzc = 0;
     for (int i = 0; i < n; i++) {
-      const Cx nxzz = 2.0 * (xz * xz + x * xzz), nxzc = 2.0 * (xc * xz + x * xzc);
+      const Cx nxzz = 2.0 * xz * xz + (2.0 * x + shift) * xzz, nxzc = 2.0 * xc * xz + (2.0 * x + shift) * xzc;
       xzz = nxzz; xzc = nxzc;
-      xc = 2.0 * x * xc + 1.0;
-      xz = 2.0 * x * xz;
-      x = x * x + c;
+      const Cx df = 2.0 * x + shift;
+      xc = df * xc + 1.0;
+      xz = df * xz;
+      x = x * x + shift * x + c;
     }
     const Cx F1 = x - z, F2 = xz - mu, a = xz - 1.0, b = xc, d = xzz, e = xzc, det = a * e - b * d;
     if (dcdmu) *dcdmu = a / det;
@@ -46,7 +54,7 @@ static bool solve(const int n, const Cx mu, Cx& z, Cx& c, Cx* dcdmu = nullptr) {
   return last < 1e-11;
 }
 
-// Continue (z, c) radially from μ = 0 (z = 0 at the center) to mu
+// Continue (z, c) radially from μ = 0 (z at the critical point, c at the center) to mu
 static bool radial(const int n, const Cx mu, Cx& z, Cx& c, const int steps, Cx* dcdmu = nullptr) {
   for (int s = 1; s <= steps; s++)
     if (!solve(n, mu * (double(s) / steps), z, c, s == steps ? dcdmu : nullptr)) return false;
@@ -55,7 +63,7 @@ static bool radial(const int n, const Cx mu, Cx& z, Cx& c, const int steps, Cx* 
 
 // Area of the period n component with center c0, at N boundary points
 static double area(const int n, const Cx c0, const int N, bool& ok) {
-  Cx z = 0, c = c0;
+  Cx z = -shift / 2, c = c0;
   ok = radial(n, std::polar(1.0, M_PI / N), z, c, 64);
   double sum = 0;
   for (int j = 0; j < N && ok; j++) {
@@ -75,7 +83,12 @@ static double area(const int n, const Cx c0, const int N, bool& ok) {
 int main(int argc, char** argv) {
   if (argc < 5) { fprintf(stderr, "usage: bulb_areas P c_re c_im N < list\n"); return 1; }
   const int P = atoi(argv[1]), N = atoi(argv[4]);
-  const Cx center(atof(argv[2]), atof(argv[3]));
+  Cx center(atof(argv[2]), atof(argv[3]));
+  if (P == 1) {  // Cusp coordinates for the cardioid
+    shift = 1;
+    center -= 0.25;
+  }
+  const Cx crit = -shift / 2;
   std::vector<std::pair<int, int>> jobs;
   int p, q;
   while (scanf("%d %d", &p, &q) == 2) jobs.push_back({p, q});
@@ -92,32 +105,35 @@ int main(int argc, char** argv) {
         Out& o = out[i];
         o.ok = false;
         const Cx l0 = std::polar(1.0, 2 * M_PI * p / q);
-        Cx zr = 0, cr = center, dW;
+        Cx zr = crit, cr = center, dW;
         if (!radial(P, l0, zr, cr, 128, &dW)) continue;
         // Child center: Newton on g(c) = f_c^n(0)
         Cx c = cr + l0 * dW / double(q * q);
         bool conv = false;
         for (int it = 0; it < 200 && !conv; it++) {
-          Cx x = 0, dx = 0;
-          for (int k = 0; k < n; k++) { dx = 2.0 * x * dx + 1.0; x = x * x + c; }
-          const Cx step = x / dx;
+          Cx x = crit, dx = 0;
+          for (int k = 0; k < n; k++) { dx = (2.0 * x + shift) * dx + 1.0; x = x * x + shift * x + c; }
+          const Cx step = (x - crit) / dx;
           c -= step;
           conv = std::abs(step) < 1e-16 * (1 + std::abs(c));
           if (!(std::abs(step) < 1)) break;
         }
         if (!conv) continue;
         bool exact = true;
-        Cx x = 0;
-        for (int k = 1; k < n && exact; k++) { x = x * x + c; if (n % k == 0 && std::abs(x) < 1e-8) exact = false; }
+        Cx x = crit;
+        for (int k = 1; k < n && exact; k++) {
+          x = x * x + shift * x + c;
+          if (n % k == 0 && std::abs(x - crit) < 1e-8) exact = false;
+        }
         if (!exact) continue;
         // Root check: continue the child's own multiplier to 1 - 1e-4 (closer, the system degenerates)
-        Cx zc = 0, cc = c;
+        Cx zc = crit, cc = c;
         const double size = std::abs(dW) / (q * q);
         o.root_err = radial(n, 1 - 1e-4, zc, cc, 128) ? std::abs(cc - cr) / size : INFINITY;
         bool ok1, ok2;
         const double A1 = area(n, c, N, ok1), A2 = area(n, c, 2 * N, ok2);
         if (!ok1 || !ok2) continue;
-        o.cc = c; o.A = A2; o.w = std::norm(dW);
+        o.cc = c + 0.25 * shift; o.A = A2; o.w = std::norm(dW);
         o.F = A2 * double(q) * q * q * q / (M_PI * o.w);
         o.conv = (A2 - A1) / A2;
         o.ok = true;
