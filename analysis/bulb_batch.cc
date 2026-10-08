@@ -5,7 +5,9 @@
 //                                                                                for the cardioid; default parent)
 // reads lines "key P c_re c_im p q" (key: any token naming the parent; P, (c_re, c_im): the parent's period and
 // center; p/q the child) and prints "key p q center_re center_im area_hi F_hi w conv 0 area_lo F_lo" per line (the
-// columns of bulb_areas with BULB_EXP=1, after the key), or "key p q failed <stage>".
+// columns of bulb_areas with BULB_EXP=1, after the key), or "key p q failed <stage>".  With --local, reads lines
+// "key p c_re_hi c_re_lo c_im_hi c_im_lo" instead: deep components of period p whose centers are known to double-double
+// precision (bulb_job_local), printed as "key 0 p ..." like P = 0 jobs.
 #include "bulb.h"
 #include "wall_time.h"
 #include <cstdio>
@@ -18,6 +20,7 @@ using namespace mandelbrot;
 int main(int argc, char** argv) {
   BulbParams params;
   int all = 0, Pp = 1;
+  bool local = false;
   const char* out_path = nullptr;
   double pcr = 0, pci = 0;
   for (int i = 1; i < argc; i++) {
@@ -27,6 +30,7 @@ int main(int argc, char** argv) {
     else if (!strcmp(argv[i], "--substeps") && i + 1 < argc) params.substeps = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--all") && i + 1 < argc) all = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--out") && i + 1 < argc) out_path = argv[++i];
+    else if (!strcmp(argv[i], "--local")) local = true;
     else if (!strcmp(argv[i], "--parent") && i + 3 < argc) {
       Pp = atoi(argv[++i]); pcr = atof(argv[++i]); pci = atof(argv[++i]);
     }
@@ -45,7 +49,12 @@ int main(int argc, char** argv) {
           keys.push_back("all");
           jobs.push_back(bulb_job(Pp, Complex<double>(pcr, pci), p, q));
         }
-  while (!all && scanf("%255s %d %lf %lf %d %d", key, &P, &cr, &ci, &p, &q) == 6) {
+  double crl, cil;
+  while (!all && local && scanf("%255s %d %lf %lf %lf %lf", key, &q, &cr, &crl, &ci, &cil) == 6) {
+    keys.push_back(key);
+    jobs.push_back(bulb_job_local(Complex<double>(cr, ci), Complex<double>(crl, cil), q));
+  }
+  while (!all && !local && scanf("%255s %d %lf %lf %d %d", key, &P, &cr, &ci, &p, &q) == 6) {
     keys.push_back(key);
     jobs.push_back(bulb_job(P, Complex<double>(cr, ci), p, q));
   }
