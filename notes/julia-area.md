@@ -776,3 +776,33 @@ from the model map z + a z³ + perturbation instead of from M.
 - Every word belongs to one class (skeleton = first maximal digit as '*', plus its parity); the 60 heaviest classes
   hold 99.76% of the census mass at digit sum ≥ 9.  Campaign: 2546 words (n ≤ 64 dense, sparse to 512), 163,564
   points, on the cluster's cpu queue.
+- Campaign 1 (60 classes, 2546 words, 163,564 points, 8 min on 30 cores, 0 failures) agrees with the census on 206
+  overlapping words (median 1e-7, limited by the census's k ≤ 64).  The 100 heaviest families recomputed with
+  k ≤ 1024 (Neville in 1/k, subsets agree to ~1e-20): S1 = 1.724974063498964762e-3 (the k ≤ 120 fit: 1.72497406351e-3);
+  census Σ weighted error 2.8e-10 → 2.4e-13.
+- Σ_w C_w ≈ 1.893452650832e-3: census 1.893391954437e-3, beyond it 6.0548e-8 from the 60 classes (computed to
+  n = 64, then fitted tails ~1e-11), other classes ≈ 1.5e-10 (crude: their census share 2.45e-3).  Phase-plane area
+  16Σ/π² = 3.06955e-3.  Campaign 2 (classes 61–800 to n = 48, the four dominant classes refined) under way.
+- Long runs decouple words: the classes' large-n limits come in groups of four (the entry contexts '0 1', '1 1'
+  even/odd, '1' are asymptotically equivalent) and factorize: the four leading classes → 64·3.44e-4 = 0.0220 (the
+  universal second pass), a digit 2 after the run multiplies by ≈ 5.0e-3, a 4 by ≈ 1.75e-4, prefixes ('1 3',
+  '1 2 1', '1 1 2') by ≈ 3.1e-3 and ('0 2', '0 1 1', '1 1 1') by ≈ 1.75e-3.  So asymptotically C(u, n, v) ≈
+  L(u) 0.022 n^-6 R(v): the large-digit matrix of a digit automaton is rank one, and sums over words with a long
+  digit factor into prefix sum × n-sum × suffix sum.
+- All of M in run-length digits is not geometric (area share by number of digits 0.67, 0.30, 3.9e-3, 1.7e-2, 9e-4,
+  6.5e-3, … through period 16; period-doubling-type satellites need many short runs): kneading runs are the right
+  coordinates at a parabolic point, the satellite tree keeps its continued-fraction / tuning coordinates.
+- Campaign 2 (classes 61–800 to n = 48 plus n ≈ 64, and the four dominant classes with k ≤ 1024: 17,072 words,
+  764,080 points, 32 min on 30 cores; 1.67M ray-pair fallbacks dominate the cost, so the small-k predictor needs
+  work; 247 families stopped early, 16 words skipped for too few large-k points, 695 without a census base for keys).
+  **Σ_w C_w = 1.8934526215e-3 ± 4e-12** (phase-plane area 16Σ/π² = 3.06954977e-3): census 1.893391954437e-3 (±2.4e-13),
+  758 classes beyond it 6.066641e-8 (extrapolation ±2.9e-12, fitted tails ±1.9e-13), classes past 800 ≈ 6.6e-13
+  (census-share estimate; the 60-class version of it, 1.5e-10, was 25% high), words with only small digits beyond the
+  census ~1e-13 (geometric, ×0.15–0.2 per unit digit sum), skipped words ≲ 1e-12.  So an exponentially large family
+  layer sums to ~2e-9 relative from ~0.9M components, through its structure: kneading digits, classes, and n^{-1/2}
+  expansions with factorized limits.
+- Caveat: Σ C_w is the k → ∞ (phase-plane) constant, not an area of M.  The families' actual area is
+  Σ_w Σ_{k ≥ k_w} a(k, w) with a(k, w) far below C_w k^-4 at small k (S1 at k = 2: 7.75e-6 vs C/16 = 1.1e-4), families
+  exist only from k_w ≈ (j−1)/2, and small limbs' longer tails belong to other parabolic points.  Assembling μ(M)
+  means attaching such family layers to the satellite tree's nodes (roots and cusps), with the small-k region in the
+  tree itself.
