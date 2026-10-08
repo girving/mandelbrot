@@ -605,3 +605,28 @@ point under f_a landing near a, with areas ~|Df^N|^-4.  Their total should be a 
 with weight |f'|^-4 (pressure P(4) < 0, so geometrically convergent): a dynamical-space operator.  The
 Misiurewicz points are then summed over the satellite tree (limb branch points and tips), whose automaton can
 carry them.  Open: assigning each NRP to its family canonically (nested scales; on the real line, kneading).
+
+**Ruelle operator at a Misiurewicz point: works locally, but the hard tail is parabolic** (`analysis/copies/`:
+near_minus2.py, families.py, t_analytic.py, levels.py, tail_where.py, cusp_family.py; 4223 real NRPs in (−2, −1.7)).
+- The standard size estimate s = 1/(βΛ²) (Λ = Π 2z_i along the center's critical orbit, β = Σ 1/Π_{j≤i} 2z_j) gives
+  area(X) = (A_card/4)|s_X|² (1 + O(4^-n)): the ratio → 0.25000 as the depth n (steps the orbit lingers at β = 2)
+  grows, with spread 0.03, 0.009, 0.0025, 6e-4, 1.4e-4, … from n = 2, down to 1e-6 by n = 10.
+- Copies near −2 are labeled (n, w0): w0 the exit point from β, converging to a precritical point w0* of f_a = z² − 2
+  (±√2 for m = 1, then 1.6629, 1.1111, …).  area(n, w0) = 256^-n |(f_a^m)'(w0*)|^-4 Φ(4^-n, w0*), and
+  H(w0*) = lim Φ is smooth: a quartic in w0* fits log H to 7e-5 over the 24 converged families.  Summed over w0*,
+  that is the Ruelle operator L g(z) = Σ_{f(w)=z} |f'(w)|^-4 g(w) on J(−2) = [−2, 2].
+- But only deep in.  At fixed n, Φ_n is smooth in w0* only for n ≳ 7 (rms of log Φ_n about smooth fits: 1.9 at
+  n = 0, 0.25 at n = 4, 1.5e-3 at n = 7, 1e-4 at n = 8).  Farther from −2, f_c differs too much from f_a.
+  Extrapolating families to n = 0 in t = 4^-n is too unstable to test analyticity there.
+- And near −2 is not where the copy area is.  At every period ~99% of the area in (−2, −1.7) has n = 0.  At large
+  period the area instead sits in long lingering near near-parabolic cycles: 88% of the period-16 area spends ≥ 12
+  steps nearly repeating a cycle of period ≤ 4.  It is one copy (c = −1.7414, area 2.0e-12), whose orbit makes 5
+  passes through the period-3 gate of the airplane's cusp at −1.75: the intermittency family approaching the cusp
+  from c > −1.75 (largest copy per period: d = c + 1.75 = 0.018 at p = 11, 0.010 at p = 14, 0.0086 at p = 16).
+So Misiurewicz families are geometric (256^-n) and comparatively harmless.  The slowly converging (p^-3) part of the
+copy area is parabolic: gate families at the cusps of primitive components (intermittency) and, by the same
+mechanism, at satellite roots (seahorse-valley copies).  That is the physics of the escape-time tail and of the
+satellite automaton's large-digit limits.  The copy layer should therefore attach to every component's root a
+gate-family sum with a Lavaurs-universal profile in the number of passes k, carried by the automaton like F and ρ.
+Next test: the real intermittency family at −1.75 out to k ~ 100 passes (periods ~300; real centers by
+bracketing, areas by multiplier-map continuation), checking for a power law in k with an expansion in 1/k.
