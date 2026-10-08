@@ -216,3 +216,20 @@ transform ζ_type(s) = Σ_occurrences (scale)^s is the family's zeta function (c
 satellite scalings ~ sin(πp/q)/q², tuned copies by r_W as in D(s)).  One term per family then accounts for the
 family's contribution wherever it occurs.  Premise under test: every occurrence of a root type looks alike in its
 parent's multiplier coordinate, up to area scale |dc/dλ|² and a time shift log2 P (`analysis/multiplier_profile`).
+
+**Premise test** (`analysis/results/family-profiles.log`, cluster CPU, 2^28 samples each): escape-octave profiles in
+λ-area units near seven root occurrences, compared after shifting time by log2 P.  Ratio to the cardioid's
+profile, flat to a few % over shifted octaves 6 … 16:
+
+| occurrence | parent | q | amplitude vs cardioid |
+|---|---|---|---|
+| −5/4 | period-2 disk | 2 | 1.10 |
+| 1/2 root of the 1/3 bulb | period-3 satellite | 2 | 1.17 |
+| 1/2 root of the airplane | period-3 primitive (a cardioid) | 2 | 1.00 |
+| 1/2 root of the 1/4 bulb | period-4 satellite | 2 | 1.25 |
+| 1/3 root of the period-2 disk | period-2 disk | 3 | 1.10 |
+
+So every occurrence of a type has the same time profile G_q in its parent's multiplier coordinate; amplitudes are
+1 for cardioid-shaped (primitive) parents and 1.10–1.25 for disk-shaped (satellite) parents, perhaps from the
+multiplier map's distortion over the sampled disk.  The family expansion's premise holds: T(k) = Σ_q G_q ⊛ N_q
+with N_q the occurrences weighted by |dc/dλ|² (and a parent-shape factor near 1) and shifted in time by log2 P.
