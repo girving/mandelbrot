@@ -233,3 +233,52 @@ So every occurrence of a type has the same time profile G_q in its parent's mult
 1 for cardioid-shaped (primitive) parents and 1.10–1.25 for disk-shaped (satellite) parents, perhaps from the
 multiplier map's distortion over the sampled disk.  The family expansion's premise holds: T(k) = Σ_q G_q ⊛ N_q
 with N_q the occurrences weighted by |dc/dλ|² (and a parent-shape factor near 1) and shifted in time by log2 P.
+
+**Ownership: the families partition the exterior** (`analysis/family_owner`, `analysis/family_shares.py`,
+`analysis/results/family-owner.log`).  λ-disks overlap, so the expansion needs each escaping parameter assigned to
+one family.  Dynamics decides: near a p/q root the critical orbit passes the root's gate, lingering by a
+near-parabolic p-cycle with m − 1 ≈ −q²(λ/λ0 − 1).  The owner is the outermost gate passed: the smallest Q ≤ 64
+whose orbit returns |z_{i+Q} − z_i| < 0.1 and whose Newton-refined Q-cycle has |m − 1| < μ0, then the catalog root
+of period Q nearest c.  Roots come from hyperbolic's component centers by continuing the own multiplier to 1.  Three
+earlier rules failed instructively:
+- "most frequent return period": a child's gate also returns at its parent's period, so the parent steals it;
+- "smallest mean log return": orbits rotating near a bulb's cycle at high q′ (gate period 2q′ > scan) fall back
+  to the bulb's period;
+- "gate explains the escape time": on a circle |λ − λ0| = ρ, nρ comes in multiples of 2π/q, one per pass through
+  the gate (root_escape: 50% one pass, 25% two, 10% ≳ 8).  Multi-pass escapes are seahorse-valley copies inside the
+  root's disk, so the root's family has to include them.
+
+Nested ownership does that.  Per root, the owned tail is ∝ 1/n (owned area × 2^j flat over octaves 8 … 16), so each
+family term is A_r P_r g_q / n.  Within the cardioid's family, g_q collapses across occurrences (μ0 = 1/2: q = 5
+0.064, 0.065; q = 7 0.034, 0.038, 0.038).  With g_q calibrated on the cardioid's roots alone,
+Σ_r A_r P_r g_q predicts what each period's satellites own:
+
+| period | μ0 = 1/2 | 1 | 2 | 4 |
+|---|---|---|---|---|
+| 5, 7 (cardioid only) | 1.01, 0.97 | 0.96, 1.02 | 0.99, 1.02 | 1.01, 1.01 |
+| 4 (incl. −5/4) | 1.23 | 1.56 | 0.88 | 0.73 |
+| 6 (incl. 1/2 of 1/3 bulb, 1/3 of 2-disk) | 1.23 | 1.75 | 0.42 | 0.25 |
+| 8 | 1.18 | 1.73 | 0.67 | 0.45 |
+
+Small disks show the parent-shape factor (1.1–1.5 for disk parents; the excess sits at the disk's rim, where
+|m − 1| < μ0 bulges differently per parent, while inner λ-shells match the premise test's ≈1.0–1.1).  Large disks
+nest bulb children into their ancestors' families, so those ratios fall below 1.
+
+**Coverage** (share of the long-time tail, octaves 10 … 13):
+
+| μ0 | gates ≤ 8 | cardioid's q ≤ 8 families | gates 9 … 64 | no gate ≤ 64 |
+|---|---|---|---|---|
+| 1/2 | 15% | 13% | 19% | 66% |
+| 1 | 38% | 29% | 30% | 31% |
+| 2 | 77% | 68% | 19% | 3% |
+| 4 | 88% | 81% | 12% | 0% |
+
+The shares are flat across octaves 8 … 19, so the families' sum is octave-independent as universality predicts.
+With μ0 = 4, the cardioid's p/q families for q ≤ 8 own 81% of M's tail: q = 2 28%, 3 21%, 5 13%, 4 8%, 7 7.5%,
+8 2.7%, 6 1.6%.  (Even q falls below the odd q around it: at μ0 = 4 each q gate disk reaches its neighbors, so
+nesting is order-dependent.)  A_r = sin²(πp/q) for the cardioid, so the cardioid's family term is
+Σ_q (Σ_p sin²(πp/q)) g_q(μ0).  Its sum over all q is the leading term of a sublinear accounting of M's tail: a few
+calibrated profiles g_q times an explicit sum over roots.  Open: g_q(μ0) for large q (≈ q^-2.4 at μ0 = 4 over
+q = 5 … 8), the residual 12–20% in gates beyond period 8 (children of bulbs and copies, each a family with its own
+A_r), and turning an accurate tail model into μ(M) (μ(M) = area(n) − T(n), so a 1% model of T(n) only buys a
+factor 100 over raw escape counting at the same n).
