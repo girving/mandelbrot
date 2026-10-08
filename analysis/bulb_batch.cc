@@ -1,6 +1,6 @@
 // Batched bulb areas (bulb.h) on CPU threads or the GPU.
 //
-//   ./build/release/bulb_batch [--cuda] [--N 64] [--polish 2] < jobs > out
+//   ./build/release/bulb_batch [--cuda] [--N 64] [--polish 2] [--out file] < jobs
 //   ./build/release/bulb_batch [--cuda] --all Q [--parent P c_re c_im] > out   (every child p/q with q ≤ Q, p ≤ q/2
 //                                                                                for the cardioid; default parent)
 // reads lines "key P c_re c_im p q" (key: any token naming the parent; P, (c_re, c_im): the parent's period and
@@ -18,6 +18,7 @@ using namespace mandelbrot;
 int main(int argc, char** argv) {
   BulbParams params;
   int all = 0, Pp = 1;
+  const char* out_path = nullptr;
   double pcr = 0, pci = 0;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--cuda")) params.cuda = true;
@@ -25,10 +26,11 @@ int main(int argc, char** argv) {
     else if (!strcmp(argv[i], "--polish") && i + 1 < argc) params.polish = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--substeps") && i + 1 < argc) params.substeps = atoi(argv[++i]);
     else if (!strcmp(argv[i], "--all") && i + 1 < argc) all = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--out") && i + 1 < argc) out_path = argv[++i];
     else if (!strcmp(argv[i], "--parent") && i + 3 < argc) {
       Pp = atoi(argv[++i]); pcr = atof(argv[++i]); pci = atof(argv[++i]);
     }
-    else { fprintf(stderr, "usage: bulb_batch [--cuda] [--N 64] [--polish 2] [--substeps 4] < jobs\n"); return 1; }
+    else { fprintf(stderr, "usage: bulb_batch [--cuda] [--N 64] [--polish 2] [--substeps 4] [--out file] < jobs\n"); return 1; }
   }
   if (getenv("BULB_TOL")) params.accept = atof(getenv("BULB_TOL"));
   vector<std::string> keys;
@@ -52,12 +54,19 @@ int main(int argc, char** argv) {
   fprintf(stderr, "bulb_batch: %zu bulbs in %.3f s (%s)\n", jobs.size(), (wall_time() - t0).seconds(),
           params.cuda ? "gpu" : "cpu");
   static const char* why[] = {"ok", "parent", "center", "period", "area"};
+  FILE* out = out_path ? fopen(out_path, "w") : stdout;
+  if (!out) { fprintf(stderr, "can't open %s\n", out_path); return 1; }
+  int failed = 0;
   for (size_t i = 0; i < jobs.size(); i++) {
     const auto& r = res[i];
     if (r.status == bulb_ok)
-      printf("%s %d %d %.17g %.17g %.17g %.17g %.17g %.1e 0 %.17g %.17g\n", keys[i].c_str(), jobs[i].p, jobs[i].q,
+      fprintf(out, "%s %d %d %.17g %.17g %.17g %.17g %.17g %.1e 0 %.17g %.17g\n", keys[i].c_str(), jobs[i].p, jobs[i].q,
              r.center.r, r.center.i, r.area.x[0], r.F.x[0], r.w, r.conv, r.area.x[1], r.F.x[1]);
-    else
-      printf("%s %d %d failed %s\n", keys[i].c_str(), jobs[i].p, jobs[i].q, why[r.status]);
+    else {
+      fprintf(out, "%s %d %d failed %s\n", keys[i].c_str(), jobs[i].p, jobs[i].q, why[r.status]);
+      failed++;
+    }
   }
+  if (out != stdout) fclose(out);
+  fprintf(stderr, "bulb_batch: %d failed\n", failed);
 }
