@@ -15,6 +15,9 @@
 // Newton for the center from each endpoint; the two must agree.  Output lines "j<j>_<i>_<k> 0 c_re c_im 0 p" on
 // stdout, failures on stderr.
 #include "angles.h"
+#include "complex.h"
+#include "expansion.h"
+#include "expansion_arith.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -22,6 +25,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <mutex>
 #include <set>
 #include <string>
 #include <thread>
@@ -30,6 +34,8 @@ using namespace mandelbrot;
 using std::string;
 using std::vector;
 typedef std::complex<double> C;
+typedef Expansion<2> E2;
+typedef Complex<E2> Ce;
 
 static string bits(const uint64_t k, const int q) {
   string s(q, '0');
@@ -99,6 +105,42 @@ static bool center(C& c, const int p) {
   return last < 1e-11 * std::abs(c + 0.75);
 }
 
+// Center in double-double, from a guess: (optionally) double Newton as far as it goes, then simplified Newton with the
+// residual f^p(0) in Complex<E2> and the Jacobian in double.  Then the size estimate from the E2 orbit rounded
+// pointwise (each factor 2 z_i to 1e-16 relative).  Converged if the last step is below 1e-10 |s|.
+struct Center { Ce c; double s2, lam, beta; };
+static bool center_e2(Ce c, const int p, Center& out, const bool double_first) {
+  if (double_first) {
+    C g(double(c.r), double(c.i));
+    center(g, p);
+    c = Ce(E2(g.real()), E2(g.imag()));
+  }
+  double step = INFINITY;
+  const auto orbit = [&](auto&& visit) {  // visit(z_i) for i = 1..p, z_i in E2
+    Ce z(E2(0.0), E2(0.0));
+    for (int i = 1; i <= p; i++) { z = sqr(z) + c; visit(i, z); }
+  };
+  for (int it = 0; it < 12; it++) {
+    C dz = 0, zd = 0, zp = 0;
+    orbit([&](const int i, const Ce& z) {  // dz_i = 2 z_{i-1} dz_{i-1} + 1 with z_0 = 0
+      dz = 2.0 * zd * dz + 1.0;
+      zd = C(double(z.r), double(z.i));
+      if (i == p) zp = zd;
+    });
+    const C d = zp / dz;
+    c = c - Ce(E2(d.real()), E2(d.imag()));
+    const double last = step;
+    step = std::abs(d);
+    if (step < 1e-31 || step > 0.5 * last) break;
+  }
+  C prod = 1, beta = 0;
+  orbit([&](const int i, const Ce& z) {
+    if (i < p) { prod *= 2.0 * C(double(z.r), double(z.i)); beta += 1.0 / prod; }
+  });
+  out = {c, 1 / std::norm(beta * prod * prod), std::abs(prod), std::abs(beta)};
+  return step < 1e-10 * std::sqrt(out.s2);
+}
+
 int main(int argc, char** argv) {
   if (argc < 3) { fprintf(stderr, "usage: limb_families stats J | jobs J k1,k2,... [threads]\n"); return 1; }
   const string mode = argv[1];
@@ -157,9 +199,12 @@ int main(int argc, char** argv) {
   };
   int threads = 2, nfam = 0;
   if (mode == "size") {  // stdin lines "name lo hi k1,k2,...": centers and size estimates only (no areas)
-    // Per family, rays at the first three k (increasing); later k by Newton from a quadratic extrapolation of
-    // 1/δ in k, accepted if it lands within 5% of the last spacing from the prediction (else rays again).  Output
-    // "name_k c_re c_im p |s|^2 |Λ| |β|" with s = 1/(β Λ²), Λ = Π_{i<p} 2 z_i, β = Σ_{i<p} 1/Π_{j≤i} 2 z_j.
+    // Per family, k runs through every integer from its least to its largest requested k (only requested k are
+    // printed).  The first 7 by rays (both rays, double-double centers that must agree); later ones by Newton in
+    // double-double from the 7-point extrapolation of kδ (≈ iπ/2, slowly varying; integer weights, exact in E2),
+    // accepted only if Newton moves less than 1% of the component's size |s| (a different root of f^p(0) is at
+    // least ~|s| away), else rays again.  Output, as each family finishes: "name_k δre_hi δre_lo δim_hi δim_lo p
+    // |s|^2 |Λ| |β|" with δ = c + 3/4, s = 1/(β Λ²), Λ = Π_{i<p} 2 z_i, β = Σ_{i<p} 1/Π_{j≤i} 2 z_j.
     threads = atoi(argv[2]);
     struct Fam { string name, lo, hi; vector<int> ks; };
     vector<Fam> fams;
@@ -169,59 +214,72 @@ int main(int argc, char** argv) {
       std::sort(k.begin(), k.end());
       fams.push_back({name, lo, hi, k});
     }
-    vector<string> out(fams.size());
     std::atomic<int64_t> next(0), rays(0), failed(0);
+    std::mutex io;
     vector<std::thread> pool;
+    const auto delta = [](const Ce& c) { return Ce(c.r + E2(0.75), c.i); };
+    const auto to_c = [](const Ce& z) { return C(double(z.r), double(z.i)); };
     for (int t = 0; t < threads; t++)
       pool.emplace_back([&]() {
         for (int64_t n; (n = next.fetch_add(1)) < int64_t(fams.size());) {
           const auto& f = fams[n];
-          vector<C> cs;
-          vector<int> done;
+          std::set<int> want(f.ks.begin(), f.ks.end());
+          vector<Ce> kd;  // k δ for consecutive k
           string text;
-          for (const int k : f.ks) {
-            string pre;
-            for (int i = 1; i < k; i++) pre += "01";
+          string pre;
+          for (int i = 1; i < f.ks.front(); i++) pre += "01";
+          for (int k = f.ks.front(); k <= f.ks.back(); k++, pre += "01") {
             const string lo = pre + f.lo, hi = pre + f.hi;
             const int p = lo.size();
-            C c;
+            Center cen;
             bool ok = false;
-            const int m = cs.size();
-            if (m >= 3) {
-              // Lagrange extrapolation of u = 1/δ through the last three (k, u)
-              const double k0 = done[m-3], k1 = done[m-2], k2 = done[m-1];
-              const C u0 = 1.0 / (cs[m-3] + 0.75), u1 = 1.0 / (cs[m-2] + 0.75), u2 = 1.0 / (cs[m-1] + 0.75);
-              const double x = k;
-              const C u = u0 * ((x - k1) * (x - k2) / ((k0 - k1) * (k0 - k2))) +
-                          u1 * ((x - k0) * (x - k2) / ((k1 - k0) * (k1 - k2))) +
-                          u2 * ((x - k0) * (x - k1) / ((k2 - k0) * (k2 - k1)));
-              const C pred = 1.0 / u - 0.75;
-              c = pred;
-              ok = center(c, p) && std::abs(c - pred) < 0.05 * std::abs(cs[m-1] - cs[m-2]);
+            if (kd.size() >= 7) {
+              // Extrapolate w = kδ to k from k-1..k-7: w = Σ_{i=1}^7 (-1)^{i+1} C(7,i) w_{k-i}
+              static const int64_t binom[8] = {1, 7, 21, 35, 35, 21, 7, 1};
+              const size_t m = kd.size();
+              Ce w(E2(0.0), E2(0.0));
+              for (int i = 1; i <= 7; i++) {
+                const E2 b(i % 2 ? binom[i] : -binom[i]);
+                w = w + Ce(b * kd[m - i].r, b * kd[m - i].i);
+              }
+              // δ = w / k in double-double: d0 = w/k in double, then the residual's quotient
+              const auto div = [k](const E2 x) {
+                const double d0 = double(x) / k;
+                const E2 r = x - E2(int64_t(k)) * E2(d0);
+                return E2(d0) + E2(double(r) / k);
+              };
+              const Ce pred(div(w.r) - E2(0.75), div(w.i));
+              ok = center_e2(pred, p, cen, false) && std::abs(to_c(cen.c - pred)) < 1e-2 * std::sqrt(cen.s2);
             }
             if (!ok) {
               rays++;
-              C a = ray_in(lo, 2 * p + 4), b = ray_in(hi, 2 * p + 4);
-              const bool oka = center(a, p), okb = center(b, p);
-              ok = oka && okb && std::abs(a - b) < 1e-9 * std::abs(a + 0.75);
-              c = a;
+              Center a, b;
+              const auto seed = [](const C c) { return Ce(E2(c.real()), E2(c.imag())); };
+              const bool oka = center_e2(seed(ray_in(lo, 2 * p + 4)), p, a, true);
+              const bool okb = center_e2(seed(ray_in(hi, 2 * p + 4)), p, b, true);
+              ok = oka && okb && std::abs(to_c(a.c - b.c)) < 1e-3 * std::sqrt(a.s2);
+              cen = a;
             }
-            if (!ok) { failed++; fprintf(stderr, "%s_%d: failed\n", f.name.c_str(), k); continue; }
-            C z = 0, prod = 1, beta = 0;
-            for (int i = 1; i < p; i++) { z = z * z + c; prod *= 2.0 * z; beta += 1.0 / prod; }
-            const double s2 = 1 / std::norm(beta * prod * prod);
-            char line[512];
-            snprintf(line, sizeof(line), "%s_%d %.17g %.17g %d %.17g %.17g %.17g\n", f.name.c_str(), k, c.real(),
-                     c.imag(), p, s2, std::abs(prod), std::abs(beta));
-            text += line;
-            cs.push_back(c);
-            done.push_back(k);
+            if (!ok) {
+              failed++;
+              fprintf(stderr, "%s_%d: failed; stopping this family\n", f.name.c_str(), k);
+              break;
+            }
+            const Ce d = delta(cen.c);
+            kd.push_back(Ce(E2(int64_t(k)) * d.r, E2(int64_t(k)) * d.i));
+            if (want.count(k)) {
+              char line[512];
+              snprintf(line, sizeof(line), "%s_%d %.17g %.17g %.17g %.17g %d %.17g %.17g %.17g\n", f.name.c_str(), k,
+                       d.r.x[0], d.r.x[1], d.i.x[0], d.i.x[1], p, cen.s2, cen.lam, cen.beta);
+              text += line;
+            }
           }
-          out[n] = text;
+          std::lock_guard<std::mutex> lock(io);
+          fputs(text.c_str(), stdout);
+          fflush(stdout);
         }
       });
     for (auto& t : pool) t.join();
-    for (const auto& s : out) fputs(s.c_str(), stdout);
     fprintf(stderr, "limb_families size: %zu families, %lld ray pairs, %lld failed\n", fams.size(), (long long)rays,
             (long long)failed);
     return 0;
