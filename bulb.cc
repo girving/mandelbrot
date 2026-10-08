@@ -31,9 +31,11 @@ __host__ __device__ static inline Ce to_e(const Cd z) { return Ce(E2(z.r), E2(z.
 __host__ __device__ static inline Cd to_d(const Ce z) { return Cd(double(z.r), double(z.i)); }
 
 // One Newton step for (z, c): f^n(z) = z, (f^n)'(z) = mu with f(x) = x² + s x + c.  Returns |dz| + |dc| (double
-// norms) and sets dcdmu = c'(μ).
+// norms) and sets dzdmu = z'(μ), dcdmu = c'(μ) (at the input point: J (z', c') = (0, 1) gives c' = a/det,
+// z' = -b/det).
 template<class S> __host__ __device__ static double newton_step(const int n, const int shift, const Complex<S> mu,
-                                                                Complex<S>& z, Complex<S>& c, Complex<S>& dcdmu) {
+                                                                Complex<S>& z, Complex<S>& c, Complex<S>& dzdmu,
+                                                                Complex<S>& dcdmu) {
   typedef Complex<S> C;
   const C s(shift), one(1);
   C x = z, xz(1), xc(0), xzz(0), xzc(0);
@@ -49,27 +51,57 @@ template<class S> __host__ __device__ static double newton_step(const int n, con
   const C dz = cdiv(F1 * e - b * F2, det), dc = cdiv(a * F2 - d * F1, det);
   z -= dz; c -= dc;
   dcdmu = cdiv(a, det);
+  dzdmu = -cdiv(b, det);
   const Cd dzd(double(dz.r), double(dz.i)), dcd(double(dc.r), double(dc.i));
   return cabs(dzd) + cabs(dcd);
 }
 
-// Newton in double to convergence; false if it diverges or stalls above accept
-__host__ __device__ static bool solve(const int n, const int shift, const Cd mu, Cd& z, Cd& c, Cd& dcdmu,
-                                      const double accept) {
+// Newton in double to convergence (at most iters steps); false if it diverges or stalls above accept
+__host__ __device__ static bool solve(const int n, const int shift, const Cd mu, Cd& z, Cd& c, Cd& dzdmu,
+                                      Cd& dcdmu, const double accept, const int iters = 40) {
   double last = INFINITY;
-  for (int it = 0; it < 40; it++) {
-    last = newton_step(n, shift, mu, z, c, dcdmu);
+  for (int it = 0; it < iters; it++) {
+    last = newton_step(n, shift, mu, z, c, dzdmu, dcdmu);
     if (!(last < 1)) return false;
     if (last < 1e-15 * (1 + cabs(c))) return true;
   }
   return last < accept;
 }
 
-// Continue radially from μ = 0 (z at the critical point, c at the center) to mu
-__host__ __device__ static bool radial(const int n, const int shift, const Cd mu, Cd& z, Cd& c, Cd& dcdmu,
+// Predictor-corrector continuation of (z, c) from mu0 to mu1: an Euler predictor along (z', c'), then at most 8
+// Newton steps; on failure, split the step (along the chord, projected to the circle if both ends are on it).
+// (z', c') are kept current at the final point.
+__host__ __device__ static bool track(const int n, const int shift, const Cd mu0, const Cd mu1, Cd& z, Cd& c, Cd& dz,
+                                      Cd& dc, const double accept) {
+  struct Seg { Cd a, b; };
+  Seg stack[24];
+  int top = 0;
+  stack[top++] = {mu0, mu1};
+  const bool circle = fabs(cabs(mu0) - 1) < 1e-12 && fabs(cabs(mu1) - 1) < 1e-12;
+  int work = 0;
+  while (top) {
+    const Seg sg = stack[--top];
+    const Cd d = sg.b - sg.a;
+    const Cd z0 = z, c0 = c, dz0 = dz, dc0 = dc;
+    z = z + dz * d; c = c + dc * d;
+    if (solve(n, shift, sg.b, z, c, dz, dc, accept, 8)) continue;
+    z = z0; c = c0; dz = dz0; dc = dc0;
+    if (top + 2 > 24 || ++work > 4096) return false;
+    Cd mid = scale(0.5, sg.a + sg.b);
+    if (circle) mid = scale(1 / cabs(mid), mid);
+    stack[top++] = {mid, sg.b};
+    stack[top++] = {sg.a, mid};
+  }
+  return true;
+}
+
+// Continue from μ = 0 (z at the critical point, c at the center) to mu, in `steps` initial pieces
+__host__ __device__ static bool radial(const int n, const int shift, const Cd mu, Cd& z, Cd& c, Cd& dz, Cd& dc,
                                        const int steps, const double accept) {
+  if (!solve(n, shift, Cd(0), z, c, dz, dc, accept)) return false;  // Derivatives at the center
   for (int s = 1; s <= steps; s++)
-    if (!solve(n, shift, scale(double(s) / steps, mu), z, c, dcdmu, accept)) return false;
+    if (!track(n, shift, scale(double(s - 1) / steps, mu), scale(double(s) / steps, mu), z, c, dz, dc, accept))
+      return false;
   return true;
 }
 
@@ -85,9 +117,9 @@ __host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* mu_
     cr = scale(0.5, l0) - scale(0.25, l0 * l0) - Cd(0.25, 0);
     dW = scale(0.5, Cd(1, 0) - l0);
   } else {
-    Cd zr = crit;
+    Cd zr = crit, dzr;
     cr = job.center;
-    if (!radial(job.P, shift, l0, zr, cr, dW, 128, p.accept)) return r;
+    if (!radial(job.P, shift, l0, zr, cr, dzr, dW, 16, p.accept)) return r;
   }
   // Child center: Newton on f^n(crit) = crit
   r.status = bulb_center;
@@ -125,25 +157,26 @@ __host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* mu_
   // Boundary: continuation in double, E polish at each point, Green's sum in E
   r.status = bulb_area;
   const int N = p.N;
-  Cd z = crit, cb = to_d(ce), dc;
-  if (!radial(n, shift, to_d(mu_e[0]), z, cb, dc, p.radial_steps, p.accept)) return r;
+  Cd z = crit, cb = to_d(ce), dz, dc;
+  if (!radial(n, shift, to_d(mu_e[0]), z, cb, dz, dc, p.radial_steps, p.accept)) return r;
   E2 sum(0.0), half_sum(0.0);
   for (int j = 0; j < N; j++) {
-    const Cd mu = to_d(mu_e[j]);
     if (j) {
-      const Cd prev = to_d(mu_e[j - 1]);
-      // Substeps along the chord from prev to mu, projected to the circle
+      // Along the circle from the previous point, in `substeps` initial pieces
       for (int s = 1; s <= p.substeps; s++) {
-        const double t = double(s) / p.substeps;
-        Cd m = prev + scale(t, mu - prev);
-        m = scale(1 / cabs(m), m);
-        if (!solve(n, shift, m, z, cb, dc, p.accept)) return r;
+        Cd a = to_d(mu_e[j - 1]) + scale(double(s - 1) / p.substeps, to_d(mu_e[j]) - to_d(mu_e[j - 1]));
+        Cd b = to_d(mu_e[j - 1]) + scale(double(s) / p.substeps, to_d(mu_e[j]) - to_d(mu_e[j - 1]));
+        a = scale(1 / cabs(a), a); b = scale(1 / cabs(b), b);
+        if (!track(n, shift, a, b, z, cb, dz, dc, p.accept)) return r;
       }
-    } else {
-      if (!solve(n, shift, mu, z, cb, dc, p.accept)) return r;
     }
-    Ce ze = to_e(z), cee = to_e(cb), dce;
-    for (int it = 0; it < p.polish; it++) newton_step(n, shift, mu_e[j], ze, cee, dce);
+    // E polish: one Newton step, and more (up to p.polish) only while steps are still large (near-parabolic bulbs,
+    // where the double solution stalls short of full precision)
+    Ce ze = to_e(z), cee = to_e(cb), dze, dce;
+    for (int it = 0; it < p.polish; it++) {
+      const double step = newton_step(n, shift, mu_e[j], ze, cee, dze, dce);
+      if (step < 1e-24 * (1 + cabs(cb))) break;
+    }
     const E2 t = (conj(cee - ce) * mu_e[j] * dce).r;
     sum = sum + t;
     if (j % 2 == 0) half_sum = half_sum + t;

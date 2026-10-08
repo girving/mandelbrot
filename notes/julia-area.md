@@ -548,3 +548,19 @@ So one automaton with K ≈ 100–150 should carry the whole satellite tree's ca
 ~1e-10.  The tree sum is then one matrix-Mayer resolvent, as designed above.  What remains is learning it stably:
 digit closure must see separator-visible directions, which by brute force means ~1e6 bulbs — the point where a GPU
 bulb_areas pays off.
+
+**GPU bulb areas** (`bulb.h`, `bulb.cc`, `analysis/bulb_batch.cc`, `bulb_test.cc`).  The bulb_areas algorithm as one
+`__host__ __device__` routine, one thread per bulb, jobs sorted by period; CPU threads or a CUDA kernel, bit-for-bit
+identical (|z| by sqrt rather than hypot, twiddles from the host, -ffp-contract=off).  Continuation is
+predictor-corrector (Euler along (z', c') = (−b, a)/det from the Newton Jacobian, then Newton, splitting the step
+on failure), and the Expansion<2> polish is adaptive (a second step only when the first still moves).  That is
+2.3× faster on the CPU than fixed 64 radial steps and 4 substeps (24k bulbs with q ≤ 400 in 3.2 s on the laptop).
+- Validation: π/16 for the 1/2 bulb to 1e-29.  An independent 50-digit Python computation of the 5/21 bulb
+  (8.96139057855149651874608981050830e-06) agrees with both this code and the old bulb_areas to ~1e-30.  Across all
+  24k bulbs with q ≤ 400 the two codes agree to median 6e-26, max 1.3e-23 (near-cusp bulbs, the N = 64 limit).
+- Correction: the earlier observation that the old tool's 3-step polish was "short by ~1e-16" was an artifact.  The
+  comparison built Decimals from printed %.17g strings of the high parts, which differ from the doubles by up to half
+  an ulp; exact conversion (Decimal(float(s))) removes it.  One polish step alone really does leave ~1e-16 on
+  near-parabolic bulbs.
+- H200 (first version, fixed continuation): 24k bulbs (q ≤ 400) in 1.3 s vs 12.2 s on the pod's 22 CPU threads;
+  152k (q ≤ 1000) in 9.0 s; 608k (q ≤ 2000) in 55 s; 304k children (q ≤ 1000) of the 1/3 bulb in 44 s.

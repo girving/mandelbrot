@@ -7,7 +7,8 @@
 //   area = 1/2 ∫ Re((c - c0)‾ μ c'(μ)) dθ
 // (relative to the center, against cancellation) is summed in Expansion<2> by the trapezoid rule, which is spectral
 // since c is analytic.  Cardioid parents use cusp coordinates ζ = z - 1/2, δ = c - 1/4 (ζ ↦ ζ² + ζ + δ), so bulbs
-// near the cusp keep full relative precision.  F = area q^4 / (π |c_W'(λ0)|^2) normalizes by the parent.
+// near the cusp keep full relative precision.  Continuation is predictor-corrector (Euler along (z', c'), then
+// Newton) with adaptive step splitting.  F = area q^4 / (π |c_W'(λ0)|^2) normalizes by the parent.
 //
 // Each job is one thread; the arithmetic is identical on CPU and GPU (no transcendentals on the device: twiddles
 // come from the host, and -ffp-contract=off), so their results agree bit for bit.
@@ -42,9 +43,9 @@ struct BulbResult {
 
 struct BulbParams {
   int N = 64;              // Boundary points
-  int radial_steps = 64;   // Continuation from the center to the first boundary point
-  int substeps = 4;        // Continuation substeps between boundary points
-  int polish = 2;          // Expansion<2> Newton steps per boundary point
+  int radial_steps = 4;    // Initial pieces from the center to the first boundary point (split adaptively)
+  int substeps = 1;        // Initial pieces between boundary points (split adaptively)
+  int polish = 3;          // Maximum Expansion<2> Newton steps per boundary point (adaptive)
   double accept = 1e-9;    // Final double Newton step accepted when roundoff stops it short of 1e-15
   bool cuda = false;
 };
