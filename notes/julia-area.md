@@ -387,3 +387,41 @@ resolvent of a matrix-valued Mayer operator (𝓛V)(x) = Σ_b (b+x)^-4 M(b, x) V
 nuclear when M is analytic, hence super-exponential.  The ± pair and γ ≈ 0.70, 1.04 are M's spectrum along periodic
 orbits.  Next: learn M (K = 2–4 modes, analytic in x) from bulbs on many short words, and test whether the resolvent
 reproduces the telescoped totals to many digits.
+
+**Bulb areas are a rational series** (`analysis/wfa/`).  The response Δ(a·w) = F(1/(a + x_w)) − F(x_w) over 12,231
+short words w (q ≤ 200) and front digits a = 1…10 is low-rank.  Its singular values are 109, 18, 8.2, 1.7, 0.066,
+7.5e-3, 6.8e-4, 5.9e-5, 2e-6, about ×10 per mode after the fourth (111k bulbs, 14 min, all converged).  A linear
+recursion c(b·w) = M(b, x_w)ᵀ c(w) on those coefficients fits only to 3e-3, uniformly in x_w and q_w, because the
+single-digit prefixes do not span a space closed under adding a digit.
+
+The right object is the Hankel matrix H[u, s] = F(u·s) over prefixes u and suffixes s.  If F is a weighted finite
+automaton over the digit alphabet, F(w) = αᵀ N(a1)⋯N(a_{k−1}) β(a_k), then H has finite rank (Fliess).
+- Singular values: 128 prefixes (q_u ≤ 14) × 1101 suffixes (q_s ≤ 60) give 470, 1.8, 0.49, 0.34, 0.18, 0.042, 0.028,
+  9e-3, 5.7e-3, 1.9e-3, 8.6e-4, …, 5.8e-5.  256 prefixes (q_u ≤ 20) resolve 28 of them, down to 2.7e-6: about ×0.5
+  per mode early, ×0.7 by mode 28.
+- Learning: spectral learning (N(b) = P[U_b]⁺ P[U_b·b]) gives an 8-state automaton that predicts F on held-out
+  long words up to q = 40000 with median error 2–3e-4.  With q_u ≤ 20 the best is 7.3e-5 at K = 10–12.  K is
+  capped by how few prefix rows stay in the set after appending a digit.
+- Large digits: first digits b ≤ 400 and last digits c ≤ 400 measured directly (7k bulbs; interior digits in the
+  hundreds need BULB_TOL = 1e-9).  This cut the error on F([n, 2]) from 8e-3 to 3e-5.
+
+**The automaton sums exactly.**  Build words by prepending digits.  Then
+
+  V(x) = π sin²(πx) α + Σ_b (b+x)^-4 N(b)ᵀ V(1/(b+x)),   S_model = Σ_c c^-4 β(c)ᵀ V(1/c),
+
+a matrix-valued Mayer operator (nuclear, solved by Chebyshev collocation).  As a control variate on the tail,
+S ≈ S_exact(Q) + S_model − S_model(Q).  From bulbs with q ≤ 200 alone (K = 8–10), the estimates for Q = 64…200 are
+0.29330126, 0.29330142, 0.29330146, 0.29330148, 0.29330149.  So the cardioid's bulbs total 0.2933015 ± ~1e-8.
+That is about 1000× better than direct truncation at q = 200 (error 1.5e-5) and 50× better than plain telescoping.
+(An earlier version that extrapolated the large digits looked flat at 0.29330159, but it was wrong on large first
+digits by 8e-3; its flatness was luck.)
+
+**Status.**  This is a dynamical → parameter result: near-parabolic renormalization makes bulb areas an
+approximately rational series on continued fraction digits, and Mayer's operator sums it.  The accuracy is set by
+the automaton's.  That accuracy improves with the Hankel block (2.1e-4 → 7.3e-5 when the prefix rows double), and the
+singular values decay geometrically, so the method could converge exponentially.  But that is not shown yet, and
+three things stand between this and many digits:
+1. learning that isn't capped by prefix closure: shifted Hankel blocks H_b[u, s] = F(u·b·s) computed directly;
+2. bulb data beyond double (Hankel singular values below ~1e-8 sit under the noise of 1e-11 bulb areas; hyperbolic's
+   Expansion<2> polish would do);
+3. the rest of the satellite tree: the parent-word dependence suggests an automaton over words of words, untested.
