@@ -112,19 +112,18 @@ vector<int> maximal_tuning(const vector<Root>& roots) {
   return parent;
 }
 
-vector<Root> lavaurs(const int max_period) {
-  slow_assert(max_period <= 24, "lavaurs: max_period %d too large", max_period);
-  // All angles of exact period 2..max_period, sorted exactly by value
-  vector<Periodic> all;
-  for (int p = 2; p <= max_period; p++) {
-    const uint64_t M = (uint64_t(1) << p) - 1;
-    for (uint64_t k = 1; k < M; k++) {
-      bool exact = true;
-      for (int d = 1; d < p && exact; d++)
-        if (p % d == 0 && k % (M / ((uint64_t(1) << d) - 1)) == 0) exact = false;
-      if (exact) all.push_back(Periodic{k, p});
-    }
-  }
+namespace {
+
+bool exact_period(const uint64_t k, const int p) {
+  const uint64_t M = (uint64_t(1) << p) - 1;
+  for (int d = 1; d < p; d++)
+    if (p % d == 0 && k % (M / ((uint64_t(1) << d) - 1)) == 0) return false;
+  return true;
+}
+
+// Lavaurs' pairing of the given angles (all of exact period ≤ max_period in an arc whose chords pair among
+// themselves), sorted here
+vector<Root> lavaurs_pair(vector<Periodic> all, const int max_period) {
   std::sort(all.begin(), all.end(), [](const Periodic& a, const Periodic& b) {
     return a.k * ((uint64_t(1) << b.q) - 1) < b.k * ((uint64_t(1) << a.q) - 1);
   });
@@ -174,6 +173,32 @@ vector<Root> lavaurs(const int max_period) {
     }
   }
   return roots;
+}
+
+}  // namespace
+
+vector<Root> lavaurs(const int max_period) {
+  slow_assert(max_period <= 24, "lavaurs: max_period %d too large", max_period);
+  // All angles of exact period 2..max_period
+  vector<Periodic> all;
+  for (int p = 2; p <= max_period; p++)
+    for (uint64_t k = 1; k < (uint64_t(1) << p) - 1; k++)
+      if (exact_period(k, p)) all.push_back(Periodic{k, p});
+  return lavaurs_pair(std::move(all), max_period);
+}
+
+vector<Root> lavaurs(const int max_period, const Wake& within) {
+  const int q = within.lo.q;
+  slow_assert(within.hi.q == q && max_period <= 29 && q <= max_period, "lavaurs: bad period %d or wake", max_period);
+  // Angles of exact period q..max_period in [lo, hi]: k/M ≥ lo.k/Q iff k Q ≥ lo.k M (Q = 2^q - 1)
+  const uint64_t Q = (uint64_t(1) << q) - 1;
+  vector<Periodic> all;
+  for (int p = q; p <= max_period; p++) {
+    const uint64_t M = (uint64_t(1) << p) - 1;
+    for (uint64_t k = (within.lo.k * M + Q - 1) / Q; k * Q <= within.hi.k * M; k++)
+      if (exact_period(k, p)) all.push_back(Periodic{k, p});
+  }
+  return lavaurs_pair(std::move(all), max_period);
 }
 
 vector<int32_t> wake_owner(const vector<Root>& roots, const int64_t n) {

@@ -50,6 +50,11 @@ struct Root {
 };
 std::vector<Root> lavaurs(const int max_period);
 
+// The roots inside a wake (its own root included), by the same pairing restricted to the angles in [lo, hi].  Rays
+// in a wake pair among themselves and the wake's period is the least inside it, so these are exactly the roots of
+// lavaurs(max_period) inside; restricting allows max_period up to 29.
+std::vector<Root> lavaurs(const int max_period, const Wake& within);
+
 // Maximal tuning of each root: the index of the root W0 of smallest period d (1 < d < p) whose copy contains
 // it, i.e. both of its angles' p-bit words are concatenations of W0's two d-bit words, or -1 if the root is
 // non-renormalizable.  W0 is itself non-renormalizable (a smaller copy containing it would contain the root).
