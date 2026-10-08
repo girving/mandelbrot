@@ -658,3 +658,28 @@ the components of M_L, and C_w ∝ their σ-areas.  This turns the p^-3 copy tai
 itself a Mandelbrot-like set, presumably with its own tree/automaton), multi-pass words (several gate visits),
 complex families (seahorse valley at satellite roots), and cusps of every primitive (the automaton must carry
 σ-profiles per node).
+
+**Seahorse-valley families at −3/4: a(k) = C_w k^-4 (1 + clean 1/k series), copies converge too**
+(`analysis/copies/seahorse.py`, `seahorse_fit.py`).  In the cardioid limb k/(2k+1) (wake words (01)^{k-1}001 /
+(01)^{k-1}010) the period ≤ 16 catalog shows primitive families continuing in k: S1 = (01)^{k-1}00101/00110 (period
+2k+3, the limb's largest primitive), S2 = (01)^k 0011 / (01)^{k-1}0100 (2k+2), S3 = (01)^k 0001/0010 (2k+4).
+Centers by complex Newton from an extrapolation of 1/δ (δ = c + 3/4), continuity-checked; k = 2..120 (periods to
+244, |δ| down to 0.013), 357 components in 0.1 s, plus 1785 children (q ≤ 4) in 2.7 s, no failures.  The
+continuation reproduces the catalog at k = 5, 6 (not seeds).
+- δ ≈ iπ/(2k + σ): the phase σ(k) = iπ/δ − 2k converges like b/k (Δσ ≈ b/k², b = 1.5, 4.3, 4.0), with no
+  log k drift (a log term would make k Δσ tend to a constant; it is < 1e-4).  σ_S1 = 0.640840091 + 1.086990138i,
+  σ_S2 = 1.570476147 + 0.439279045i, σ_S3 = 1.732522820 + 0.377716461i.
+- area ∝ |dδ/dk|² ∝ k^-4: C = lim a k^4 = 1.72497406351e-3, 2.70222138515e-5, 1.31521485164e-5 (Neville, 11–12
+  digits).  Unlike the cusp, the 1/k term of a|2k+σ|^4 does not vanish (relative +1.8, −3.5, +4.3), but the 1/k
+  series is clean.  Family sums (k ≥ 2): 1.835358844693e-5, 6.712399003378e-6, 5.638923883294e-6, with tails beyond
+  k = 120 of 3.3e-10, 5.0e-12, 2.5e-12 taken from the expansion.
+- Copies: child/parent area ratios converge to 10–12 digits (S1: 1/2 0.1611239094, 1/3 0.0385247154, 2/3
+  0.0150451474, 1/4 0.0086550192, 3/4 0.0029873262).  The limit copies are strongly non-conformal (S1's 1/3 and
+  2/3 children differ by a factor 2.6; M's are equal), so each family carries its own limit tree.
+Parameter-space picture, now for both kinds of parabolic point: near a root (multiplier e^{2πip/q}, here −1) the
+limbs k/(2k+1) and their decorations are the image of a σ-plane Lavaurs set under δ = iπ/(2k + σ) (Jacobian ∝ k^-4);
+near a primitive cusp, of a σ-periodic set under d = π²/(a(k+σ)²) (Jacobian ∝ k^-6).  Either way each Lavaurs
+component w gives a family whose areas and copy trees have clean 1/k expansions with limits to ~11 digits from
+k ≤ 120.  For the satellite automaton, k is the large CF digit ([0; 2, k] here), so per-node copy totals should get
+the same large-digit treatment as F.  Open: the sum over w (its decay with the family's extra period j, which
+needs limb catalogs past period 16, e.g. lavaurs() to 24), and joining the families to the automaton.
