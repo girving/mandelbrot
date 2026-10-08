@@ -532,3 +532,19 @@ copy bulbs universal to 2e-4).
   brute force is ~2M bulbs.  Next: a better representation rather than more data.  Candidates: per-context
   coefficients on ~40 context directions, read from ~40 children each, with their own fading-memory model in r1; or
   a physically motivated context state (the parent's multiplier-map jet and the near-parabolic germ at its root).
+
+**The cascade is effectively linear** (`analysis/tree/cascade_rank.py`, `context_rank.py`, `depth_saturation.py`;
+about 130k small bulbs, minutes on the laptop).  Products of per-level automaton outputs would need tensor-power
+states unless the cumulative area has low rank.  It does, nearly.
+- The context map's rank (`context_rank.py`, rows: 91 prefixes u of a cardioid-level parent word; columns (s, r2)).
+  For a single child r2, the child factor λ(u·s; r2) q2^4 has rank 34–39 at 1e-10, like the parent's own F (31).
+  For all 21 children together it is 77: about 2.5× the scalar rank, not 21×.
+- Depth (`depth_saturation.py`, 155 rows q_u ≤ 16): the cumulative area without q's over (s, r2) has rank 15 / 36 / 61
+  / 86 at 1e-4 / 1e-6 / 1e-8 / 1e-10; over (s, r2, r3), 17 / 38 / 74 / 111.  A third level adds +2, +13, +25 rather
+  than multiplying, and context fades ~20× per level, so the rank should saturate.
+- At depth 2 → 3 with context rows (`cascade_rank.py`): ranks 37 (F), 39 (G2), ≥ 92 (G3, capped by 121 rows), the growth
+  coming from the next level's dependence on the parent word.
+So one automaton with K ≈ 100–150 should carry the whole satellite tree's cascade (scale and context together) to
+~1e-10.  The tree sum is then one matrix-Mayer resolvent, as designed above.  What remains is learning it stably:
+digit closure must see separator-visible directions, which by brute force means ~1e6 bulbs — the point where a GPU
+bulb_areas pays off.

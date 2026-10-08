@@ -49,8 +49,10 @@ def read(path):
     for line in open(path):
         t = line.split()
         if t[2] != 'failed':
-            f = float(t[5]) + (float(t[10]) if len(t) == 11 else 0.0)  # Double-double low part
-            out[Fraction(int(t[0]), int(t[1]))] = (f, t[2], t[3])
+            lo = len(t) == 11  # Double-double low parts
+            f = float(t[5]) + (float(t[10]) if lo else 0.0)
+            area = float(t[4]) + (float(t[9]) if lo else 0.0)
+            out[Fraction(int(t[0]), int(t[1]))] = (f, t[2], t[3], area)
     return out
 
 class Store:
@@ -62,7 +64,7 @@ class Store:
             if os.path.exists(p):
                 for x, v in read(p).items():
                     root[x] = v
-                    if 1 - x not in root: root[1 - x] = (v[0], v[1], repr(-float(v[2])))
+                    if 1 - x not in root: root[1 - x] = (v[0], v[1], repr(-float(v[2])), v[3])
         self.kids[()] = root
         self.wanted = {}
 
@@ -78,6 +80,13 @@ class Store:
         for a in (canonical(addr), mirror(canonical(addr))):
             v = self.load(a[:-1]).get(a[-1])
             if v: return v[0]
+        return None
+
+    def A(self, addr):
+        """Area of the bulb at an address (conjugate symmetry as in F)"""
+        for a in (canonical(addr), mirror(canonical(addr))):
+            v = self.load(a[:-1]).get(a[-1])
+            if v: return v[3]
         return None
 
     def request(self, addrs):
