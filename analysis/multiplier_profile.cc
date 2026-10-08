@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
   const int64_t S = int64_t(1) << atoi(argv[4]), max_iter = int64_t(1) << atoi(argv[5]);
   const C lam0 = std::polar(1.0, 2 * M_PI * pp / q);
   const double rho0 = 0.125;
-  const int bins = 16;
+  const int bins = 12;  // Down to ρ0 2^-12: escape times there (~2πP/(qρ)) stay well below max_iter
   // The root: explicit for P = 1, 2; else continue from the center (λ = 0, z = 0) to λ0
   C zr = 0, cr = 0;
   if (P == 1) cr = lam0 / 2.0 - lam0 * lam0 / 4.0;
