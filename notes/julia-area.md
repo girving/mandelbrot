@@ -467,3 +467,27 @@ if each level's factors are automaton-representable, the tree sum is still one l
 Plan: the subtree totals satisfy a linear fixed point τ(node) = 1 + Σ_children (A_child/A_node) τ(child).  With
 the per-level factors as automata (digits, separator) times analytic profiles, that is a resolvent of one
 matrix-Mayer operator for the whole satellite tree; the primitive copies (0.08%) enter through tuning.
+- Context fades across levels about 20× per level.  Depth-3 bulbs (grandparents 1/2, 1/3, 2/5, 1/4, 3/7; parents
+  1/2, 1/3, 2/5 of those; children q3 ≤ 20): at fixed parent, the grandparent changes F(r1, r2; r3) by median 5e-4
+  (max 1e-2, at the smallest child words); at fixed grandparent, the parent changes it by 1.1e-2 (max 0.15).  Child
+  profiles depend on the grandparent at 2e-4 of their size.
+- Context is more than a new start vector.  Fitting F(r1; r2) = α(r1)ᵀ N(r2) β with the cardioid level's N, β and
+  a free α per parent leaves 1e-3 in-sample and 3–5e-2 held out: near the parent's root the grandparent's parabolic
+  point adds directions the root-level automaton never needed.  So the automaton has to be learned jointly over
+  digits and the separator (`analysis/tree/`: gen.py, run.sh, learn.py).
+- The full per-level cascade factor is low-rank across the separator.  λ(r1; r2) q2^4 = A(r1, r2) q2^4 / A(r1), which
+  includes the parent's derivative profile, over 40 parents × 276 children has singular values (relative) 1, 0.1,
+  0.04, 0.01, 5e-3, 1e-3, 7e-4, 3e-4, …, 6e-7 at mode 20: about ×0.5 per mode, like the within-level Hankel.
+
+**Design for the tree sum (linear despite the multiplicative cascade).**  Per-level normalized factors (F and the
+profile Ω) multiply along a path, so a model that makes each of them a linear functional of an automaton state would
+need tensor-power states.  The way out is to make the cascade factor itself the linear object.  A node α carries a
+K-dimensional context vector c(α), scale included, with each child's area linear in it:
+A(α·r) q_r^4 = c(α)ᵀ f(r), and c(α·r) = c(α)ᵀ E(r).  The rank above says K ≈ 40 for 1e-12.  E(r) and f(r) are
+functions of the child word r: analytic in x_r (profile) times rational in r's digits (F).  Read right to left as in
+Mayer's recursion, the analytic factor is applied when a level's word is complete (x = x_r) and the digits through
+matrices N(b).  So
+  Σ_tree A = (3π/8) + Σ_{r1} q1^-4 c(r1)ᵀ Z,   Z = (I − Ē)^-1 f̄,   Ē = Σ_r q_r^-4 E(r),   f̄ = Σ_r q_r^-4 f(r),
+with Ē and f̄ matrix-valued Mayer sums over all words.  Physically c(α) is a finite-dimensional proxy for the
+derivative kernel c_α'(μ) conj(c_α'(ν)): children's areas are linear functionals of it, and children's kernels are
+linear transforms of it (by composition with the child's multiplier map).
