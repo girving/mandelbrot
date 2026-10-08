@@ -13,6 +13,9 @@
 // multiplier coordinate.
 // For the cardioid (P = 1) it works in cusp coordinates ζ = z - 1/2, δ = c - 1/4, where bulbs near c = 1/4 keep
 // full relative precision (in c itself, a bulb of radius 1e-9 near 0.25 loses most of its digits).
+// Failures print the stage ("failed parent/center/period/area").  $BULB_TOL (default 1e-11) is the final Newton
+// step accepted when roundoff stops it short of 1e-15: bulbs with large interior digits (hundreds of near-parabolic
+// passes per cycle) need 1e-9.  $BULB_STEPS, $BULB_SUBSTEPS set the continuation steps (64, 4).
 //   ./build/release/bulb_areas P c_re c_im N < list
 // reads lines "p q" and prints "p q center_re center_im area F |c_W'|^2 (2N - N)/area root_err/size".  The
 // parent's (c_re, c_im) is its center (0 0 for the cardioid).  CPU threads: $MANDELBROT_THREADS.
@@ -29,6 +32,10 @@ typedef std::complex<double> Cx;
 // the cardioid's bulbs, where ζ ↦ ζ^2 + ζ + δ keeps full relative precision in bulbs near the cusp (tiny δ and
 // orbits lingering near ζ = 0).  The critical point is x = -s/2.
 static double shift = 0;
+// Continuation steps: radial to the boundary, and substeps between boundary points ($BULB_STEPS, $BULB_SUBSTEPS)
+static int radial_steps = 64, substeps = 4;
+// Newton accepts a final step below this when it can't reach 1e-15 ($BULB_TOL)
+static double accept = 1e-11;
 
 // Newton for (z, c) with f_c^n(z) = z, (f_c^n)'(z) = mu; also returns dc/dμ.  True if converged.
 static bool solve(const int n, const Cx mu, Cx& z, Cx& c, Cx* dcdmu = nullptr) {
@@ -51,7 +58,7 @@ static bool solve(const int n, const Cx mu, Cx& z, Cx& c, Cx* dcdmu = nullptr) {
     if (!(last < 1)) return false;
     if (last < 1e-15 * (1 + std::abs(c))) return true;
   }
-  return last < 1e-11;
+  return last < accept;  // Roundoff limits the final steps (near-parabolic passes amplify it)
 }
 
 // Continue (z, c) radially from μ = 0 (z at the critical point, c at the center) to mu
@@ -64,7 +71,7 @@ static bool radial(const int n, const Cx mu, Cx& z, Cx& c, const int steps, Cx* 
 // Area of the period n component with center c0, at N boundary points
 static double area(const int n, const Cx c0, const int N, bool& ok) {
   Cx z = -shift / 2, c = c0;
-  ok = radial(n, std::polar(1.0, M_PI / N), z, c, 64);
+  ok = radial(n, std::polar(1.0, M_PI / N), z, c, radial_steps);
   double sum = 0;
   for (int j = 0; j < N && ok; j++) {
     const Cx mu = std::polar(1.0, M_PI * (2 * j + 1) / N);
@@ -72,7 +79,8 @@ static double area(const int n, const Cx c0, const int N, bool& ok) {
     // March around the circle in substeps
     if (j) {
       const Cx prev = std::polar(1.0, M_PI * (2 * j - 1) / N);
-      for (int s = 1; s <= 4 && ok; s++) ok = solve(n, prev * std::polar(1.0, 2 * M_PI * s / (4.0 * N)), z, c);
+      for (int s = 1; s <= substeps && ok; s++)
+        ok = solve(n, prev * std::polar(1.0, 2 * M_PI * s / (double(substeps) * N)), z, c);
     }
     ok = ok && solve(n, mu, z, c, &dc);
     sum += (std::conj(c - c0) * mu * dc).real();  // Relative to the center: bulbs are tiny
@@ -83,6 +91,9 @@ static double area(const int n, const Cx c0, const int N, bool& ok) {
 int main(int argc, char** argv) {
   if (argc < 5) { fprintf(stderr, "usage: bulb_areas P c_re c_im N < list\n"); return 1; }
   const int P = atoi(argv[1]), N = atoi(argv[4]);
+  if (getenv("BULB_STEPS")) radial_steps = atoi(getenv("BULB_STEPS"));
+  if (getenv("BULB_SUBSTEPS")) substeps = atoi(getenv("BULB_SUBSTEPS"));
+  if (getenv("BULB_TOL")) accept = atof(getenv("BULB_TOL"));
   Cx center(atof(argv[2]), atof(argv[3]));
   if (P == 1) {  // Cusp coordinates for the cardioid
     shift = 1;
@@ -92,7 +103,7 @@ int main(int argc, char** argv) {
   std::vector<std::pair<int, int>> jobs;
   int p, q;
   while (scanf("%d %d", &p, &q) == 2) jobs.push_back({p, q});
-  struct Out { Cx cc; double A, F, w, conv, root_err; bool ok; };
+  struct Out { Cx cc; double A, F, w, conv, root_err; bool ok; const char* why; };
   std::vector<Out> out(jobs.size());
   std::atomic<size_t> next(0);
   const char* te = getenv("MANDELBROT_THREADS");
@@ -104,6 +115,7 @@ int main(int argc, char** argv) {
         const int p = jobs[i].first, q = jobs[i].second, n = q * P;
         Out& o = out[i];
         o.ok = false;
+        o.why = "parent";
         const Cx l0 = std::polar(1.0, 2 * M_PI * p / q);
         Cx zr = crit, cr = center, dW;
         if (!radial(P, l0, zr, cr, 128, &dW)) continue;
@@ -118,6 +130,7 @@ int main(int argc, char** argv) {
           conv = std::abs(step) < 1e-16 * (1 + std::abs(c));
           if (!(std::abs(step) < 1)) break;
         }
+        o.why = "center";
         if (!conv) continue;
         bool exact = true;
         Cx x = crit;
@@ -125,6 +138,7 @@ int main(int argc, char** argv) {
           x = x * x + shift * x + c;
           if (n % k == 0 && std::abs(x - crit) < 1e-8) exact = false;
         }
+        o.why = "period";
         if (!exact) continue;
         // Root check: continue the child's own multiplier to 1 - 1e-4 (closer, the system degenerates)
         Cx zc = crit, cc = c;
@@ -132,6 +146,7 @@ int main(int argc, char** argv) {
         o.root_err = radial(n, 1 - 1e-4, zc, cc, 128) ? std::abs(cc - cr) / size : INFINITY;
         bool ok1, ok2;
         const double A1 = area(n, c, N, ok1), A2 = area(n, c, 2 * N, ok2);
+        o.why = "area";
         if (!ok1 || !ok2) continue;
         o.cc = c + 0.25 * shift; o.A = A2; o.w = std::norm(dW);
         o.F = A2 * double(q) * q * q * q / (M_PI * o.w);
@@ -146,6 +161,6 @@ int main(int argc, char** argv) {
       printf("%d %d %.17g %.17g %.17g %.15f %.17g %.1e %.1e\n", jobs[i].first, jobs[i].second, o.cc.real(),
              o.cc.imag(), o.A, o.F, o.w, o.conv, o.root_err);
     else
-      printf("%d %d failed\n", jobs[i].first, jobs[i].second);
+      printf("%d %d failed %s\n", jobs[i].first, jobs[i].second, o.why);
   }
 }
