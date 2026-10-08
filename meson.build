@@ -145,7 +145,7 @@ executable('bulb_batch', ['analysis/bulb_batch.cc', 'bulb.cc', 'engine.cc'], dep
 executable('bulb_areas', ['analysis/bulb_areas.cc'], dependencies: [area])
 executable('satellite_tree', ['analysis/satellite_tree.cc'])
 executable('family_owner', ['analysis/family_owner.cc', 'engine.cc'], dependencies: [base])
-executable('limb_families', ['analysis/limb_families.cc'], dependencies: [base])
+executable('limb_families', ['analysis/limb_families.cc'], dependencies: [base, area])
 executable('orbit_bench', ['orbit_bench.cc', 'engine.cc'], dependencies: [base])
 executable('orbit_census', ['orbit_census.cc', 'engine.cc', 'escape.cc'], dependencies: [base])
 executable('orbit_regimes', ['orbit_regimes.cc', 'engine.cc', 'escape.cc'], dependencies: [base])
