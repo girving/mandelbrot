@@ -282,3 +282,53 @@ calibrated profiles g_q times an explicit sum over roots.  Open: g_q(μ0) for la
 q = 5 … 8), the residual 12–20% in gates beyond period 8 (children of bulbs and copies, each a family with its own
 A_r), and turning an accurate tail model into μ(M) (μ(M) = area(n) − T(n), so a 1% model of T(n) only buys a
 factor 100 over raw escape counting at the same n).
+
+## Renormalization cascade over the component tree
+
+Every flat truncation of μ(M) converges algebraically: escape time 1/n, Böttcher terms 1/log N, components by
+period P^-2 at cost 2^P (each family term of the family expansion is A P g_q / n).  The exponential convergence for
+K(c) came from an operator with a spectral gap; in parameter space the operators that contract are renormalization
+operators.  Assume, as the CI already does, that μ(M) = Σ_W area(W) (density of hyperbolicity and μ(∂M) = 0), and
+organize the components as a tree.  The question: is each child's area (parent's multiplier data) × (a universal
+function of the combinatorics with fading memory)?  Tools: `analysis/bulb_areas` (exact satellite bulb areas of any
+parent: Newton to the child's center, then the boundary by continuation, then Green's theorem relative to the
+center), `analysis/satellite_tree`, `analysis/bulb_cascade.py`; results in `analysis/results/bulb-cascade.log`.
+
+**The satellite tree is nearly everything.**  Of the hyperbolic area through period 16 (1.4987444), the components
+reached from the cardioid by satellite bifurcations alone hold 99.92%, and primitive copies hold 0.079% (2% of the
+period-16 area, growing slowly).
+
+**Bulb areas have fading memory.**  Normalize the cardioid's p/q bulb as F = area q^4 / (π sin^2(πp/q))
+(|c'(λ0)|^2 = sin^2(πp/q)).  F ∈ [1.04, 1.33] is not a smooth function of p/q (63/127: 1.073; 63/128: 1.241); it is a
+function of the continued fraction, dominated by the last digits.  Fix the last L digits and vary the first one over
+1, 2, 3, 5, 10.  The spread falls geometrically, about 0.53 per added digit 1 and 0.30 per added digit 2, i.e. like
+q_suffix^-1.3 (−1.27, −1.31, −1.35 for three digit patterns).  The prefix dependence factorizes,
+δF ≈ c(suffix) φ(a1), with φ's shape converging in L.  Large final digits have clean expansions,
+F([2, n]) ≈ 1.060 + 0.84/n.  All this matches near-parabolic renormalization (Inou–Shishikura): the operator acts on
+rotation numbers by the Gauss map and contracts, so outer levels are forgotten.  Equivalently, F(p/q) ≈ Ψ(y) for
+y = (p^-1 mod q)/q = [0; a_k, …, a_1], the reversed continued fraction, with Ψ continuous.  At q ≥ 100 the spread of
+F within bins of y is 0.011, against 0.17 in bins of p/q.  Prepending a digit moves y by O(q^-2), and Ψ is Hölder
+with exponent about 0.65, which explains the q^-1.3 fading.
+
+**Context is carried by the combinatorics.**  Bulbs of other parents, normalized by the parent's |c_W'(λ0)|^2 and
+divided by the cardioid's F: away from the parent's root (p/q ∈ [1/4, 3/4], q ≥ 20) R = 1 within 0.06–0.25%
+(median).  Near the parent's root (child 1/n) R dips to 0.90–0.96, with a profile set by the parent's own rotation
+number.  Three parents attached at 1/2 (the period-2 disk, its 1/2 child at −1.31, the 1/3 bulb's 1/2 child) give
+R(1/n) = 0.9466/0.9500/0.9505, 0.9348/0.9359/0.9356, 0.9473/0.9474/0.9472, 0.9623/0.9622/0.9622 at n = 5, 10, 20, 40.
+Parents at 1/3, 1/4 and 2/5 each have their own profile.  The airplane copy's bulbs match the cardioid's to 2e-4
+(primitive parents straighten almost conformally).
+
+**But one level does not sum exponentially.**  The cardioid's bulbs total 0.291067, 0.292753, 0.293159, 0.293266
+through q = 16, 32, 64, 128 (truncation error ~Q^-2).  The sum weighs F against sin^2(πp/q), and p^-1 is
+decorrelated from p (Kloosterman cancellation), so only the per-q average F̄(q) matters.  F̄(q) drifts smoothly
+(≈ 1.276 − 0.32 q^-0.54) but fluctuates arithmetically by about ±0.007 even over primes.  A drift model fitted on q ≤ 64
+predicts the exact Σ_{64<q≤128} to 0.5%, cutting the truncation error 200× (1.1e-4 → 5.6e-7), but the rate stays
+Q^-2.  An exponential method would need the sum over continued fraction words as a transfer-operator problem (Mayer's
+operator for q^-4 weights is nuclear, so it converges super-exponentially for analytic weights).  But Ψ is only
+Hölder, so that would also be algebraic unless the fading has its own spectral expansion (corrections q^-1.3, q^-2.6,
+…, each with a factorized eigenfunction).  The factorized shape of δF hints at that, but it is untested.
+
+Parameter-space reading: near-parabolic renormalization is a dynamical-space operator with a hyperbolic fixed point,
+and parameter-space bulb areas inherit its contraction (fading memory in the Gauss map) and its context dependence
+(the parent's word).  That is the dynamical → parameter transfer working.  Whether it yields an exponentially
+convergent μ(M) depends on the spectral structure of the fading.

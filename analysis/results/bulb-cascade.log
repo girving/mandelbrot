@@ -1,0 +1,78 @@
+# Renormalization cascade: satellite bulb areas (analysis/bulb_areas, analysis/satellite_tree, analysis/bulb_cascade.py)
+# local, 10 threads; lists from 'bulb_cascade.py lists DIR'; e.g. bulb_areas 1 0 0 64 < all128.txt > card.out
+
+=== ./build/release/hyperbolic 16 256 1 comp16.txt; ./build/release/satellite_tree comp16.txt
+period  components  total area       satellite tree   in copies        unresolved  (copy area by ancestor period)
+   1         1     1.1780972451e+00  1.1780972451e+00  0.0000000000e+00  0   
+   2         1     1.9634954085e-01  1.9634954085e-01  0.0000000000e+00  0   
+   3         3     5.6542418128e-02  5.6136003481e-02  4.0641464714e-04  0    3:4.06e-04
+   4         6     2.3275137696e-02  2.3110028210e-02  1.6510948678e-04  0    4:1.65e-04
+   5        15     1.3115067479e-02  1.2992692500e-02  1.2237497851e-04  0    5:1.22e-04
+   6        27     8.9347905312e-03  8.8076142357e-03  1.2717629554e-04  0    3:5.93e-05 6:6.78e-05
+   7        63     5.0579290707e-03  5.0047754641e-03  5.3153606685e-05  0    7:5.32e-05
+   8       120     4.4680135380e-03  4.4014763576e-03  6.6537180433e-05  0    4:2.47e-05 8:4.18e-05
+   9       252     2.9364313950e-03  2.8831272370e-03  5.3304157961e-05  0    3:1.89e-05 9:3.44e-05
+  10       495     2.6609263169e-03  2.6184118556e-03  4.2514461345e-05  0    5:1.92e-05 10:2.33e-05
+  11      1023     1.3827991289e-03  1.3638336171e-03  1.8965511733e-05  0    11:1.90e-05
+  12      2010     2.1014399159e-03  2.0521144592e-03  4.9323490794e-05  4    3:7.69e-06 4:7.80e-06 6:1.03e-05 12:2.36e-05
+  13      4095     8.5107478580e-04  8.3934557042e-04  1.1729215380e-05  0    13:1.17e-05
+  14      8127     1.1339223204e-03  1.1140505370e-03  1.9866030230e-05  14    7:8.72e-06 14:1.11e-05
+  15     16365     9.4487534275e-04  9.2006830762e-04  2.4806845660e-05  2    3:4.36e-06 5:5.87e-06 15:1.46e-05
+  16     32640     8.9281235305e-04  8.7327114019e-04  1.9526625713e-05  54    4:3.16e-06 8:6.58e-06 16:9.79e-06
+total   1.498744423947  satellite tree 1.497563598917 (99.9212%)  copies 0.001180802534 (0.0788%)
+
+=== bulb_cascade.py fade (bulb_areas 1 0 0 128 < fade.txt)
+suffix family, L: spread of F over first digits [1, 2, 3, 5, 10], mean, shape (F(a)-F(10))/(F(1)-F(10)) for a = 2,3,5
+  ones L= 0  spread 2.59e-01  mean 1.10085019  shape 0.7109 0.4674 0.1994
+  ones L= 1  spread 2.21e-01  mean 1.16676018  shape 0.6006 0.3727 0.1527
+  ones L= 2  spread 1.73e-01  mean 1.23126555  shape 0.5494 0.3304 0.1337
+  ones L= 3  spread 1.08e-01  mean 1.27212111  shape 0.5133 0.2990 0.1176
+  ones L= 4  spread 6.63e-02  mean 1.29949198  shape 0.4983 0.2883 0.1138
+  ones L= 5  spread 3.66e-02  mean 1.31463935  shape 0.4807 0.2731 0.1058
+  ones L= 6  spread 2.05e-02  mean 1.32356059  shape 0.4777 0.2719 0.1062
+  ones L= 7  spread 1.07e-02  mean 1.32817864  shape 0.4681 0.2633 0.1015
+  ones L= 8  spread 5.80e-03  mean 1.33075793  shape 0.4691 0.2651 0.1032
+  ones L= 9  spread 2.97e-03  mean 1.33205430  shape 0.4627 0.2592 0.0997
+  ones L=10  spread 1.58e-03  mean 1.33276185  shape 0.4652 0.2620 0.1018
+  ones L=11  spread 7.97e-04  mean 1.33311272  shape 0.4602 0.2573 0.0989
+  ones L=12  spread 4.20e-04  mean 1.33330214  shape 0.4633 0.2605 0.1011
+  twos L= 0  spread 2.59e-01  mean 1.10085019  shape 0.7109 0.4674 0.1994
+  twos L= 1  spread 1.95e-01  mean 1.22142374  shape 0.5303 0.3113 0.1223
+  twos L= 2  spread 8.54e-02  mean 1.29122508  shape 0.4746 0.2674 0.1025
+  twos L= 3  spread 3.01e-02  mean 1.31921976  shape 0.4483 0.2472 0.0933
+  twos L= 4  spread 9.75e-03  mean 1.32884825  shape 0.4385 0.2399 0.0903
+  twos L= 5  spread 2.99e-03  mean 1.33189673  shape 0.4327 0.2354 0.0882
+  twos L= 6  spread 9.07e-04  mean 1.33283192  shape 0.4309 0.2343 0.0879
+  twos L= 7  spread 2.69e-04  mean 1.33311259  shape 0.4287 0.2325 0.0870
+  rand L= 0  spread 2.65e-01  mean 1.14227730  shape 0.6121 0.3807 0.1572
+  rand L= 1  spread 8.70e-02  mean 1.27096632  shape 0.4363 0.2364 0.0872
+  rand L= 2  spread 3.18e-02  mean 1.29644117  shape 0.4144 0.2217 0.0819
+  rand L= 3  spread 1.00e-02  mean 1.30879847  shape 0.3946 0.2055 0.0734
+  rand L= 4  spread 1.53e-03  mean 1.31066341  shape 0.3959 0.2076 0.0753
+  rand L= 5  spread 7.81e-04  mean 1.29435185  shape 0.3909 0.2033 0.0728
+  rand L= 6  spread 1.76e-04  mean 1.31256342  shape 0.4016 0.2128 0.0785
+  ones: spread ∝ q_suffix^-1.271
+  twos: spread ∝ q_suffix^-1.312
+  rand: spread ∝ q_suffix^-1.352
+
+=== bulb_cascade.py levels (bulb_areas P center 64 < all40.txt, per parent)
+R = F / F_cardioid for the bulbs of other parents (q ≤ 40):
+  parent (period, center)          mid |R-1| median  max     R(1/n), n = 5,10,20,40       R((n-1)/n)
+  1-3-bulb-1-2-child               6.0e-04         1.7e-03  0.9505 0.9356 0.9472 0.9622   0.9523 0.9361 0.9473 0.9622
+  1-3-bulb                         1.6e-03         4.4e-03  0.9301 0.9135 0.9316 0.9509   0.9443 0.9158 0.9301 0.9483
+  1-4-bulb                         2.1e-03         5.9e-03  0.9195 0.9030 0.9244 0.9459   0.9427 0.9064 0.9217 0.9413
+  2-5-bulb                         2.5e-03         7.2e-03  0.9263 0.8983 0.9180 0.9395   0.9246 0.8980 0.9182 0.9399
+  2-disk-1-2-child                 6.4e-04         1.8e-03  0.9500 0.9359 0.9474 0.9622   0.9500 0.9359 0.9474 0.9622
+  2-disk                           7.2e-04         2.0e-03  0.9466 0.9348 0.9473 0.9623   0.9466 0.9348 0.9473 0.9623
+  airplane                         1.6e-04         5.0e-04  0.9967 0.9972 0.9986 0.9989   0.9967 0.9972 0.9986 0.9989
+
+=== bulb_cascade.py psi (bulb_areas 1 0 0 64 < all128.txt)
+median spread of F in 50 bins of x = p/q              (q ≥ 100): 0.1709
+median spread of F in 50 bins of y = (p^-1 mod q)/q   (q ≥ 100): 0.0113
+F̄(q): 8:1.11871 16:1.20523 32:1.22259 64:1.25466 96:1.23794 127:1.25200 128:1.22579
+tail Σ_{64<q≤128} A = 1.070845e-04 from q ≤ 64 data, constant F̄: rel err -8.4e-03
+tail Σ_{64<q≤128} A = 1.070845e-04 from q ≤ 64 data, drift 1.2755 -0.3171 q^-0.54: rel err 5.2e-03
+cardioid bulbs through q =  16: 0.291066792744
+cardioid bulbs through q =  32: 0.292752823789
+cardioid bulbs through q =  64: 0.293158502738
+cardioid bulbs through q = 128: 0.293265587264
