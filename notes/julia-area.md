@@ -662,7 +662,7 @@ complex families (seahorse valley at satellite roots), and cusps of every primit
 **Seahorse-valley families at −3/4: a(k) = C_w k^-4 (1 + clean 1/k series), copies converge too**
 (`analysis/copies/seahorse.py`, `seahorse_fit.py`).  In the cardioid limb k/(2k+1) (wake words (01)^{k-1}001 /
 (01)^{k-1}010) the period ≤ 16 catalog shows primitive families continuing in k: S1 = (01)^{k-1}00101/00110 (period
-2k+3, the limb's largest primitive), S2 = (01)^k 0011 / (01)^{k-1}0100 (2k+2), S3 = (01)^k 0001/0010 (2k+4).
+2k+3, the limb's largest primitive), S2 = (01)^{k-1}0011 / (01)^{k-1}0100 (2k+2), S3 = (01)^k 0001/0010 (2k+4).
 Centers by complex Newton from an extrapolation of 1/δ (δ = c + 3/4), continuity-checked; k = 2..120 (periods to
 244, |δ| down to 0.013), 357 components in 0.1 s, plus 1785 children (q ≤ 4) in 2.7 s, no failures.  The
 continuation reproduces the catalog at k = 5, 6 (not seeds).
@@ -683,3 +683,30 @@ component w gives a family whose areas and copy trees have clean 1/k expansions 
 k ≤ 120.  For the satellite automaton, k is the large CF digit ([0; 2, k] here), so per-node copy totals should get
 the same large-digit treatment as F.  Open: the sum over w (its decay with the family's extra period j, which
 needs limb catalogs past period 16, e.g. lavaurs() to 24), and joining the families to the automaton.
+
+**The sum over seahorse families: 2^{j-1} canonical families per extra period, algebraic decay led by two-pass words**
+(`angles.h`: lavaurs(P, wake) restricted to one wake, to period 29; `analysis/limb_families.cc` stats/keys/jobs/custom;
+`analysis/copies/limb_constants.py`, `two_pass.py`).
+- Families are canonical: stripping (01)^{k-1} from the angle words of the non-renormalizable primitives of limb
+  k/(2k+1) gives keys independent of k for extra period j ≤ 2k + 1 (limb 2 differs from 3 from j = 6, 3 from 4 from
+  j = 8, 4 from 5 from j = 10), and the limit count is 2^{j-1} families at extra period j.
+- Centers at any k from the keys: both parameter rays traced to near the root, Newton from each, must agree (1e-9|δ|).
+  Reproduces the earlier continuation (S2 = j1_0, S1 = j2_0, S3 = j3_3).  All 2046 families with j ≤ 11 (from limb 5)
+  at 11 k in 12..64: 22,506 components, 0 failures, 37 s on 2 threads.  C_w by Neville in 1/k: median error 3e-9.
+- Σ_w C_w per j = 2.7e-5, 1.7e-3, 2.1e-5, 1.0e-4, 5.9e-6, 1.0e-5, 1.5e-6, 1.6e-6, 4.2e-7, 3.4e-7, 3.7e-8 (j = 1..11):
+  decaying but alternating, and carried by a few families (top 10% hold > 97% from j = 7).  Total through j = 11:
+  1.893e-3 (phase-plane area 16ΣC/π² = 3.07e-3).
+- The dominant families are two-pass words: a second run of the gate word inside the key, e.g. E0 = 00(10)^m 1 /
+  00(10)^{m-1}110, O1 = 0011(01)^m / 0011(01)^{m-1}10 (the orbit turns k times at the fixed point, leaves, returns and
+  turns m more times).  Followed to m = 24 (j ≈ 50, periods to ~250; 672 components): C(m) ∝ m^-6.2 (local exponents
+  6.1–6.3), σ(m) drifting with Δσ ≈ 0.08–0.1/m, and pairs of sequences merge at large m (E2 and O1 to 2.41e-12 and
+  2.42e-12 at m = 24, E0 and OL to 7.41e-12 and 7.40e-12): what follows the second run fades, as in the bulb tree.
+- But the limits do not commute: the k → ∞ extrapolation at fixed m degrades as m grows (error 1e-5 at m = 1 to 50% at
+  m ≈ 10 for E0 and OL, with k from max(12, j) to 4×).  A second, partial pass is at most a full transit (~k turns), so
+  a(k, m) depends on m/k: the two-pass layer needs a two-dimensional scaling a(k, m) ≈ k^-4 m^-6 Φ(m/k), not iterated
+  one-dimensional limits.
+Implications: the family layer is a word problem with the same shape as the satellite one.  Keys are binary words,
+gate passes are runs of 01 (the analogue of large CF digits), memory fades past a run, and runs contribute algebraic
+power laws in their lengths.  So C_w should be learnable as a weighted automaton over run-length-encoded keys, with
+large-run asymptotics (m^-6 per extra pass) and the joint scaling in m/k at the outer pass.  Next: a(k, m) on a 2D grid
+(m up to k ~ 100) for the scaling function Φ, and a run-length Hankel test on the census constants.

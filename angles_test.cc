@@ -220,6 +220,26 @@ TEST(lavaurs) {
     }
 }
 
+TEST(lavaurs_within) {
+  const int P = 16;
+  const auto all = lavaurs(P);
+  for (const auto& [p, q] : {std::pair(1, 3), std::pair(2, 5), std::pair(3, 7), std::pair(1, 4)}) {
+    const auto w = cardioid_wake(p, q);
+    vector<Root> inside;
+    for (const auto& r : all)
+      if (w.lo.value() <= r.w.lo.value() && r.w.hi.value() <= w.hi.value()) inside.push_back(r);
+    auto sub = lavaurs(P, w);
+    const auto key = [](const Root& r) { return std::tuple(r.w.lo.q, r.w.lo.k, r.w.hi.k); };
+    std::sort(inside.begin(), inside.end(), [&](auto& a, auto& b) { return key(a) < key(b); });
+    std::sort(sub.begin(), sub.end(), [&](auto& a, auto& b) { return key(a) < key(b); });
+    ASSERT_EQ(sub.size(), inside.size()) << p << "/" << q;
+    for (size_t i = 0; i < sub.size(); i++) {
+      ASSERT_EQ(sub[i].w, inside[i].w);
+      ASSERT_EQ(sub[i].satellite, inside[i].satellite);
+    }
+  }
+}
+
 TEST(maximal_tuning) {
   const int P = 16;
   const auto roots = lavaurs(P);

@@ -4,7 +4,7 @@
 
 In the limb k/(2k+1) (q = 2k+1, wake words (01)^{k-1}001 / (01)^{k-1}010) the period ≤ 16 catalog shows three
 primitive families continuing in k: S1 (period 2k+3, angles (01)^{k-1}00101 / (01)^{k-1}00110, the limb's largest
-primitive), S2 (2k+2, (01)^k 0011 / (01)^{k-1}0100) and S3 (2k+4, (01)^k 0001 / (01)^k 0010).  They approach −3/4
+primitive), S2 (2k+2, (01)^{k-1}0011 / (01)^{k-1}0100) and S3 (2k+4, (01)^k 0001 / (01)^k 0010).  They approach −3/4
 through the valley with δ = c + 3/4 ≈ iπ/(2k + σ).  Centers: complex Newton on f_c^p(0) = 0 from a quadratic
 extrapolation of 1/δ in k, accepted if the step from the prediction is small against the spacing (continuity)."""
 import sys
