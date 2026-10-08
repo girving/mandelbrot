@@ -630,3 +630,31 @@ satellite automaton's large-digit limits.  The copy layer should therefore attac
 gate-family sum with a Lavaurs-universal profile in the number of passes k, carried by the automaton like F and ρ.
 Next test: the real intermittency family at −1.75 out to k ~ 100 passes (periods ~300; real centers by
 bracketing, areas by multiplier-map continuation), checking for a power law in k with an expansion in 1/k.
+
+**Intermittency families at the airplane cusp: a(k) = C_w (k + σ_w)^-6 (1 + O(k^-2)), copies converge like k^-2**
+(`analysis/copies/intermittency.py`, `intermittency_fit.py`; bulb.cc now takes P = 0 jobs: a component from its own
+center).  Family A = kneading L(RLL)^k C (period 3k+2), B = L(RLL)^k RLC (3k+4), k = 2..120 (periods to 364,
+d = c + 1.75 down to 1.4e-5), 238 components in 0.1 s on 2 CPU threads, conv ≤ 6e-23.
+- d k² → π²/49 for both (universal for this cusp), and the phase σ_w = lim π/(7√d) − k is family-specific:
+  σ_A = 1.04165822, σ_B = 1.42608326.  This is the Lavaurs phase of the member in the implosion coordinate.
+- With that σ (from the centers alone), a(k)(k+σ)^6 = C (1 + 0/(k+σ) + c2/(k+σ)² + …): the first-order coefficient
+  vanishes to the accuracy of σ (1e-4 relative), and c2/C = 0.157.  No log terms are visible down to 1e-11.
+  C_A = 6.218507090694e-9, C_B = 9.787611545731e-10 (≈ 11 digits by Neville from k ≤ 120).
+- Family sums: Σ_A = 3.593729090006e-8, Σ_B = 1.018759365844e-9, with tails beyond k = 120 of 5e-20 and 7e-21.
+  A whole family costs a few dozen members at any target accuracy.
+- The copies converge too: area(p/q child)/area(parent) → R_w(p/q) with error O(k^-2), giving 13 digits from
+  k ≤ 120 (A: 1/2 0.1666965728127, 1/3 0.0238324911885, 1/4 0.0051626980869, 2/5 0.0040144451880; B: 1/2
+  0.1666696296695, 1/3 0.0238275284340, …).  They are near-conformal (M's own 1/2 ratio is 1/6 exactly: deviation
+  1.8e-4 for A, 1.8e-5 for B) but family-dependent: the limit copy is the Lavaurs-limit copy at phase σ_w.
+- Engineering: for ~1e-10-sized parents near −1.75 the normalization w = |c_W'(λ0)|² (radial continuation in
+  double) is noisy at 1e-9, so use area ratios, not F; 431 of 2618 children fail at the area stage for k ≳ 6
+  (scattered).  Both need parent-local coordinates (c − c_parent with c_parent in Expansion<2>).
+Parameter-space picture: near a primitive cusp c0, d = c − c0 ≈ π²/(a(k + σ)²) maps the implosion phase σ (periodic,
+one unit per gate pass) onto the cusp neighbourhood with Jacobian |dd/dσ|² ∝ |k + σ|^-6.  So the cusp's copies are
+the pullback of one σ-periodic Lavaurs parameter set M_L, and their area is ≈ ∫_{M_L ∩ strip} Σ_k |dd/dσ|²(k + σ) dA(σ):
+a known kernel integrated over a fixed set, with corrections in 1/k.  The family index w (exit itinerary) labels
+the components of M_L, and C_w ∝ their σ-areas.  This turns the p^-3 copy tail into (sum over Lavaurs components)
+× (rapidly extrapolable k-sum), and each copy's tree is its limit tree plus O(k^-2).  Open: the sum over w (M_L is
+itself a Mandelbrot-like set, presumably with its own tree/automaton), multi-pass words (several gate visits),
+complex families (seahorse valley at satellite roots), and cusps of every primitive (the automaton must carry
+σ-profiles per node).

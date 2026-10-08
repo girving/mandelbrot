@@ -146,11 +146,13 @@ __host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* tw,
   BulbResult r;
   r.status = bulb_parent;
   r.conv = 0; r.w = 0;
-  const int shift = job.shift, n = job.q * job.P;
+  const int shift = job.shift, n = job.P ? job.q * job.P : job.q;  // P = 0: the component itself, period q
   const Cd crit(-0.5 * shift, 0.0), l0 = to_d(job.lam0);
-  // Parent root and c_W'(λ0)
-  Cd cr, dW;
-  if (shift && job.P == 1) {  // Cardioid: c = λ/2 - λ²/4, δ = c - 1/4
+  // Parent root and c_W'(λ0) (none for P = 0: job.center is the component's own center, to be refined)
+  Cd cr, dW(1);
+  if (job.P == 0) {
+    cr = job.center;
+  } else if (shift && job.P == 1) {  // Cardioid: c = λ/2 - λ²/4, δ = c - 1/4
     cr = scale(0.5, l0) - scale(0.25, l0 * l0) - Cd(0.25, 0);
     dW = scale(0.5, Cd(1, 0) - l0);
   } else {
@@ -161,7 +163,7 @@ __host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* tw,
   // Child center: Newton on f^n(crit) = crit
   r.status = bulb_center;
   const double qq = double(job.q) * job.q;
-  Cd c = cr + l0 * Cd(dW.r / qq, dW.i / qq);
+  Cd c = job.P ? cr + l0 * Cd(dW.r / qq, dW.i / qq) : cr;
   bool conv = false;
   for (int it = 0; it < 200 && !conv; it++) {
     Cd x = crit, dx(0);
@@ -264,6 +266,11 @@ BulbJob bulb_job(const int P, const Complex<double> center, const int p, const i
   BulbJob j;
   j.P = P; j.p = p; j.q = q;
   j.shift = P == 1;
+  if (P == 0) {  // The component of period q with center near `center` (any type, e.g. primitive)
+    j.center = center;
+    j.lam0 = Ce(1);
+    return j;
+  }
   j.center = j.shift ? center - Cd(0.25, 0) : center;
   const int g = std::gcd(p, q);
   const auto key = std::make_pair(p / g, q / g);
