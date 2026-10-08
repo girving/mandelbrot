@@ -710,3 +710,31 @@ gate passes are runs of 01 (the analogue of large CF digits), memory fades past 
 power laws in their lengths.  So C_w should be learnable as a weighted automaton over run-length-encoded keys, with
 large-run asymptotics (m^-6 per extra pass) and the joint scaling in m/k at the outer pass.  Next: a(k, m) on a 2D grid
 (m up to k ~ 100) for the scaling function Φ, and a run-length Hankel test on the census constants.
+
+**Cluster census (j ≤ 14) and two-pass grid; family constants are a size-estimate sum** (`cluster_families.sh` on the
+cpu queue: 147,447 census components and 24,448 grid components in 61 s on 30 cores, 1 failure; `family_size.py`,
+`family_wfa.py`, `two_pass_grid.py`).
+- Kneading is the right label: every family's kneading sequence is 1^{2k} 0 t, and the 2^{j-1} families of extra
+  period j are exactly the 2^{j-1} binary tails t of length j - 1 (for |t| < 2k; t = 1^{2k} is the bulb's period
+  doubling).  So family constants form a function G(t) on the free binary monoid, with no invalid words.
+- Σ_w C_w by j (limb 7, all 16,383 families with j ≤ 14): … 3.4e-7, 1.3e-7, 9.7e-8, 4.7e-8, 3.3e-8 (j = 10..14), i.e.
+  ∝ j^-7 (local exponent 7.0 over 10→12 and 12→14), all of it in the top 10% of families.  Brute enumeration
+  by j cannot reach 1e-12 (tail ~ J^-6); the long-run families must be summed structurally.
+- Spectral WFA on raw G over kneading bits (block |u| ≤ 5, |s| ≤ 6, tested on all 8192 tails of length 13): the
+  Hankel singular values fall geometrically (1e-14 by rank 40) but predictions are poor (total off by 1–6%, single
+  tails by orders of magnitude).  99.5% of the length-13 mass is in the 144 tails with a run ≥ 9, which is beyond
+  what the block saw (power laws in run length have no finite rank), and the 1e-3..1e-30 dynamic range swamps the
+  rest.
+- But the constants are almost entirely the standard size estimate: F = area/(A_card |s|²) with s = 1/(βΛ²) from the
+  center's critical orbit tends to 1 in k: F_∞ median 0.99999967, 80% within 1.6e-4 of 1, 98% within 1.2e-3; the
+  outliers are the few large families (S1: 1.077; the leading E0, O1, E2 members: 0.97–1.06).  So Σ_w C_w ≈ A_card Σ_w
+  lim k^4 |β_w Λ_w²|^-2, a weighted sum over critical orbits of the limiting (Lavaurs) dynamics: transfer-operator
+  form with weight |Λ|^-4, plus small corrections F - 1 concentrated in a handful of large families.
+- Two-pass grid a(k, m), m < k ≤ 128, m ≤ 64: g = a k^4 m^6 collapses in t = m/k only roughly (E2 at t = 1/4:
+  5.54e-4, 5.41e-4, 5.24e-4 for m = 8, 16, 32; other columns drift 10–40% per doubling).  Consistent with
+  a ≈ k^-4 m^-6 Φ(m/k) (a partial pass of m turns starts ~m^{-1/2} from the degenerate fixed point, derivative
+  ∝ m^{3/2}; the throat width set by δ ∝ 1/k enters through m/k) with sizable 1/m corrections; m ≤ 64 is too
+  small to pin Φ.
+Next: compute families' constants from the dynamics (the size estimate in the Lavaurs limit) rather than from
+components, which makes long runs cheap, and learn the small correction F - 1 (O(1e-4), smooth) by WFA; get Φ(t)
+from the model map z + a z³ + perturbation instead of from M.

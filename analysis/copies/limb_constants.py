@@ -6,7 +6,7 @@ extra period j.
 Per family: Neville in 1/k through all its k (error estimate: against the fit without the smallest k), the phase
 σ_w = lim iπ/δ − 2k.  Per j: count, Σ C_w, largest C_w, the share of the top 10%, and the phase-plane area
 Σ 16 C_w/π² (|dδ/dσ|² = π²/|2k+σ|^4 ≈ π²/(16 k^4))."""
-import sys, math
+import sys, math, gzip
 from collections import defaultdict
 
 def neville(xs, ys):
@@ -16,7 +16,7 @@ def neville(xs, ys):
     return p[0]
 
 fam = defaultdict(dict)
-for l in open(sys.argv[1]):
+for l in (gzip.open(sys.argv[1], "rt") if sys.argv[1].endswith(".gz") else open(sys.argv[1])):
     r = l.split()
     if r[3] == 'failed': continue
     j, i, k = r[0].split('_')
