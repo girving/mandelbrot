@@ -28,6 +28,8 @@ struct BulbJob {
   int shift;               // 1 for a cardioid parent (P = 1): cusp coordinates
   Complex<double> center;  // Parent center, in shifted coordinates if shift
   Complex<E2> lam0;        // e^{2πi p/q}
+  bool local;              // P = 0 only: center + center_lo is the center to double-double precision, and the
+  Complex<double> center_lo;  // component is tracked in local coordinates (deep components, below ~1e-13 across)
 };
 
 enum BulbStatus { bulb_ok = 0, bulb_parent = 1, bulb_center = 2, bulb_period = 3, bulb_area = 4 };
@@ -55,5 +57,10 @@ vector<BulbResult> bulb_areas(const vector<BulbJob>& jobs, const BulbParams& par
 // A job for the p/q bulb of the parent with period P and (unshifted) center c.  P = 0: the component of period q
 // whose center Newton finds from c (any component, e.g. primitive); then w = 1 and F = area q^4 / π.
 BulbJob bulb_job(const int P, const Complex<double> center, const int p, const int q);
+
+// A P = 0 job for a deep component whose center is known to double-double precision (center + center_lo): tracked in
+// coordinates c = center + center_lo + L Δ with L the size estimate |1/(β Λ²)|, so the double phase keeps relative
+// precision however small the component.
+BulbJob bulb_job_local(const Complex<double> center, const Complex<double> center_lo, const int q);
 
 }  // namespace mandelbrot
