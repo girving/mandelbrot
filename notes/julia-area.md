@@ -1001,3 +1001,11 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   S_tot ≈ 2.3905e-3; 2Σ_{k≥16} = 4.2196e-7 ± 9.1e-9, 2Σ_{k≥32} = 5.1218e-8 ± 8.6e-10, 2Σ_{k≥64} = 6.2545e-9 ±
   9.1e-11 (before the copy factor R; × 1.279 ≈ 5.40e-7, 6.55e-8, 8.00e-9).  Census and label pieces are exact to
   1e-15 from M; the error is the unseen transit mass and the 1/k coefficient of the model-only mass.
+- Four transits (island8, r = 4: the two m = 3 Farey bulbs × top 2000 targets, other r = 3 satellites and top 300
+  r = 3 primitives × bulb + top 30; only the top ~2000 of 13,519 pairs survive, the Job hit its activeDeadline):
+  S_3 ≥ 6.08e-5 (the m = 3 limbs' heavy pieces 1.58e-5, 7.1e-6, 4.5e-6; a new 1.40e-5 at -1.214 + 0.246i).  Sector
+  sequence in the strip: S_0..S_3 = 1.8935e-3, 2.941e-4, ≥1.423e-4, ≥6.08e-5 (ratios 0.155, 0.48, ≥0.43): beyond two
+  transits the Farey limbs dominate and the raw transit series decays slowly; the rerun (island9) covers the rest.
+- Tail with these (model-only mass 2.688e-4, unseen 6e-5 ± 4e-5): S_tot ≈ 2.461e-3; 2Σ_{k≥16} = 4.356e-7 ± 1.2e-8,
+  2Σ_{k≥64} = 6.442e-9 ± 1.2e-10 before R.  1e-12 at K = 64 needs the unseen mass to ~7e-7: the Farey limbs must be
+  summed by structure (per-limb layers with a scaling law in the denominator m), not by raw transit censuses.
