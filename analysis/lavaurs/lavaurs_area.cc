@@ -3,7 +3,9 @@
 //   ./build/release/lavaurs_area [threads] < jobs > out
 // reads lines "name r n sigma_re sigma_im" (r transits, excursion n, a guess for the center in the phase σ) and
 // prints "name r n center_re center_im area_hi area_lo C conv" with C = (π²/4) area the family constant, or
-// "name r n failed".
+// "name r n failed".  With $LAVAURS_TUNE = "X:p:c_re:c_im,..." (primitive centers c_X of period p in M), each component
+// U is followed by its tunings U*X: r p transits and excursion p n + p - 1 (the cycle (F^n g^r F)^p), from the guess
+// center + 2 a_1 c_X (the copy's cardioid is μ/2 - μ²/4), printed as "name*X ..." with the area ratio to U appended.
 //
 //   ./build/release/lavaurs_area --island [threads] < pairs > out
 // reads lines "name n_u u_re u_im n_c c_re c_im" (an island: single-transit center σ_u with excursion n_u; a target:
@@ -38,6 +40,11 @@
 #include <thread>
 #include <vector>
 using namespace mandelbrot;
+
+static Complex<double> cdiv(const Complex<double> a, const Complex<double> b) {
+  const double d = b.r * b.r + b.i * b.i;
+  return Complex<double>((a.r * b.r + a.i * b.i) / d, (a.i * b.r - a.r * b.i) / d);
+}
 
 static int walk_main(const int threads) {
   struct Walk { std::string name; int r, n0, step, count; std::vector<Complex<double>> seeds; };
@@ -185,6 +192,20 @@ int main(int argc, char** argv) {
   int r, n;
   double sr, si;
   while (scanf("%255s %d %d %lf %lf", name, &r, &n, &sr, &si) == 5) jobs.push_back({name, r, n, sr, si});
+  struct Tune { std::string name; int p; Complex<double> c; };
+  std::vector<Tune> tunes;
+  if (const char* e = getenv("LAVAURS_TUNE")) {
+    std::string t(e);
+    for (size_t i = 0; i < t.size();) {
+      size_t j = t.find(',', i);
+      if (j == std::string::npos) j = t.size();
+      char tn[64];
+      int p;
+      double cr, ci;
+      if (sscanf(t.substr(i, j - i).c_str(), "%63[^:]:%d:%lf:%lf", tn, &p, &cr, &ci) == 4) tunes.push_back({tn, p, {cr, ci}});
+      i = j + 1;
+    }
+  }
   std::vector<std::string> out(jobs.size());
   std::atomic<int64_t> next(0), failed(0);
   std::vector<std::thread> pool;
@@ -203,6 +224,31 @@ int main(int argc, char** argv) {
           failed++;
         }
         out[i] = line;
+        if (!res.ok) continue;
+        // The guess interpolates the copy map c -> σ: σ(0) = center, σ'(0) = 2 a_1, and the tunings found so far
+        // (σ = center + 2 a_1 c + c² q(c), q Lagrange through them), so list $LAVAURS_TUNE in increasing |c|
+        std::vector<std::pair<Complex<double>, Complex<double>>> known;  // (c_X, q value)
+        for (const auto& x : tunes) {
+          const int r2 = j.r * x.p, n2 = x.p * j.n + x.p - 1;
+          Complex<double> q(0);
+          for (size_t a = 0; a < known.size(); a++) {
+            Complex<double> l = known[a].second;
+            for (size_t b = 0; b < known.size(); b++)
+              if (b != a) l = cdiv(l * (x.c - known[b].first), known[a].first - known[b].first);
+            q = q + l;
+          }
+          const auto g = res.center + Complex<double>(2, 0) * res.a1 * x.c + x.c * x.c * q;
+          auto t = lavaurs_area(r2, n2, g);
+          if (!t.ok && known.size()) t = lavaurs_area(r2, n2, res.center + Complex<double>(2, 0) * res.a1 * x.c);
+          if (t.ok) known.push_back({x.c, cdiv(t.center - res.center - Complex<double>(2, 0) * res.a1 * x.c, x.c * x.c)});
+          if (t.ok)
+            snprintf(line, sizeof(line), "\n%s*%s %d %d %.17g %.17g %.17g %.17g %.17g %.1e %.3e %.6e", j.name.c_str(),
+                     x.name.c_str(), r2, n2, t.center.r, t.center.i, t.area.x[0], t.area.x[1],
+                     M_PI * M_PI / 4 * double(t.area), t.conv, t.cusp, double(t.area) / double(res.area));
+          else
+            snprintf(line, sizeof(line), "\n%s*%s %d %d failed", j.name.c_str(), x.name.c_str(), r2, n2);
+          out[i] += line;
+        }
       }
     });
   for (auto& t : pool) t.join();

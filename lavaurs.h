@@ -46,6 +46,7 @@ struct LavaursResult {
   Expansion<2> area;       // In σ; the family constant is (π²/4) area
   double conv;             // Relative change of the area from the N/2 subrule
   double cusp;             // |σ'(1)| / |a_1| for σ(μ) = Σ a_k μ^k: 0 at a cusp (primitive), O(1) for a satellite
+  Complex<double> a1;      // σ'(0): near the center σ ≈ center + 2 a_1 c in the copy's own c (c ≈ μ/2 on the cardioid)
 };
 
 // The component with r transits and excursion n whose center Newton finds from guess
