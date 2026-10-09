@@ -12,22 +12,17 @@ point count as gate steps (α side), the convention the known kneadings confirm.
 
   classify(sigma, n, r) -> (m, offset of the first 0 from x_m) or ('bulb', None); b = (offset + 1) / 2"""
 import cmath
-from lavaurs import F, psi, phi_a_entry, R_LOC
+from lavaurs import F, psi, phi_a, phi_a_entry, R_LOC
 from kneading_side import side
 
 R_NEAR = 0.15   # |w| below this: deep in the gate (α side)
 V = -0.25 + 0j  # critical value in w = z + 1/2
 
-def ksym(w, entry=False):
-    """Kneading symbol of the point w (in w = z + 1/2 coordinates).  Points near the parabolic point in the repelling
-    petals (|w| < R_NEAR) or, for excursion steps (entry=True), approaching it in the attracting sector (gate entry,
-    along the real axis) are gate steps: 1.  (At finite k the partition's arc through the critical basin is not the real segment; gate-entry points just
-    below it are α-side.)"""
+def ksym(w):
+    """Kneading symbol of the point w (in w = z + 1/2 coordinates): points near the parabolic point (|w| < R_NEAR) are
+    gate steps, α side (the repelling-petal lanes sit below R_{2/3}'s height Im ζ = 2.16 for every component)"""
     if abs(w) < R_NEAR: return 1
-    if entry and abs(w) < 0.5 and abs(w.imag) < 0.3 * abs(w.real): return 1
-    z = w - 0.5
-    if abs(z.imag) < 1e-12 and -0.5 < z.real < 0.5: return 1  # on the arc, approached from the limb side
-    return side(z)
+    return side(w - 0.5)
 
 def classify(sigma, n, r, J=40):
     """(m, offset) of the first kneading 0 (offset relative to x_m: -j for the exit steps, l for the excursion), or
@@ -47,7 +42,7 @@ def classify(sigma, n, r, J=40):
             if i < r and abs(w) < R_LOC and abs(w.imag) < 0.7 * abs(w.real): break
             w = F(w)
             if i == r and l == n: break  # the critical point
-            if ksym(w, entry=True) == 0: return (i, l)
+            if ksym(w) == 0: return (i, l)
             if abs(w) > 10: return None
         if i == r: return ('bulb', None)
         e = phi_a_entry(x)
@@ -72,6 +67,10 @@ if __name__ == '__main__':
         ('B_3 bulb b', complex(-0.66712135122894356, 0.018696181092554307), 3, 3),
         ('B3~bulb L-4 (m=3 heavy)', complex(-0.6400, 0.0709), 5, 4),
         ('B_4 bulb (t=1/4)', complex(-0.24988, 0.01051), 1, 4),
+        ('H9386 (bulb limb label)', complex(-0.23531991264558841, 0.35738769346047089), 1, 2),
+        ('9/20 top NRP P=29 (m=2)', complex(-0.56394, 0.13584), 1, 3),
+        ('? 7.1e-6 (B3 source)', complex(-0.36220, 0.06510), 1, 4),
+        ('? 1.40e-5', complex(-1.21357, 0.24598), 7, 4),
     ]
     for name, s, n, r in tests:
         print('%-26s %s' % (name, classify(s, n, r)))
