@@ -20,8 +20,10 @@
 // reads lines "name n sigma_re sigma_im" (single-transit centers) and prints "name n address" (no areas).
 //
 //   ./build/release/lavaurs_area --locate < "name r sigma_re sigma_im" lines
-// prints "name r theta_re theta_im center_re center_im": Θ_r(σ) (an r-transit center maps to a single-transit center,
-// shifted by j/2) and the critical point of the horn-map composition reached by Newton (the region's source center).
+// prints "name r theta_re theta_im center_re center_im dtheta_re dtheta_im": Θ_r(σ) (an r-transit center maps to a
+// single-transit center, shifted by j/2), the critical point of the horn-map composition reached by Newton (the
+// region's source center), Θ_r'(σ), and Π_{i<r} H'(p_i) (a component's area is its target's times
+// |Θ_r' Π H'|^-2, lavaurs.h).
 //
 //   ./build/release/lavaurs_area --walk [threads] < walks > out
 // reads lines "name r n0 step count s1_re s1_im s2_re s2_im ..." (a class of components whose excursion grows by step:
@@ -34,6 +36,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <complex>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -173,11 +176,95 @@ int main(int argc, char** argv) {
     int r;
     double sr, si;
     while (scanf("%255s %d %lf %lf", name, &r, &sr, &si) == 4) {
-      Complex<double> s(sr, si), t, d, dd, c = s;
-      if (!lavaurs_theta(s, t, d, dd, r)) { printf("%s %d failed\n", name, r); continue; }
-      if (lavaurs_island_center(c, r)) printf("%s %d %.15g %.15g %.15g %.15g\n", name, r, t.r, t.i, c.r, c.i);
-      else printf("%s %d %.15g %.15g - -\n", name, r, t.r, t.i);
+      Complex<double> s(sr, si), t, d, dd, hp, c = s;
+      if (!lavaurs_theta(s, t, d, dd, r, &hp)) { printf("%s %d failed\n", name, r); continue; }
+      if (lavaurs_island_center(c, r))
+        printf("%s %d %.15g %.15g %.15g %.15g %.15g %.15g %.15g %.15g\n", name, r, t.r, t.i, c.r, c.i, d.r, d.i, hp.r, hp.i);
+      else printf("%s %d %.15g %.15g - - %.15g %.15g %.15g %.15g\n", name, r, t.r, t.i, d.r, d.i, hp.r, hp.i);
     }
+    return 0;
+  }
+  if (argc > 1 && std::string(argv[1]) == "--children") {
+    // "name r n_u u_re u_im radius n_c c_re c_im jmin jmax": the r-transit children of the (r-1)-transit source U
+    // (its center, excursion and radius) over the single-transit target c, by Newton on Θ_r(σ) = σ_c + j/2 from both
+    // roots of U's local quadratic Θ_r ≈ Θ_U + Θ'δ + Θ''δ²/2.  Region ownership (the horn-map critical point Newton
+    // reaches) is not a partition into islands, so every child is printed and callers deduplicate by center mod 1.
+    // Prints "name|±|j sigma_re sigma_im w sat" with w = |Θ_r' Π H'|^-2 (the child's family constant ≈ C_c w) and
+    // sat = 1 if the child lies within 4 radii of U (a satellite of U: its doubling).
+    const int threads = argc > 2 ? atoi(argv[2]) : 2;
+    struct Q { std::string name; int r, nu, nc, jlo, jhi; Complex<double> u, c; double rad; };
+    std::vector<Q> qs;
+    char name[256];
+    int r, nu, nc, jlo, jhi;
+    double ur, ui, rad, cr, ci;
+    while (scanf("%255s %d %d %lf %lf %lf %d %lf %lf %d %d", name, &r, &nu, &ur, &ui, &rad, &nc, &cr, &ci, &jlo, &jhi) == 11)
+      qs.push_back({name, r, nu, nc, jlo, jhi, {ur, ui}, {cr, ci}, rad});
+    std::vector<std::string> out(qs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int th = 0; th < threads; th++)
+      pool.emplace_back([&]() {
+        for (int64_t qi; (qi = next++) < int64_t(qs.size());) {
+          const auto& q = qs[qi];
+          std::string text;
+          Complex<double> t0, d0, dd0;
+          if (!lavaurs_theta(q.u, t0, d0, dd0, q.r)) continue;
+          for (int j = q.jlo; j <= q.jhi; j++) {
+            const Complex<double> y(q.c.r + 0.5 * j, q.c.i);
+            const Complex<double> a = Complex<double>(0.5, 0) * dd0, b = d0, cc = t0 - y;
+            const Complex<double> disc = b * b - Complex<double>(4, 0) * a * cc;
+            const auto sq = std::sqrt(std::complex<double>(disc.r, disc.i));
+            // Starts: the two roots of the local quadratic, then (CHILDREN_STARTS = m > 0) m points on each of circles
+            // of radius 1/2, 1, 2 times the roots' distance around the source (large sources' islands are not quadratic)
+            std::vector<Complex<double>> starts;
+            for (const int sgn : {1, -1}) {
+              const Complex<double> root(sgn * sq.real(), sgn * sq.imag());
+              starts.push_back(q.u + cdiv(Complex<double>(-b.r, -b.i) + root, Complex<double>(2, 0) * a));
+            }
+            {
+              const int m = getenv("CHILDREN_STARTS") ? atoi(getenv("CHILDREN_STARTS")) : 0;
+              const Complex<double> dl = starts[0] - q.u;
+              const double rho = std::hypot(dl.r, dl.i);
+              for (const double f : {0.5, 1.0, 2.0})
+                for (int k = 0; k < m; k++) {
+                  const double th = 2 * M_PI * (k + 0.5) / m;
+                  starts.push_back(q.u + Complex<double>(f * rho * cos(th), f * rho * sin(th)));
+                }
+            }
+            std::vector<Complex<double>> found;
+            for (size_t si = 0; si < starts.size(); si++) {
+              const int sgn = si == 0 ? 1 : -1;
+              Complex<double> s = starts[si];
+              bool ok = false;
+              for (int it = 0; it < 60; it++) {
+                Complex<double> t, d, dd;
+                if (!lavaurs_theta(s, t, d, dd, q.r)) break;
+                const Complex<double> step = cdiv(t - y, d);
+                s = s - step;
+                if (std::hypot(step.r, step.i) < 1e-11 * (1 + std::hypot(s.r, s.i))) { ok = true; break; }
+              }
+              if (!ok) continue;
+              bool dup = false;
+              for (const auto& fk : found) dup |= std::hypot(fk.r - s.r, fk.i - s.i) < 1e-9;
+              if (dup) continue;
+              found.push_back(s);
+              // a genuine center: the return map's Newton (excursion n_c - j) stays at s
+              Complex<double> cen;
+              if (q.nc - j < 0 || !lavaurs_center(q.r, q.nc - j, s, cen) || std::hypot(cen.r - s.r, cen.i - s.i) > 1e-8) continue;
+              Complex<double> t, d, dd, hp;
+              lavaurs_theta(s, t, d, dd, q.r, &hp);
+              const double w = 1 / std::norm(std::complex<double>((d * hp).r, (d * hp).i));
+              const int sat = std::hypot(s.r - q.u.r, s.i - q.u.i) < 4 * q.rad;
+              char line[256];
+              snprintf(line, sizeof(line), "%s|%c|%d %.17g %.17g %.6e %d\n", q.name.c_str(), sgn > 0 ? '+' : '-', j, s.r, s.i, w, sat);
+              text += line;
+            }
+          }
+          out[qi] = text;
+        }
+      });
+    for (auto& th : pool) th.join();
+    for (const auto& t : out) fputs(t.c_str(), stdout);
     return 0;
   }
   if (argc > 1 && std::string(argv[1]) == "--labels") {

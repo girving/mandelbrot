@@ -282,6 +282,14 @@ template<class S> LavaursResult area_t(const int r, const int n, const Cd guess,
 
 }  // namespace
 
+bool lavaurs_center(const int r, const int n, const Complex<double> guess, Complex<double>& center) {
+  static const LavaursModel<double> L;
+  Complex<double> w(0.5, 0), s = guess;
+  if (!(newton(L, r, n, w, s, Complex<double>(0), 1e-15) < 1e-10)) return false;
+  center = s;
+  return true;
+}
+
 LavaursResult lavaurs_area(const int r, const int n, const Complex<double> guess, const int N) {
   return area_t<E2>(r, n, guess, N);
 }
@@ -315,12 +323,12 @@ std::string lavaurs_address(const int n, const Complex<double> sigma) {
 }
 
 bool lavaurs_theta(const Complex<double> sigma, Complex<double>& theta, Complex<double>& dtheta,
-                   Complex<double>& d2theta, const int r) {
+                   Complex<double>& d2theta, const int r, Complex<double>* hprod) {
   // p_1 = ζ0 + σ, p_{i+1} = H(p_i) + σ (H = Φ_a ∘ Ψ with each exit through the petal of the previous entry);
   // Θ_r = p_r - ζ0 with its σ-derivatives
   Cd z0; int petal;
   zeta0(z0, petal);
-  Cd p = z0 + sigma, dp(1), ddp(0);
+  Cd p = z0 + sigma, dp(1), ddp(0), hp(1);
   for (int i = 1; i < r; i++) {
     Cd q0, q1, q2, a0, a1, a2;
     if (!model_d().psi(p, petal, q0, q1, q2)) return false;
@@ -328,11 +336,13 @@ bool lavaurs_theta(const Complex<double> sigma, Complex<double>& theta, Complex<
     const Cd h1 = a1 * q1, h2 = a2 * sqr(q1) + a1 * q2;  // H', H''
     ddp = h2 * sqr(dp) + h1 * ddp;
     dp = h1 * dp + Cd(1);
+    hp = hp * h1;
     p = a0 + sigma;
   }
   theta = p - z0;
   dtheta = dp;
   d2theta = ddp;
+  if (hprod) *hprod = hp;
   return true;
 }
 
