@@ -49,6 +49,9 @@ struct LavaursResult {
   Complex<double> a1;      // σ'(0): near the center σ ≈ center + 2 a_1 c in the copy's own c (c ≈ μ/2 on the cardioid)
 };
 
+// The center alone (double precision): Newton on the return map's fixed point at the critical point
+bool lavaurs_center(const int r, const int n, const Complex<double> guess, Complex<double>& center);
+
 // The component with r transits and excursion n whose center Newton finds from guess
 LavaursResult lavaurs_area(const int r, const int n, const Complex<double> guess, const int N = 64);
 
@@ -65,7 +68,9 @@ std::string lavaurs_address(const int n, const Complex<double> sigma);
 // Θ_r(σ) = σ_c + j/2, and at an (r-1)-transit center (excursion n) Θ_r' = 1 and Θ_r = σ - (n + 1)/2 again, so they
 // are tracked from (r-1)-transit centers the same way.
 bool lavaurs_theta(const Complex<double> sigma, Complex<double>& theta, Complex<double>& dtheta,
-                   Complex<double>& d2theta, const int r = 2);
+                   Complex<double>& d2theta, const int r = 2, Complex<double>* hprod = nullptr);
+// Size of an r-transit component from its center alone (the quadratic normal form of the return map): with target t
+// (Θ_r(σ) = σ_t + j/2), C ≈ C_t / |Θ_r'(σ) Π_{i<r} H'(p_i)|²; hprod returns the product Π H'(p_i).
 // Θ(σ) = target by a homotopy in the target from the island center, on branch ±1 (the quadratic's two roots)
 bool lavaurs_island(const Complex<double> center, const Complex<double> target, const int branch,
                     Complex<double>& sigma, const int r = 2);

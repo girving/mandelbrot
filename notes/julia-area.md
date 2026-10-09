@@ -1034,3 +1034,34 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   over kneading runs 1^(a_1) 0 1^(a_2) 0 … with a_i = 2k g_i + c_i: the Farey limbs are "first run spans m ≥ 2 gates",
   not a separate sum.  Next: a transfer operator over runs (weights per run type (g, c), learned from the census and
   checked against the per-limb data above), which would sum all limbs and transit counts at once.
+
+**Toward a transfer operator over runs (2026-10-09, afternoon).**
+- Low rank at a gate: C over (source, branch) × (target, shift) for the two-transit census has singular values 1,
+  6.4e-3, 2.2e-3, 9e-4, 8e-5, 2e-5, 1.6e-6 (mass-weighted rank-3 error 1.2e-6), but entrywise and held-out errors
+  are O(1): low rank compresses the heavy entries, it does not generalize.  A plain matrix-rank automaton is not it.
+- Smoothness in the target: for one source (the bulb, all 16,383 targets) C/C_t is a smooth function of the target
+  position y = σ_t + j/2: nearest neighbours within 1e-3 agree to 0.1% (90th percentile), within 1e-2 to 0.5–1.7%.
+- **Area from the center**: from the return map's normal form (A = R''/2, D = ∂R/∂σ, area_σ = A_card/|AD|² for a
+  small component), an r-transit component over target t has C ≈ C_t / |Θ_r'(σ) Π_{i<r} H'(p_i)|² (H = horn map;
+  for r = 2, C_t/|H'(H'+1)|²).  Checked: r = 2, 479 components, median log10 ratio 0.000, IQR ±0.015 (targets below
+  1e-4: median 0.0002); r = 3, 3000 components, median 0.0000, IQR ±0.0011 (±0.25%); large targets (bulb, j2_0) are
+  1.5× off (the Jacobian varies over them: exact areas there).  `lavaurs_theta` returns Π H'; `--locate` prints it.
+- A universal kernel (U small: C_child = C_U C_t |Φ_a'(v)|²/(K |Q'(u)|⁴), Q(u) = Φ_a(v + u²) - ζ0, with the island
+  offset Θ(σ_U) = σ_U - (n_U+1)/2) gets the shape of the shift dependence but is off by 2–20× per target: the island
+  map σ ↦ F^{n_U} Ψ(ζ0 + σ) carries O(1) Koebe distortion over |u| ~ 1, so there is no universal kernel.
+- Children scale with the parent: over 77 single-transit sources from C = 1.7e-3 to 1.2e-12, their children's mass
+  over a fixed target set (bulb + top 10, shifts around -(n_U+1)) is W_U ∝ C_U^(1 - 0.018), W/C median 0.017 (IQR
+  0.009–0.031), scattering with the local distortion rather than following a smooth function of σ_U.  So beyond the
+  top ~100 sources a level's sum hardly depends on the small ones (~5e-10 per level); completeness over big
+  components, chains and satellite sources (the Farey bulbs) is what matters.
+- ζ formulation: Θ(σ) = E(ζ0 + σ) - 2ζ0 with E(ζ) = H(ζ) + ζ, and H(ζ+1) = H(ζ) + 1, so all two-transit children of a
+  target (every shift j) are the weighted preimages of one value under the cylinder map exp(4πi E): a genuine 1D
+  transfer operator, smooth in the target; its critical points (E' = 0, H' = -1) sit next to the single-transit
+  centers, which is why sources enumerate it.  Half of the Θ-preimages (the wrong petal parity for odd shifts of the
+  bulb, and the targets themselves, where H' = 0) are not centers.
+- Fast census (`lavaurs_area --children`, `fast_census.py`): children by Newton on Θ_r from the source's local
+  quadratic, verified as centers (`lavaurs_center`), weighted by the area formula, deduplicated mod 1; heavy children
+  exact (area, cusp).  300 sources × 101 targets reproduce 2.7532e-4 of S_1 = 2.94116e-4 in 2.6 min (every found
+  component's area exact to the formula's accuracy); the missing 1.8e-5 are children of large sources whose islands
+  the local start does not reach (H232 1.37e-5, H9386 3.0e-6, N-series): more starts per source, or path tracking for
+  the top sources.
