@@ -7,7 +7,8 @@
 //
 //   ./build/release/lavaurs_area --island [threads] < pairs > out
 // reads lines "name n_u u_re u_im n_c c_re c_im" (an island: single-transit center σ_u with excursion n_u; a target:
-// single-transit center σ_c with excursion n_c) and finds the two-transit centers Θ(σ) = σ_c + j/2 (j = -1, 0, 1,
+// single-transit center σ_c with excursion n_c) and finds the two-transit centers Θ(σ) = σ_c + j/2 (j = jmin..1 with
+// jmin = $LAVAURS_JMIN or -1,
 // final excursion n_c - j) on both branches, printing "name|side|j 2 n center_re center_im area_hi area_lo C conv
 // island_address target_address side own|other island_re island_im" (the combinatorial label: addresses of the island's and the target's preimages
 // of the critical point, the branch's side at the critical passage, and j).  With --address, ordinary output lines
@@ -97,7 +98,10 @@ static int walk_main(const int threads) {
   return 0;
 }
 
+static int jmin = -1;  // Shifts j = jmin..1 (env LAVAURS_JMIN)
+
 static int island_main(const int threads) {
+  if (getenv("LAVAURS_JMIN")) jmin = atoi(getenv("LAVAURS_JMIN"));
   struct Pair { std::string name; int nu, nc; Complex<double> u, c; };
   std::vector<Pair> pairs;
   char name[256];
@@ -115,7 +119,7 @@ static int island_main(const int threads) {
         const std::string ua = lavaurs_address(p.nu, p.u);
         std::string text;
         for (const int branch : {1, -1})
-          for (int j = -1; j <= 1; j++) {
+          for (int j = jmin; j <= 1; j++) {
             const int n = p.nc - j;
             if (n < 0) continue;
             Complex<double> s;
