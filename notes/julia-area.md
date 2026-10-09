@@ -828,3 +828,21 @@ from the model map z + a z³ + perturbation instead of from M.
   few % of S_1): a renewal over iterations of the Lavaurs map through the gate, with excursion words between
   transits.  The natural exact object is the Lavaurs-phase transfer operator; computing via M at large k works but
   needs each sector's own word census.
+
+**Lavaurs model at the 1/2 root: phase-plane areas computed directly** (`analysis/lavaurs/`: fatou_series.py,
+lavaurs.py, centers.py, calibrate.py, model_area.py; Python prototype in double precision).
+- w = z + 1/2, F(w) = -w + w² (multiplier -1), F_δ = F + δ.  Formal Fatou coordinate with Φ(F(w)) = Φ(w) + 1/2:
+  Φ = 1/(4w²) + 1/(4w) + (11/8) L(w) + Σ a_j w^j (a_1 = -5/16, a_2 = 75/64, …; exact rationals, Borel-type growth
+  |a_j|^{1/j} ≈ 1.7 → 2.9 for j = 10 → 60; L = log on one petal of each pair, log(-·) on its partner).  The odd 1/(4w)
+  term is the source of the m^{-1/2} expansions seen in M.  Φ_a by iteration into the attracting petal (|w| < 0.05,
+  30 terms); F swaps the repelling petals, so two parametrizations: Ψ₊ (local inverse in the upper petal, then F^{2m})
+  and Ψ₋(ζ) = F(Ψ₊(ζ - 1/2)).  Lavaurs map g_σ = Ψ_±(Φ_a + σ), the exit petal equal to the entering one.
+- Calibration against M (point-cloud match of single-transit centers with the census phases, 34 of the top 40 at 5e-9):
+  σ_model = -σ_M/2 + 3πi/8 + 1/2 with excursion length n = j - 1 (δ = iπ/(2k + σ_M)), hence C_w = (π²/4) area_model.
+- Component areas by multiplier-map boundary tracing in σ (2-jets through Φ_a and Ψ, N = 64, DFT) reproduce the M
+  constants: S1 1.724974063499687e-3 (M: …498965e-3, +4e-13), S2 +5e-11, S3 -3e-11, E0m2 +1e-11, E2m1 -9e-12; the
+  limb's bulb itself appears as the component 0.2081.  So every sector's constants are areas of components of one
+  fixed σ-plane set, computable without limbs, k-extrapolation or ray tracing.
+- Since g_σ commutes with F, a cycle F^n g F^{n'} g F … depends only on the total n and the number of transits r: an
+  r-transit component is σ with g_σ^{r-1}(v) in the basin and F^n(g_σ^r(v)) = 1/2.  Excursions between transits enter
+  only through which basin component g_σ(·) lands in.
