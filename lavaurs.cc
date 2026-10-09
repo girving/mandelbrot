@@ -281,6 +281,83 @@ LavaursResult lavaurs_area(const int r, const int n, const Complex<double> guess
   return area_t<E2>(r, n, guess, N);
 }
 
+namespace {
+
+const LavaursModel<double>& model_d() { static const LavaursModel<double> L; return L; }
+
+// ζ0 = Φ_a(v) for the critical value v = -1/4 and the petal it enters
+void zeta0(Cd& z0, int& petal0) {
+  static Cd z; static int p = 0;
+  if (!p) {
+    Cd d, dd;
+    slow_assert(model_d().phi_a(Cd(-0.25, 0), z, d, dd, p), "zeta0 failed");
+  }
+  z0 = z; petal0 = p;
+}
+
+inline char side(const Cd w) { return w.r - 0.5 < 0 ? 'L' : 'R'; }
+inline Cd Fd(const Cd w) { return sqr(w) - w; }
+
+}  // namespace
+
+std::string lavaurs_address(const int n, const Complex<double> sigma) {
+  Cd z0, x, d, dd; int p0;
+  zeta0(z0, p0);
+  if (!model_d().psi(z0 + sigma, p0, x, d, dd)) return "?";
+  std::string a;
+  for (int i = 0; i < n; i++) { a += side(x); x = Fd(x); }
+  return a;
+}
+
+bool lavaurs_theta(const Complex<double> sigma, Complex<double>& theta, Complex<double>& dtheta,
+                   Complex<double>& d2theta) {
+  Cd z0, q0, q1, q2, p0, p1, p2; int pv, petal;
+  zeta0(z0, pv);
+  if (!model_d().psi(z0 + sigma, pv, q0, q1, q2)) return false;
+  if (!model_d().phi_a(q0, p0, p1, p2, petal)) return false;
+  theta = p0 + sigma - z0;
+  dtheta = p1 * q1 + Cd(1);
+  d2theta = p2 * sqr(q1) + p1 * q2;
+  return true;
+}
+
+bool lavaurs_island(const Complex<double> center, const Complex<double> target, const int branch,
+                    Complex<double>& sigma) {
+  Cd t0, d, dd;
+  if (!lavaurs_theta(center, t0, d, dd)) return false;
+  // Steps in the target, finer where Θ' is large (near the island's boundary the map stretches)
+  const int steps = 400;
+  Cd s;
+  for (int i = 1; i <= steps; i++) {
+    const Cd tgt = t0 + Cd(double(i) / steps * (target.r - t0.r), double(i) / steps * (target.i - t0.i));
+    if (i == 1) {  // Θ ≈ Θ_c + δ + Θ''δ²/2: the root of the quadratic on this branch
+      const Cd b = cdiv(Cd(2) * d, dd), c = cdiv(Cd(-2) * (tgt - t0), dd);
+      const auto r = std::sqrt(std::complex<double>((sqr(b) - Cd(4) * c).r, (sqr(b) - Cd(4) * c).i));
+      const Cd rt(r.real(), r.imag());
+      s = center + Cd(0.5) * (-b + (branch > 0 ? rt : -rt));
+    }
+    bool ok = false;
+    for (int it = 0; it < 40; it++) {
+      Cd v, dv, ddv;
+      if (!lavaurs_theta(s, v, dv, ddv)) return false;
+      const Cd st = cdiv(v - tgt, dv);
+      s = s - st;
+      if (cabs(v - tgt) < 1e-11 * std::max(1.0, cabs(tgt)) || cabs(st) < 1e-15) { ok = true; break; }
+    }
+    if (!ok) return false;
+  }
+  sigma = s;
+  return true;
+}
+
+char lavaurs_island_side(const int n_u, const Complex<double> sigma) {
+  Cd z0, x, d, dd; int p0;
+  zeta0(z0, p0);
+  if (!model_d().psi(z0 + sigma, p0, x, d, dd)) return '?';
+  for (int i = 0; i < n_u; i++) x = Fd(x);
+  return side(x);
+}
+
 template struct LavaursModel<double>;
 template struct LavaursModel<E2>;
 

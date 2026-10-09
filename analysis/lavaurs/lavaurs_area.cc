@@ -5,6 +5,14 @@
 // prints "name r n center_re center_im area_hi area_lo C conv" with C = (π²/4) area the family constant, or
 // "name r n failed".
 //
+//   ./build/release/lavaurs_area --island [threads] < pairs > out
+// reads lines "name n_u u_re u_im n_c c_re c_im" (an island: single-transit center σ_u with excursion n_u; a target:
+// single-transit center σ_c with excursion n_c) and finds the two-transit centers Θ(σ) = σ_c + j/2 (j = -1, 0, 1,
+// final excursion n_c - j) on both branches, printing "name|side|j 2 n center_re center_im area_hi area_lo C conv
+// island_address target_address side" (the combinatorial label: addresses of the island's and the target's preimages
+// of the critical point, the branch's side at the critical passage, and j).  With --address, ordinary output lines
+// end with the single-transit address of the center.
+//
 //   ./build/release/lavaurs_area --walk [threads] < walks > out
 // reads lines "name r n0 step count s1_re s1_im s2_re s2_im ..." (a class of components whose excursion grows by step:
 // seeds for its first members, from M) and walks n = n0, n0 + step, ...: members past the seeds are predicted by
@@ -86,8 +94,54 @@ static int walk_main(const int threads) {
   return 0;
 }
 
+static int island_main(const int threads) {
+  struct Pair { std::string name; int nu, nc; Complex<double> u, c; };
+  std::vector<Pair> pairs;
+  char name[256];
+  int nu, nc;
+  double ur, ui, cr, ci;
+  while (scanf("%255s %d %lf %lf %d %lf %lf", name, &nu, &ur, &ui, &nc, &cr, &ci) == 7)
+    pairs.push_back({name, nu, nc, Complex<double>(ur, ui), Complex<double>(cr, ci)});
+  std::vector<std::string> out(pairs.size());
+  std::atomic<int64_t> next(0), found(0);
+  std::vector<std::thread> pool;
+  for (int t = 0; t < threads; t++)
+    pool.emplace_back([&]() {
+      for (int64_t i; (i = next++) < int64_t(pairs.size());) {
+        const auto& p = pairs[i];
+        const std::string ua = lavaurs_address(p.nu, p.u);
+        std::string text;
+        for (const int branch : {1, -1})
+          for (int j = -1; j <= 1; j++) {
+            const int n = p.nc - j;
+            if (n < 0) continue;
+            Complex<double> s;
+            if (!lavaurs_island(p.u, Complex<double>(p.c.r + 0.5 * j, p.c.i), branch, s)) continue;
+            const auto res = lavaurs_area(2, n, s);
+            if (!res.ok || std::hypot(res.center.r - s.r, res.center.i - s.i) > 1e-7) continue;
+            const char side = lavaurs_island_side(p.nu, res.center);
+            char line[1024];
+            snprintf(line, sizeof(line), "%s|%c|%d 2 %d %.17g %.17g %.17g %.17g %.17g %.1e %s %s %c\n", p.name.c_str(),
+                     side, j, n, res.center.r, res.center.i, res.area.x[0], res.area.x[1],
+                     M_PI * M_PI / 4 * double(res.area), res.conv, ua.empty() ? "-" : ua.c_str(),
+                     p.nc ? lavaurs_address(p.nc, p.c).c_str() : "-", side);
+            text += line;
+            found++;
+          }
+        out[i] = text;
+      }
+    });
+  for (auto& t : pool) t.join();
+  for (const auto& s : out) fputs(s.c_str(), stdout);
+  fprintf(stderr, "lavaurs_area --island: %zu pairs, %lld components\n", pairs.size(), (long long)found);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   if (argc > 1 && std::string(argv[1]) == "--walk") return walk_main(argc > 2 ? atoi(argv[2]) : 2);
+  if (argc > 1 && std::string(argv[1]) == "--island") return island_main(argc > 2 ? atoi(argv[2]) : 2);
+  const bool address = argc > 1 && std::string(argv[1]) == "--address";
+  if (address) { argc--; argv++; }
   const int threads = argc > 1 ? atoi(argv[1]) : 2;
   struct Job { std::string name; int r, n; double sr, si; };
   std::vector<Job> jobs;
@@ -105,9 +159,9 @@ int main(int argc, char** argv) {
         const auto res = lavaurs_area(j.r, j.n, Complex<double>(j.sr, j.si));
         char line[512];
         if (res.ok)
-          snprintf(line, sizeof(line), "%s %d %d %.17g %.17g %.17g %.17g %.17g %.1e", j.name.c_str(), j.r, j.n,
+          snprintf(line, sizeof(line), "%s %d %d %.17g %.17g %.17g %.17g %.17g %.1e%s%s", j.name.c_str(), j.r, j.n,
                    res.center.r, res.center.i, res.area.x[0], res.area.x[1], M_PI * M_PI / 4 * double(res.area),
-                   res.conv);
+                   res.conv, address ? " " : "", address ? (j.n ? lavaurs_address(j.n, res.center).c_str() : "-") : "");
         else {
           snprintf(line, sizeof(line), "%s %d %d failed", j.name.c_str(), j.r, j.n);
           failed++;
