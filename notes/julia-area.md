@@ -806,3 +806,25 @@ from the model map z + a z³ + perturbation instead of from M.
   exist only from k_w ≈ (j−1)/2, and small limbs' longer tails belong to other parabolic points.  Assembling μ(M)
   means attaching such family layers to the satellite tree's nodes (roots and cusps), with the small-k region in the
   tree itself.
+
+**The 1/2-root layer is a series over full gate transits** (`limb_families limb`, `diag_census.py`, `diagonal.py`,
+`diag_negative.py`, `diag_sum.py`; lavaurs/maximal_tuning now to period 62).
+- Assembly target: μ(M) = A_card + Σ_{W ∈ NR} a(W) R_W (NR = cardioid bulbs and all NRPs, R_W the copy factor); the
+  1/2 root's new layer is the NRPs of the cardioid limbs k/(2k+1) and their mirrors: T(K) = 2 Σ_{k≥K} A(k).
+- Beyond the stable range (tail > 2k) limbs are not just "more of the same": the unstable band has a k-independent
+  structure in the offset j - 2k (missing tails and duplicated kneading sequences, identical for k = 2..5) and real
+  mass: by number of tail runs of transit length (≥ 2k-2), limb 3: 75.7 / 23.6 / 0.6%, limb 4: 80.7 / 18.9 / 0.4%,
+  limb 5: 84.4 / 15.6 / ~0% (truncated at j ≤ 2k+8).  These are orbits with a second full transit, e.g. tail
+  1^(2k+2) (limb 4: area 2.3e-7, the third largest NRP).  A pass can be longer than the first.
+- Their keys are k-independent up to one 2-bit insertion per limb (14,123 labels (u, form, d, v), tail u R v with R a
+  run of 2k + d; limb 6 predicted exactly), so the constants D = lim a(k, label) k^4 follow from limbs 4 and 5.
+  D(-, 1^(2k+d), -): d = 2: 1.858e-4, -2: 1.366e-5, 4: 1.317e-5, 6: 1.9e-6, odd d ~1e-7..1e-6; at negative d the words
+  are stable (keys_for) and D ~ |d|^-6 (D|d|^6 ≈ 0.012–0.016 for d = -10..-14).
+- Two-transit sector Σ D ≈ 2.2729e-4 (14,121 limb labels 2.254362e-4, further negative offsets 1.85e-6, |d|^-6 tail
+  4e-9): +12% on top of the one-transit S = 1.8934526e-3.  It is truncated in |u| + |v| (offsets d ≥ 2 missing past
+  |u| + |v| = 4; masses 2.18e-4, 6.7e-6, ≥4.4e-7, ≥1.4e-7 at |u| + |v| = 0, 2, 4, 6), and unlike long partial passes a
+  full transit does not decouple the word (D(u, d, -)/D(-, d, -) varies ×5 over d).
+- So the k → ∞ constant of A(k) k^4 is S_0 + S_1 + S_2 + … over the number of full transits (S_1/S_0 ≈ 0.12, S_2 a
+  few % of S_1): a renewal over iterations of the Lavaurs map through the gate, with excursion words between
+  transits.  The natural exact object is the Lavaurs-phase transfer operator; computing via M at large k works but
+  needs each sector's own word census.
