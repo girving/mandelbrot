@@ -232,7 +232,7 @@ template<class S> LavaursResult area_t(const int r, const int n, const Cd guess,
   typedef Complex<S> C;
   static const LavaursModel<S> L;
   const double tol = sizeof(S) == sizeof(double) ? 1e-15 : 1e-30, accept = sizeof(S) == sizeof(double) ? 1e-11 : 1e-26;
-  LavaursResult res{false, Cd(0), E2(0.0), 0, 0};
+  LavaursResult res{false, Cd(0), E2(0.0), 0, 0, Cd(0)};
   C w = from_cd<S>(Cd(0.5, 0)), s = from_cd<S>(guess);
   if (!(newton(L, r, n, w, s, C(0), tol) < accept)) return res;
   const C center = s;
@@ -276,6 +276,7 @@ template<class S> LavaursResult area_t(const int r, const int n, const Cd guess,
   res.area = E2(A);
   res.conv = double((A - A2) / A);
   res.cusp = cabs(deriv) / cabs(a1);
+  res.a1 = Cd(a1.r / N, a1.i / N);
   return res;
 }
 

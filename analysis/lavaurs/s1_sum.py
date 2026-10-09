@@ -1,53 +1,54 @@
-"""The two-transit sector S_1 from Lavaurs-model components: the union of the model runs on the M-side labels
-(lavaurs_area on diag seeds) and the island census (lavaurs_area --island), deduplicated by center, without the
-doublings (a single-transit family's period-doubling satellite is tuned; it is attached to the family, so its center
-lies within 2.5 radii of the family's center).
+"""The two-transit sector S_1 from Lavaurs-model components, classified by the cusp measure.
 
-  python3 s1_sum.py model_census model_diag[,…] model_island[,…]
+Input: lavaurs_area (default mode) run on every distinct two-transit center found so far (M-side labels and island
+census), lines "name r n cre cim area_hi area_lo C conv cusp [address]"; island names are "source~target|side|j".
+A component is primitive (a non-renormalizable parameter of M, given two transits) if its multiplier map has a cusp
+at μ = 1, cusp = |σ'(1)|/|a_1| ≈ 0, and a satellite (a doubling, the bulb's children, a cardioid bulb) if cusp = O(1).
+The σ-plane is a cylinder (period 1 in Re σ: the same M family at limb k and k + 1), so components are deduplicated
+by center mod 1.
 
-Prints S_1, the masses by source (labels only, islands only, both), and how the island-found mass grows with the
-source's and target's rank (convergence of the enumeration)."""
+  python3 s1_sum.py model_s1all.txt.gz [census.txt.gz]
+
+Prints S_1, the satellite mass and kinds, the masses by provenance, and the cusp histogram."""
 import sys, gzip, math
 from collections import defaultdict
 
 def opened(p): return gzip.open(p, 'rt') if p.endswith('.gz') else open(p)
 
+def key(c): return (round(c.real % 1.0, 8) % 1.0, round(c.imag, 8))
+
 if __name__ == '__main__':
-    fam = {}   # single-transit families: name -> (C, center, radius in σ)
+    comp = {}  # key -> [C, center, cusp, names, conv]
+    failed = 0
     for l in opened(sys.argv[1]):
         r = l.split()
-        if r[3] == 'failed': continue
-        area = float(r[5]); fam[r[0]] = (float(r[7]), complex(float(r[3]), float(r[4])), math.sqrt(area / math.pi))
-    # the limb's bulb (a satellite) is a single-transit component too; its doubling is its 1/2 satellite
-    fam['bulb'] = (0.20812104826488634, complex(-1.0074583370365449, 0.16135210336429348), math.sqrt(0.084348283804329571 / math.pi))
-    rank = {nm: i for i, nm in enumerate(sorted(fam, key=lambda x: -fam[x][0]))}
-    rank['bulb'] = -1
-    comp = {}  # key -> [C, center, sources set, best (source rank, target rank)]
-    def add(key, C, c, src, ranks=None):
-        e = comp.setdefault(key, [C, c, set(), (10**9, 10**9)])
-        e[2].add(src)
-        if ranks and ranks < e[3]: e[3] = ranks
-    for p in sys.argv[2].split(','):
-        for l in opened(p):
-            r = l.split()
-            if r[3] == 'failed': continue
-            c = complex(float(r[3]), float(r[4])); add((round(c.real, 7), round(c.imag, 7)), float(r[7]), c, 'label')
-    doubling = set()
-    for p in sys.argv[3].split(','):
-        for l in opened(p):
-            r = l.split(); name, side, j = r[0].split('|'); u, t = name.split('~')
-            c = complex(float(r[3]), float(r[4])); key = (round(c.real, 7), round(c.imag, 7))
-            add(key, float(r[7]), c, 'island', (max(rank.get(u, 10**9), 0), rank.get(t, 10**9)))
-            # a doubling of the target family t: attached to t (found from any source region)
-            if t in fam and abs(c - fam[t][1]) < 2.5 * fam[t][2]: doubling.add(key)
-    nr = {k: v for k, v in comp.items() if k not in doubling}
-    S1 = sum(v[0] for v in nr.values())
+        if r[3] == 'failed': failed += 1; continue
+        c = complex(float(r[3]), float(r[4]))
+        e = comp.setdefault(key(c), [float(r[7]), c, float(r[9]), [], float(r[8])])
+        e[3].append(r[0])
+        if abs(e[0] - float(r[7])) > 1e-9 * e[0]: print('mismatch at %s: %s vs %s' % (key(c), e[0], r[7]))
+    hist = defaultdict(lambda: [0, 0.0])
+    for v in comp.values():
+        b = math.floor(math.log10(max(v[2], 1e-30)))
+        hist[b][0] += 1; hist[b][1] += v[0]
+    print('%d distinct components mod 1 (%d failed)' % (len(comp), failed))
+    print('cusp histogram (decade: count, mass):')
+    for b in sorted(hist): print('   1e%+03d: %6d %.4e' % (b, hist[b][0], hist[b][1]))
+    prim = {k: v for k, v in comp.items() if v[2] < 1e-8}
+    sat = {k: v for k, v in comp.items() if v[2] >= 1e-8}
+    S1 = sum(v[0] for v in prim.values())
+    print('S_1 = %.13e over %d primitive components;  satellites %d, mass %.6e' % (
+        S1, len(prim), len(sat), sum(v[0] for v in sat.values())))
     by = defaultdict(float)
-    for v in nr.values(): by['+'.join(sorted(v[2]))] += v[0]
-    print('two-transit components: %d distinct, %d doublings removed (mass %.4e)' % (len(comp), len(doubling), sum(comp[k][0] for k in doubling)))
-    print('S_1 = %.12e  (by source: %s)' % (S1, ', '.join('%s %.4e' % kv for kv in sorted(by.items()))))
-    # convergence of the island census in the source and target ranks (components found from islands only)
-    isl = [v for v in nr.values() if 'island' in v[2]]
-    for cap in (10, 30, 100, 150, 1000, 10**9):
-        m = sum(v[0] for v in isl if v[3][0] < cap and v[3][1] < cap)
-        print('   island-found mass with source and target rank < %s: %.8e' % (cap if cap < 10**9 else '∞', m))
+    for v in prim.values():
+        src = {'island' if '~' in nm else 'label' for nm in v[3]}
+        by['+'.join(sorted(src))] += v[0]
+    print('   by provenance: ' + ', '.join('%s %.6e' % kv for kv in sorted(by.items())))
+    print('   worst conv among primitives: %.2e;  mass-weighted conv error %.2e' % (
+        max(v[4] for v in prim.values()), sum(v[0] * v[4] for v in prim.values())))
+    print('largest satellites:')
+    for v in sorted(sat.values(), key=lambda v: -v[0])[:12]:
+        print('   C %.6e cusp %.3f σ %.10f%+.10fi  %s' % (v[0], v[2], v[1].real, v[1].imag, ' '.join(v[3][:3])))
+    print('largest primitives:')
+    for v in sorted(prim.values(), key=lambda v: -v[0])[:12]:
+        print('   C %.6e cusp %.1e σ %.10f%+.10fi  %s' % (v[0], v[2], v[1].real, v[1].imag, ' '.join(v[3][:3])))
