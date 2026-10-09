@@ -971,3 +971,19 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
 - Tail now (tail_sum.py, R left out, both mirror sides): 2Σ_{k≥16} = 4.0046e-7 ± 5.8e-9, 2Σ_{k≥64} = 5.958e-9 ± 6e-11,
   the error from unseen transit mass (≥ 3 transits, estimated 3e-5 ± 2e-5); census and label pieces are exact to
   1e-15 from M.  For 1e-12 at K = 64 the unseen mass must be known to ~7e-7.
+- Satellites must be island sources too.  B_2 (the mediant cardioid bulb, r = 2) as a three-transit source gives the
+  m = 3 Farey bulbs (C = 3.06e-3 at Re σ = -1/3, -2/3: t = 1/3, 2/3; ratio to the bulb 0.0147 ≈ 3^-4 · 1.19), the
+  m = 3 limbs' leading NRPs (B2~j2_0|L|-2: 1.52e-6 at -0.302 + 0.102i, |L|-4: 9.6e-7 at -0.645 + 0.101i, matching
+  the M limbs 25/53 and 26/55 at k = 8), and a large primitive B2~bulb|R|-8 = 6.91e-5 in the mediant region: S_2 is
+  well above the 5.08e-5 found from primitive sources.  Doubling regions (S1*H) give only small NRPs (≤ 1.3e-7).
+- Each Farey limb has a heavy NRP in its bulb's region over the limb's bulb B_1, plus copies of the one-transit
+  census over all targets (left branch, even shifts).  Mediant (m = 2, B_2 source, r = 3): B2~bulb|R|-8 = 6.91e-5
+  (R shifts -10, -12: 6.0e-7, 3.8e-8; in M: limb 9/20's largest NRP, P = 29, a k^4 = 1.05e-5 at k = 4, larger than
+  its period-22 copy-A member), copies L -6, -2, -4, 0: 3.2e-6, 1.6e-6, 1.0e-6, 1.6e-7 (partial over targets).
+  m = 3 (B_3 sources, r = 4): 1.58e-5 + 7.1e-6 + 4.5e-6 = 2.7e-5 = 0.39 × the mediant's (2 (2/3)^4 = 0.40), and the
+  m = 4 Farey bulbs at Re σ = -1/4, -3/4 (C = 9.6e-4 = 4^-4 · 1.19 × bulb, the same 1.19 as m = 2, 3).
+- So per Farey denominator m the heavy pieces scale ~φ(m) m^-4 (heavy part alone ≈ 6.9e-5 · 16 · (ζ(3)/ζ(4) - 1) ≈
+  1.2e-4), and the strip's transit series is not geometric (S_2 ≈ 1.47e-4 > S_1/2): r-transit mass is dominated by
+  Farey limbs of denominator ~r - 1.  The bulb limb's own series (S_0, 2.711e-4, …) looks geometric (~0.15).
+  Organize: strip = bulb limb (transit series) + Σ_F limb F, each limb F ≈ a distorted copy, with a scaling law in m
+  (bulbs: 1.19 m^-4 exactly in the pattern so far) and a tail ~M^-2 in the denominator cutoff.
