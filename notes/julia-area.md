@@ -994,3 +994,10 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   m = 2..7, ratios to the bulb 4.6e-3, 5.2e-3, 1.2e-3, 2.1e-3, 1.0e-3, 6.4e-4: falling faster than the bulbs (~m^-6),
   so the Farey part converges faster than φ(m) m^-4 would suggest, but these are single components, not limb
   totals.
+- Three-transit sector (island3 + island6's top 10,000 of 91,700 importance-ordered pairs + island7: 12 two-transit
+  satellites as sources, B_2 × all 16,384 targets, shifts -12..1): **S_2 ≥ 1.4226e-4** (5.08e-5 + 1.90e-5 + 7.25e-5;
+  airplane tunings 4.8e-9 removed), satellites 8.17e-3 (the m = 3 Farey bulbs 2 × 3.06e-3, the bulb's 1/3 child).
+- Tail (tail_sum.py with island-only r = 2 mass 6.57e-5, r = 3 1.4226e-4, unseen ≥ 4 transits 5e-5 ± 3e-5):
+  S_tot ≈ 2.3905e-3; 2Σ_{k≥16} = 4.2196e-7 ± 9.1e-9, 2Σ_{k≥32} = 5.1218e-8 ± 8.6e-10, 2Σ_{k≥64} = 6.2545e-9 ±
+  9.1e-11 (before the copy factor R; × 1.279 ≈ 5.40e-7, 6.55e-8, 8.00e-9).  Census and label pieces are exact to
+  1e-15 from M; the error is the unseen transit mass and the 1/k coefficient of the model-only mass.
