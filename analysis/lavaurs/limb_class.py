@@ -74,3 +74,77 @@ if __name__ == '__main__':
     ]
     for name, s, n, r in tests:
         print('%-26s %s' % (name, classify(s, n, r)))
+
+def kneading(sigma, n, r, J=40):
+    """The component's kneading as blocks: [(transit i, explicit symbols before the gate (excursion after x_{i-1}),
+    explicit symbols after it (exit steps, then x_i))], i = 1..r, plus the final excursion; gate interiors are 1s.
+    Returns (blocks, final) with symbols as strings, or None"""
+    e = phi_a_entry(V)
+    if e is None: return None
+    p, _, petal = e
+    p = p + sigma
+    blocks, pre = [], ''
+    for i in range(1, r + 1):
+        ex = ''.join(str(ksym(psi(p - j / 2, petal * (-1) ** j)[0])) for j in range(J, 0, -1))
+        x, _ = psi(p, petal)
+        ex += str(ksym(x))
+        blocks.append((pre, ex))
+        w, pre = x, ''
+        for l in range(1, (n if i == r else 10**6) + 1):
+            if i < r and abs(w) < R_LOC and abs(w.imag) < 0.7 * abs(w.real): break
+            w = F(w)
+            if i == r and l == n: break
+            pre += str(ksym(w))
+            if abs(w) > 10: return None
+        if i == r: return blocks, pre
+        e = phi_a_entry(x)
+        if e is None: return None
+        q, _, petal = e
+        p = q + sigma
+    return None
+
+def tail(sigma, n, r, J=40):
+    """(m, b, tokens): the limb t = b/m and the kneading after the first 0 as k-free tokens: '0' and runs of ones
+    '1^(2k g + c)' written 'g:c' (g gate passages inside the run), normalized to the component's own limb index (for
+    m > 1 the offset's b is reduced into [1, m), which shifts the index; for m = 1 to b = 0).  Positions: x_j sits at
+    (2k+1) j from x_0 = v; block i's excursion symbols are x_{i-1} + s, its exit symbols x_i - J..x_i."""
+    kn = kneading(sigma, n, r, J)
+    if kn is None: return None
+    blocks, final = kn
+    seq = []   # (T, s, symbol): position (2k+1) T + s
+    for i, (pre, ex) in enumerate(blocks, 1):
+        seq += [(i - 1, s, c) for s, c in enumerate(pre, 1)]
+        seq += [(i, t - J, c) for t, c in enumerate(ex)]
+    seq += [(len(blocks), s, c) for s, c in enumerate(final, 1)]
+    first = next((idx for idx, v in enumerate(seq) if v[2] == '0'), None)
+    if first is None: return None
+    T0, s0, _ = seq[first]
+    m, off = (T0, s0) if s0 > 0 else (T0, s0)
+    if s0 <= 0: m, off = T0, s0           # exit steps: offset relative to x_{T0}
+    else: m, off = T0, s0                 # excursion after x_{T0}
+    if m < 1 or (off + 1) % 2: return None
+    braw = (off + 1) // 2
+    b = braw % m if m > 1 else 0
+    if m > 1 and b == 0: return None
+    shift = (braw - b) // m if m > 1 else braw
+    toks, run = [], None   # run = (start position) of the current 1-run
+    def close(run_start, end):
+        g = end[0] - run_start[0]
+        c = g + end[1] - run_start[1] + 1      # length (2k+1) g + ds + 1 = 2k g + c
+        toks.append('%d:%d' % (g, c - 2 * shift * g))
+    prev = (T0, s0)
+    for T, s_, c in seq[first + 1:]:
+        if c == '1':
+            if run is None: run = (T, s_)
+            last = (T, s_)
+        else:
+            if run is not None:
+                close(run, last); run = None
+            # gap between explicit symbols is ones; if the previous explicit symbol was a 0 and this is a 0 in a
+            # different block, the gate interior in between is a run
+            if prev is not None and (T, s_) != prev and toks and toks[-1] == '0' and T > prev[0]:
+                pass
+            toks.append('0')
+        prev = (T, s_)
+    if run is not None: close(run, last)
+    return m, b, shift, toks
