@@ -135,6 +135,8 @@ template<class S> int64_t nearest_twiddles(span<Complex<S>> zs, const int64_t b,
 }
 
 #define NEAREST(S) \
+  template optional<S> round_nearest(const arb_t, const int); \
+  template optional<Complex<S>> round_nearest(const acb_t, const int); \
   template S nearest_pi(); \
   template S nearest_sqrt(const int64_t, const int64_t); \
   template Complex<S> nearest_twiddle(const int64_t, const int64_t); \
