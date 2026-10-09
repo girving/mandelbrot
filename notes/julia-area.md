@@ -949,3 +949,12 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   bulb's layer plus Σ_F ρ_F × copy, ρ_mediant ≈ 0.0115 for the one-transit part), not by raw transit count.
 - Open: a wake classifier in the model (which limb a component's α-rotation puts it in); the M-side labels are
   bulb-limb by construction, and limb-5 σ_M matching is too noisy (finite-k drift O(1) at k = 5).
+- Confirmed in M (`limb_families wake J p q`: every NRP of the p/q limb, full words): the mediant limb 9/20 at k = 4
+  has one dominant NRP, period 22 = q + 2, σ_M = 1.713 + 1.972i (model bulb~j2_0|R|-6 in the representative with
+  n = 3: 1.883 + 1.941i; drift as expected at k = 4), a k^4 = 6.9e-6 (model C = 2.18e-5), the rest ≤ 1.9e-7.
+- Structure: the Farey fraction between θ_k and θ_{k+1} with weights (a, b) has rotation number exactly θ_x =
+  x/(2x+1) at x = k + b/(a+b).  So the strip is a continuum of "fractional limbs" t = x - k ∈ [0, 1), with limbs at
+  rationals t = b/m, bulbs scaled ~m^-4 (B_2 at t = 1/2: 0.072 ≈ 2^-4 · 1.15), and a gate passage costing m
+  transits.  If each limb's layer is κ m^-4 times the bulb limb's, the Farey part is κ Σ_{m≥2} φ(m) m^-4 =
+  κ (ζ(3)/ζ(4) - 1) = 0.11 κ; the mediant's one-transit copy suggests κ ≈ 0.18, i.e. ~2% of S_tot (~4e-5),
+  converging like M^-2 in the denominator cutoff.

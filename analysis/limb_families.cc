@@ -3,6 +3,7 @@
 //   ./build/release/limb_families stats J                      # families with extra period j ≤ J, k = 2, 3, 4
 //   ./build/release/limb_families jobs J k1,k2,... [threads]   # bulb_batch P = 0 jobs for each family at each k
 //   ./build/release/limb_families keys J                       # j, index, key words per family
+//   ./build/release/limb_families wake J p q                   # every NRP of the p/q limb: period and full words
 //   ./build/release/limb_families limb J k                     # every NRP of limb k: j and key words
 //   ./build/release/limb_families custom threads < lines "name lo hi k1,k2,..."   # jobs for given keys
 //   ./build/release/limb_families size threads < lines "name lo hi k1,k2,..."     # centers and size estimates only
@@ -178,6 +179,17 @@ int main(int argc, char** argv) {
       printf("  missing per j:");
       for (int j = 0; j <= J; j++) printf(" %d", miss[j]);
       printf("\n");
+    }
+    return 0;
+  }
+  if (mode == "wake") {  // every NRP of the cardioid's p/q limb with extra period ≤ J: "period lo hi" (full words)
+    const int pp = atoi(argv[3]), q = atoi(argv[4]);
+    const auto roots = lavaurs(q + J, cardioid_wake(pp, q));
+    const auto parent = maximal_tuning(roots);
+    for (size_t i = 0; i < roots.size(); i++) {
+      const auto& w = roots[i].w;
+      if (roots[i].satellite || parent[i] >= 0 || w.lo.q == q) continue;
+      printf("%d %s %s\n", w.lo.q, bits(w.lo.k, w.lo.q).c_str(), bits(w.hi.k, w.hi.q).c_str());
     }
     return 0;
   }
