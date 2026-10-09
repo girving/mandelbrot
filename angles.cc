@@ -3,6 +3,8 @@
 #include "angles.h"
 #include "debug.h"
 #include <algorithm>
+#include <map>
+#include <tuple>
 #include <numeric>
 #include <unordered_map>
 #include <vector>
@@ -76,13 +78,11 @@ struct MaxTree {
 
 vector<int> maximal_tuning(const vector<Root>& roots) {
   // Roots by (period, lo word, hi word)
-  std::unordered_map<uint64_t, int> index;
-  const auto key = [](const int q, const uint64_t lo, const uint64_t hi) {
-    return uint64_t(q) << 58 | lo << 29 | hi;
-  };
+  std::map<std::tuple<int, uint64_t, uint64_t>, int> index;
+  const auto key = [](const int q, const uint64_t lo, const uint64_t hi) { return std::make_tuple(q, lo, hi); };
   for (size_t i = 0; i < roots.size(); i++) {
     const auto& w = roots[i].w;
-    slow_assert(w.lo.q == w.hi.q && w.lo.q <= 29, "maximal_tuning: period %d too large", w.lo.q);
+    slow_assert(w.lo.q == w.hi.q && w.lo.q <= 62, "maximal_tuning: period %d too large", w.lo.q);
     index[key(w.lo.q, w.lo.k, w.hi.k)] = int(i);
   }
   vector<int> parent(roots.size(), -1);
@@ -125,7 +125,8 @@ bool exact_period(const uint64_t k, const int p) {
 // themselves), sorted here
 vector<Root> lavaurs_pair(vector<Periodic> all, const int max_period) {
   std::sort(all.begin(), all.end(), [](const Periodic& a, const Periodic& b) {
-    return a.k * ((uint64_t(1) << b.q) - 1) < b.k * ((uint64_t(1) << a.q) - 1);
+    typedef unsigned __int128 U;
+    return U(a.k) * ((uint64_t(1) << b.q) - 1) < U(b.k) * ((uint64_t(1) << a.q) - 1);
   });
   const int64_t N = all.size();
 
@@ -189,13 +190,14 @@ vector<Root> lavaurs(const int max_period) {
 
 vector<Root> lavaurs(const int max_period, const Wake& within) {
   const int q = within.lo.q;
-  slow_assert(within.hi.q == q && max_period <= 29 && q <= max_period, "lavaurs: bad period %d or wake", max_period);
-  // Angles of exact period q..max_period in [lo, hi]: k/M ≥ lo.k/Q iff k Q ≥ lo.k M (Q = 2^q - 1)
+  slow_assert(within.hi.q == q && max_period <= 62 && q <= max_period, "lavaurs: bad period %d or wake", max_period);
+  // Angles of exact period q..max_period in [lo, hi]: k/M ≥ lo.k/Q iff k Q ≥ lo.k M (Q = 2^q - 1), in 128 bits
+  typedef unsigned __int128 U;
   const uint64_t Q = (uint64_t(1) << q) - 1;
   vector<Periodic> all;
   for (int p = q; p <= max_period; p++) {
     const uint64_t M = (uint64_t(1) << p) - 1;
-    for (uint64_t k = (within.lo.k * M + Q - 1) / Q; k * Q <= within.hi.k * M; k++)
+    for (uint64_t k = uint64_t((U(within.lo.k) * M + Q - 1) / Q); U(k) * Q <= U(within.hi.k) * M; k++)
       if (exact_period(k, p)) all.push_back(Periodic{k, p});
   }
   return lavaurs_pair(std::move(all), max_period);

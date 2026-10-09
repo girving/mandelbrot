@@ -3,6 +3,7 @@
 //   ./build/release/limb_families stats J                      # families with extra period j ≤ J, k = 2, 3, 4
 //   ./build/release/limb_families jobs J k1,k2,... [threads]   # bulb_batch P = 0 jobs for each family at each k
 //   ./build/release/limb_families keys J                       # j, index, key words per family
+//   ./build/release/limb_families limb J k                     # every NRP of limb k: j and key words
 //   ./build/release/limb_families custom threads < lines "name lo hi k1,k2,..."   # jobs for given keys
 //   ./build/release/limb_families size threads < lines "name lo hi k1,k2,..."     # centers and size estimates only
 //
@@ -178,6 +179,12 @@ int main(int argc, char** argv) {
       for (int j = 0; j <= J; j++) printf(" %d", miss[j]);
       printf("\n");
     }
+    return 0;
+  }
+  if (mode == "limb") {  // every NRP of limb k with extra period ≤ J: "j lo hi" (key words, (01)^{k-1} stripped)
+    const int k = atoi(argv[3]);
+    for (const auto& f : families(k, J))
+      printf("%d %s %s\n", int(f.lo.size()) + 2 * (k - 1) - (2 * k + 1), f.lo.c_str(), f.hi.c_str());
     return 0;
   }
   if (mode == "keys") {  // j, index, key words (limb K0's families, as `jobs` numbers them)
