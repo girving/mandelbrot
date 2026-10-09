@@ -958,3 +958,16 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   transits.  If each limb's layer is κ m^-4 times the bulb limb's, the Farey part is κ Σ_{m≥2} φ(m) m^-4 =
   κ (ζ(3)/ζ(4) - 1) = 0.11 κ; the mediant's one-transit copy suggests κ ≈ 0.18, i.e. ~2% of S_tot (~4e-5),
   converging like M^-2 in the denominator cutoff.
+- Bulb-source census (island5: bulb × all 16,383 census families, shifts -10..1, both branches): shifts j and j - 4
+  on the two branches are the same component one period apart, leaving three full copies of the one-transit census
+  (mod 1): A (R -6 ≡ L -2) Σ = 2.3008e-5 = 0.01215 S_0 at Re σ ≈ 0.56 next to B_2: the mediant limb's one-transit
+  layer (per-family ratio median 0.0036, max 0.0126: far from uniform); B (R -8 ≡ L -4) Σ = 4.10e-5 = 0.0217 S_0 at
+  Re σ ≈ 0.27: the bulb limb's own two-transit family "-|1|d|tail" (its j2_0 member is the validated -|1|0|01);
+  C (L 0) Σ = 3.3e-6, bulb-limb labels.  New mass only 4.41e-7 (R -10).  **S_1 = 2.94116e-4** in the strip
+  (bulb limb 2.711e-4, mediant limb's one-transit copy 2.301e-5).
+- Limb leading NRPs at k = 8 (a k^4): 8/17: 1.317e-3, mediant 17/36: 1.254e-5 (ratio 9.5e-3; model 0.0126), m = 3
+  limbs 25/53: 9.8e-7, 26/55: 4.8e-7 (ratios to the mediant's 0.078, 0.038 vs (2/3)^4 = 0.20): the Farey part falls
+  faster than m^-4 at this k, roughly 1.15 × the mediant's, ~1.3% of S_tot.
+- Tail now (tail_sum.py, R left out, both mirror sides): 2Σ_{k≥16} = 4.0046e-7 ± 5.8e-9, 2Σ_{k≥64} = 5.958e-9 ± 6e-11,
+  the error from unseen transit mass (≥ 3 transits, estimated 3e-5 ± 2e-5); census and label pieces are exact to
+  1e-15 from M.  For 1e-12 at K = 64 the unseen mass must be known to ~7e-7.
