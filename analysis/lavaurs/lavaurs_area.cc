@@ -17,6 +17,10 @@
 //   ./build/release/lavaurs_area --labels < centers > out
 // reads lines "name n sigma_re sigma_im" (single-transit centers) and prints "name n address" (no areas).
 //
+//   ./build/release/lavaurs_area --locate < "name r sigma_re sigma_im" lines
+// prints "name r theta_re theta_im center_re center_im": Θ_r(σ) (an r-transit center maps to a single-transit center,
+// shifted by j/2) and the critical point of the horn-map composition reached by Newton (the region's source center).
+//
 //   ./build/release/lavaurs_area --walk [threads] < walks > out
 // reads lines "name r n0 step count s1_re s1_im s2_re s2_im ..." (a class of components whose excursion grows by step:
 // seeds for its first members, from M) and walks n = n0, n0 + step, ...: members past the seeds are predicted by
@@ -152,6 +156,18 @@ static int island_main(const int threads) {
 int main(int argc, char** argv) {
   if (argc > 1 && std::string(argv[1]) == "--walk") return walk_main(argc > 2 ? atoi(argv[2]) : 2);
   if (argc > 1 && std::string(argv[1]) == "--island") return island_main(argc > 2 ? atoi(argv[2]) : 2);
+  if (argc > 1 && std::string(argv[1]) == "--locate") {  // "name r sigma_re sigma_im" -> Θ_r(σ) and the region's center
+    char name[256];
+    int r;
+    double sr, si;
+    while (scanf("%255s %d %lf %lf", name, &r, &sr, &si) == 4) {
+      Complex<double> s(sr, si), t, d, dd, c = s;
+      if (!lavaurs_theta(s, t, d, dd, r)) { printf("%s %d failed\n", name, r); continue; }
+      if (lavaurs_island_center(c, r)) printf("%s %d %.15g %.15g %.15g %.15g\n", name, r, t.r, t.i, c.r, c.i);
+      else printf("%s %d %.15g %.15g - -\n", name, r, t.r, t.i);
+    }
+    return 0;
+  }
   if (argc > 1 && std::string(argv[1]) == "--labels") {
     char name[256];
     int n;
