@@ -16,6 +16,7 @@
 
 #include "complex.h"
 #include "expansion.h"
+#include <string>
 #include <vector>
 namespace mandelbrot {
 
@@ -48,5 +49,23 @@ struct LavaursResult {
 
 // The component with r transits and excursion n whose center Newton finds from guess
 LavaursResult lavaurs_area(const int r, const int n, const Complex<double> guess, const int N = 64);
+
+// Combinatorial labels (double precision).  The dynamical plane is cut by the imaginary axis in z = w - 1/2 (each half
+// maps bijectively onto C minus (-∞, -3/4]), so a point's address is the sequence of sides (L: Re z < 0, R: Re z > 0)
+// of its forward orbit.  A single-transit center σ (excursion n) is labeled by the address of x = Ψ(ζ0 + σ), whose
+// n-th image is the critical point: n symbols.
+std::string lavaurs_address(const int n, const Complex<double> sigma);
+
+// Two-transit centers as island preimages: Θ(σ) = H(ζ0 + σ) + σ - ζ0, H = Φ_a ∘ Ψ the horn map; at a single-transit
+// center σ_u (excursion n_u) Θ(σ_u) = σ_u - (n_u + 1)/2 and Θ'(σ_u) = 1, Θ is 2:1 on the island, and a two-transit
+// center is a solution of Θ(σ) = σ_c + j/2 with σ_c a single-transit center (final excursion n_c - j).
+bool lavaurs_theta(const Complex<double> sigma, Complex<double>& theta, Complex<double>& dtheta,
+                   Complex<double>& d2theta);
+// Θ(σ) = target by a homotopy in the target from the island center, on branch ±1 (the quadratic's two roots)
+bool lavaurs_island(const Complex<double> center, const Complex<double> target, const int branch,
+                    Complex<double>& sigma);
+// The branch label of a point σ in the island of a center with excursion n_u: the side of F^{n_u}(Ψ(ζ0 + σ)) (the
+// orbit's passage by the critical point, where F is 2:1)
+char lavaurs_island_side(const int n_u, const Complex<double> sigma);
 
 }  // namespace mandelbrot
