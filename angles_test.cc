@@ -4,6 +4,7 @@
 #include "tests.h"
 #include <algorithm>
 #include <numeric>
+#include <tuple>
 #include <vector>
 namespace mandelbrot {
 namespace {
@@ -238,6 +239,36 @@ TEST(lavaurs_within) {
       ASSERT_EQ(sub[i].satellite, inside[i].satellite);
     }
   }
+}
+
+TEST(lavaurs_within_long) {
+  // Beyond 29 bits: roots inside an inner wake agree whether paired within it or within an outer wake
+  const int P = 31;
+  const auto outer = lavaurs(P, cardioid_wake(5, 11));
+  const Root* inner = nullptr;
+  for (const auto& r : outer)
+    if (r.w.lo.q == 14 && !r.satellite) { inner = &r; break; }
+  ASSERT_TRUE(inner != nullptr);
+  const auto key = [](const Root& r) { return std::tuple(r.w.lo.q, r.w.lo.k, r.w.hi.k); };
+  const auto in = [&](const Root& r) {  // r's wake inside inner's (exact, 128 bits)
+    typedef unsigned __int128 U;
+    const auto le = [](const Periodic& a, const Periodic& b) {
+      return U(a.k) * ((uint64_t(1) << b.q) - 1) <= U(b.k) * ((uint64_t(1) << a.q) - 1);
+    };
+    return le(inner->w.lo, r.w.lo) && le(r.w.hi, inner->w.hi);
+  };
+  vector<Root> a, b = lavaurs(P, inner->w);
+  for (const auto& r : outer) if (in(r)) a.push_back(r);
+  std::sort(a.begin(), a.end(), [&](auto& x, auto& y) { return key(x) < key(y); });
+  std::sort(b.begin(), b.end(), [&](auto& x, auto& y) { return key(x) < key(y); });
+  ASSERT_LT(1u, b.size());
+  ASSERT_EQ(a.size(), b.size());
+  for (size_t i = 0; i < a.size(); i++) ASSERT_EQ(a[i].w, b[i].w);
+  // maximal_tuning works past 29 bits: the inner root's own satellites are tuned by it
+  const auto parent = maximal_tuning(b);
+  int tuned = 0;
+  for (size_t i = 0; i < b.size(); i++) tuned += parent[i] >= 0;
+  ASSERT_LT(0, tuned);
 }
 
 TEST(maximal_tuning) {
