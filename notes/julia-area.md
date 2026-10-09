@@ -1077,3 +1077,17 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   1.8935e-3, 2.9412e-4, 1.5130e-4, 1.0378e-4, 7.683e-5, ≥2.265e-5 (level 6 least complete).  Ratios 0.155, 0.51,
   0.69, 0.74: beyond two transits the decay is slow (Farey limbs at r ≈ m + 1); the tail past r = 5 is 1–2e-4 if
   it continues, the dominant uncertainty in S_tot ≈ 2.65–2.75e-3.
+- Levels by limb (fast census, components > 1e-9, tunings by single-transit U and two-transit V removed): r = 3:
+  bulb limb 6.05e-5, mediant 8.37e-5, m = 3 2.6e-6; r = 4: bulb limb 6.88e-5, m = 3 2.8e-5, mediant 4.0e-6;
+  r = 5: bulb limb 2.41e-5, mediant 1.60e-5, m = 3 1.23e-5, m = 4 9.8e-6, unclassified 1.44e-5; r = 6: bulb limb
+  7.7e-6, m = 5 4.9e-6, m = 4 1.2e-6, unclassified 6.7e-6.  Each Farey denominator enters near r = m + 1.
+- **Open: satellite tunings.**  Tunings of the satellites (the limb's bulb B_1, the Farey bulbs, doublings) by M's
+  primitives are cusp-primitive components of the census and are not yet removed except where the copy-map guess
+  found them (bulb*A 1.65e-4, bulb*Q 1.16e-5, B_2*A 2.1e-5).  The bulb's copy is strongly distorted: guesses for most
+  of its period 4–6 tunings fail, and a 3.51e-5 four-transit primitive at -0.80458 + 0.32210i (n = 7 = the bulb-tuning
+  excursion 4·1 + 3, found from the predicted bulb*P4b location) is likely bulb*P4b.  Estimate: the bulb's tuned
+  primitives total ~0.208 × (M's primitive-copy fraction 1-2e-3) ≈ few e-4, comparable to the sectors, so r ≥ 4 above
+  are upper bounds contaminated at the 1e-5 level.  Neither the limb classifier (tuned orbits pass the critical point
+  closely, where the fixed arc is not the partition), nor a quadratic normal-form straightening (bulb*A → c = -2.99,
+  not -1.75), nor passage distances discriminate.  Next: copy-map interpolation from many anchors (the bulb's own p/q
+  satellites, H, A, Q) to place every bulb*X, B_m*X, and remove them; or a renormalization (little Julia set) test.
