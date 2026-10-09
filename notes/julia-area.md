@@ -887,3 +887,15 @@ labels, mass 4.5e-5); of the 236 others 99 are M labels and 137 (7.0e-7) were mi
 likely the 166 ambiguous labels skipped there).  The immediate basin's Ψ-preimage is one region holding a whole
 sequence of single-transit centers (S1, j4_2, j6_10, j8_42, …), where H has many critical points; so components are
 deduplicated by center and labeled by the critical point they reach, not by the source they were tracked from.
+- Doublings and shifts: a family u's period-doubling satellite is the two-transit component targeting u itself at
+  shift j = -(n_u + 1), attached to u (1.6 radii from its center, area ratio ≈ 0.16 like any 1/2 satellite); it is
+  found from many source regions, so it is identified geometrically (within 2.5 radii of its target's center).  The
+  target ranges over all representatives σ_c - m (period 1 in σ, n + 2m): shifts j ≤ -2 are second excursions with a
+  long first run, decaying like a long digit (bulb target: 1.3e-5, 1.9e-6, 4.0e-7 at j = -2, -4, -6).
+- S_1 (union of the validated label components and the island censuses (top 30 × 30 with j ≥ -14, 38,883 pairs
+  with j ≥ -1), deduplicated, 12 doublings removed): **S_1 = 2.6737e-4** (was 2.273e-4 from labels alone: the label
+  census had dropped "ambiguous" labels, e.g. -|1|0|01 worth 3.9e-5).  Island-found mass converges fast in source and
+  target rank (rank < 10 already within 5e-8 at j ≥ -1).
+- r transits: Θ_r(σ) = p_r - ζ0 with p_{i+1} = H(p_i) + σ; (r-1)-transit centers are the tracking sources (Θ_r' = 1
+  there).  D2's region over the bulb (three transits): C = 3.336e-5 = 0.18 D2.  The transit series decays slower
+  than first estimated (S_1/S_0 ≈ 0.14; chain S1 → D2 → D3 ratios 0.11, 0.18).

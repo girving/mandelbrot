@@ -36,7 +36,8 @@ if __name__ == '__main__':
             r = l.split(); name, side, j = r[0].split('|'); u, t = name.split('~')
             c = complex(float(r[3]), float(r[4])); key = (round(c.real, 7), round(c.imag, 7))
             add(key, float(r[7]), c, 'island', (max(rank.get(u, 10**9), 0), rank.get(t, 10**9)))
-            if u == t and u in fam and abs(c - fam[u][1]) < 2.5 * fam[u][2]: doubling.add(key)
+            # a doubling of the target family t: attached to t (found from any source region)
+            if t in fam and abs(c - fam[t][1]) < 2.5 * fam[t][2]: doubling.add(key)
     nr = {k: v for k, v in comp.items() if k not in doubling}
     S1 = sum(v[0] for v in nr.values())
     by = defaultdict(float)
