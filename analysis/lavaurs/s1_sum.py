@@ -18,6 +18,8 @@ if __name__ == '__main__':
         r = l.split()
         if r[3] == 'failed': continue
         area = float(r[5]); fam[r[0]] = (float(r[7]), complex(float(r[3]), float(r[4])), math.sqrt(area / math.pi))
+    # the limb's bulb (a satellite) is a single-transit component too; its doubling is its 1/2 satellite
+    fam['bulb'] = (0.20812104826488634, complex(-1.0074583370365449, 0.16135210336429348), math.sqrt(0.084348283804329571 / math.pi))
     rank = {nm: i for i, nm in enumerate(sorted(fam, key=lambda x: -fam[x][0]))}
     rank['bulb'] = -1
     comp = {}  # key -> [C, center, sources set, best (source rank, target rank)]

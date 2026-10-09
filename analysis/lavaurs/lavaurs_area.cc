@@ -137,10 +137,10 @@ static int island_main(const int threads) {
             Complex<double> isl = res.center;
             const bool own = lavaurs_island_center(isl, transits) && std::hypot(isl.r - p.u.r, isl.i - p.u.i) < 1e-8;
             char line[1024];
-            snprintf(line, sizeof(line), "%s|%c|%d %d %d %.17g %.17g %.17g %.17g %.17g %.1e %s %s %c %s %.15g %.15g\n",
+            snprintf(line, sizeof(line), "%s|%c|%d %d %d %.17g %.17g %.17g %.17g %.17g %.1e %s %s %c %s %.15g %.15g %.3e\n",
                      p.name.c_str(), side, j, transits, n, res.center.r, res.center.i, res.area.x[0], res.area.x[1],
                      M_PI * M_PI / 4 * double(res.area), res.conv, ua.empty() ? "-" : ua.c_str(),
-                     p.nc ? lavaurs_address(p.nc, p.c).c_str() : "-", side, own ? "own" : "other", isl.r, isl.i);
+                     p.nc ? lavaurs_address(p.nc, p.c).c_str() : "-", side, own ? "own" : "other", isl.r, isl.i, res.cusp);
             text += line;
             found++;
           }
@@ -195,9 +195,9 @@ int main(int argc, char** argv) {
         const auto res = lavaurs_area(j.r, j.n, Complex<double>(j.sr, j.si));
         char line[512];
         if (res.ok)
-          snprintf(line, sizeof(line), "%s %d %d %.17g %.17g %.17g %.17g %.17g %.1e%s%s", j.name.c_str(), j.r, j.n,
+          snprintf(line, sizeof(line), "%s %d %d %.17g %.17g %.17g %.17g %.17g %.1e %.3e%s%s", j.name.c_str(), j.r, j.n,
                    res.center.r, res.center.i, res.area.x[0], res.area.x[1], M_PI * M_PI / 4 * double(res.area),
-                   res.conv, address ? " " : "", address ? (j.n ? lavaurs_address(j.n, res.center).c_str() : "-") : "");
+                   res.conv, res.cusp, address ? " " : "", address ? (j.n ? lavaurs_address(j.n, res.center).c_str() : "-") : "");
         else {
           snprintf(line, sizeof(line), "%s %d %d failed", j.name.c_str(), j.r, j.n);
           failed++;

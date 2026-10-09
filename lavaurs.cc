@@ -232,7 +232,7 @@ template<class S> LavaursResult area_t(const int r, const int n, const Cd guess,
   typedef Complex<S> C;
   static const LavaursModel<S> L;
   const double tol = sizeof(S) == sizeof(double) ? 1e-15 : 1e-30, accept = sizeof(S) == sizeof(double) ? 1e-11 : 1e-26;
-  LavaursResult res{false, Cd(0), E2(0.0), 0};
+  LavaursResult res{false, Cd(0), E2(0.0), 0, 0};
   C w = from_cd<S>(Cd(0.5, 0)), s = from_cd<S>(guess);
   if (!(newton(L, r, n, w, s, C(0), tol) < accept)) return res;
   const C center = s;
@@ -256,6 +256,7 @@ template<class S> LavaursResult area_t(const int r, const int n, const Cd guess,
   }
   // a_k = (1/N) Σ_j σ_j μ_j^-k, μ_j^-k = conj(tw(k(2j+1) mod 2N)); the N/2 subrule uses even j only
   S sum(0.0), half(0.0);
+  Cd deriv(0), a1(0);  // σ'(1) = Σ k a_k (the 1/N normalization cancels in the ratio to a_1)
   for (int k = 1; k < N; k++) {
     C ak(0), hk(0);
     for (int j = 0; j < N; j++) {
@@ -263,6 +264,8 @@ template<class S> LavaursResult area_t(const int r, const int n, const Cd guess,
       ak = ak + t;
       if (j % 2 == 0 && k < N / 2) hk = hk + t;
     }
+    if (k < N / 2) deriv = deriv + Cd(double(k)) * to_cd(ak);  // high k are aliased: keep the resolved half
+    if (k == 1) a1 = to_cd(ak);
     sum = sum + S(double(k)) * (sqr(ak.r) + sqr(ak.i));
     if (k < N / 2) half = half + S(double(k)) * (sqr(hk.r) + sqr(hk.i));
   }
@@ -272,6 +275,7 @@ template<class S> LavaursResult area_t(const int r, const int n, const Cd guess,
   res.center = to_cd(center);
   res.area = E2(A);
   res.conv = double((A - A2) / A);
+  res.cusp = cabs(deriv) / cabs(a1);
   return res;
 }
 
