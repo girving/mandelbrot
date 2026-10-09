@@ -1009,3 +1009,28 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
 - Tail with these (model-only mass 2.688e-4, unseen 6e-5 ± 4e-5): S_tot ≈ 2.461e-3; 2Σ_{k≥16} = 4.356e-7 ± 1.2e-8,
   2Σ_{k≥64} = 6.442e-9 ± 1.2e-10 before R.  1e-12 at K = 64 needs the unseen mass to ~7e-7: the Farey limbs must be
   summed by structure (per-limb layers with a scaling law in the denominator m), not by raw transit censuses.
+
+**Summing by Farey limb (2026-10-09, day).**
+- Limb classifier (`limb_class.py`, `kneading_side.py`): the first internal-address step q = position of the first
+  kneading 0; in the representative convention x_i sits at (2k+1) i, so the first 0 at offset 2b - 1 from x_m means the
+  limb t = b/m (q = m(2k+1) + 2b).  The kneading partition near 1/2 is R_{1/6} ∪ A ∪ R_{2/3} where the arc A through the
+  critical basin component is not the real segment: at limb parameters the partition is the preimage of the critical
+  value's ray, which near v is the shifted parameter ray rising from the component's root, so A is the lift under Φ_a
+  (2:1 at the critical point) of the vertical half-line above Φ_a's critical value: it leaves 0 at 45° and 225° and
+  meets ±1/2 from above/below (|Im| ≤ 0.12).  In the repelling petals R_{2/3} sits at Im ζ = 2.1598 (± 1e-4, periodic),
+  above every component, so deep gate steps are α side.  With this partition all 17 components of known limb are
+  right (labels, bulbs B_1..B_4, mediant components confirmed in M incl. 9/20's P = 29 NRP, the m = 3 limbs); on the
+  census, labels all land in the bulb limb and invalid limbs (b not prime to m) carry 5.6e-6 of 5.0e-4.
+- Per limb (one strip side, r = 2..4 censuses): bulb limb 2.706e-4 + 5.34e-5 + 2.92e-5 (r = 2, 3, 4) beyond S_0;
+  mediant 1.070e-4; t = 1/3: 1.33e-5; 2/3: 1.76e-5; 1/4, 3/4: ≥ 2.7e-7, 1.2e-7 (only r ≤ 4 seen).
+- Tails: a limb-F component has kneading 1^(q_F - 1) 0 τ and pairs with the bulb-limb component of the same tail τ
+  (for one-transit families τ is the census word; tokens '0' and runs 1^(2k g + c), normalized to the limb index).
+  The copy ratio ρ_F(τ) = C_F(τ)/C_bulb(τ) depends mostly on the number g of gate passages in τ: mediant g = 0, 1, 2:
+  0.0121, 0.325, 0.070; t = 1/3: 0.00084, 0.018; t = 2/3: 0.00053, 0.071; t = 1/4, 3/4 (g = 0): 0.00015, 0.00006.  So
+  L_F ≈ Σ_g ρ̄_F(g) S_bulb(g) with S_bulb(g) = 1.893e-3, 2.706e-4, 5.34e-5, ≥ 2.92e-5: mediant 1.147e-4, 2/3: 2.02e-5,
+  1/3: 6.5e-6 (half its census mass has no bulb partner yet).  g = 0 ratios fall ~m^-6.5; g = 1 ones are 20-130×
+  larger and dominate.
+- Structure: a tail run spanning g gates is itself what a Farey limb's first run is, so the whole strip is a renewal
+  over kneading runs 1^(a_1) 0 1^(a_2) 0 … with a_i = 2k g_i + c_i: the Farey limbs are "first run spans m ≥ 2 gates",
+  not a separate sum.  Next: a transfer operator over runs (weights per run type (g, c), learned from the census and
+  checked against the per-limb data above), which would sum all limbs and transit counts at once.
