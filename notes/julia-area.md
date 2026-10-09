@@ -846,3 +846,19 @@ lavaurs.py, centers.py, calibrate.py, model_area.py; Python prototype in double 
 - Since g_σ commutes with F, a cycle F^n g F^{n'} g F … depends only on the total n and the number of transits r: an
   r-transit component is σ with g_σ^{r-1}(v) in the basin and F^n(g_σ^r(v)) = 1/2.  Excursions between transits enter
   only through which basin component g_σ(·) lands in.
+- C++ model (`lavaurs.h/.cc`, `lavaurs_test`, `analysis/lavaurs/lavaurs_area.cc`): double-double, ~0.3 s per component,
+  C(S1) = 1.7249740634989648e-3 (M: 1.724974063498964762e-3).  All 16,383 census families on the cluster (6 min, 0
+  failures, all centers distinct): median agreement 1.6e-8 with the 1/k-extrapolated census (its own error), Σ
+  differing by 2.5e-14.  Two-transit labels: rule n = |u| + |v| + d - 1 at the standard seed (r transits: σ - 1/2 ↔
+  n + r); 14,129 of 14,505 match the M-side D (median 3.4e-7); the rest are poor seeds.
+- M-side seeds fail for long digits (σ_M extrapolation in 1/k has t = n/2k corrections), so `lavaurs_area --walk`
+  walks a class in its long digit, predicting centers by Lagrange extrapolation in n^{-1/2} (a long digit is a pass
+  landing ~n^{-1/2} from the parabolic point) and accepting within 0.3 radii; seeded with the reliable model centers
+  (census + campaign words whose model C matches), all top classes run to n ≈ 130.
+- **S_0 = 1.8934526216147e-3** on model constants (census 1.893391954412168e-3, beyond it 6.0666442e-8 with tail
+  spread 2.4e-14, classes past 800 ≈ 6.6e-13, small-digit words ≈ 1e-13): ± ~5e-13, agreeing with the M-based value.
+- Island structure for the transit series: at a single-transit center σ_u the horn map H has a critical point, and
+  Θ(σ) = H(ζ0 + σ) + σ - ζ0 satisfies Θ(σ_u) = σ_u - (n_u + 1)/2, Θ'(σ_u) = 1; two-transit centers are exactly
+  Θ^{-1}(single-transit centers), two per island.  The largest, D2 (-|1|2|-), lies in S1's island over the limb's
+  bulb: Θ(D2) = the bulb's center.  Targets include tuned components (bulb, satellites), and island u over target u
+  is u's period doubling, so a model-native census of the NRP sector needs a tuning filter.
