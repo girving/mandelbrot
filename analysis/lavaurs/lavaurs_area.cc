@@ -9,9 +9,12 @@
 // reads lines "name n_u u_re u_im n_c c_re c_im" (an island: single-transit center σ_u with excursion n_u; a target:
 // single-transit center σ_c with excursion n_c) and finds the two-transit centers Θ(σ) = σ_c + j/2 (j = -1, 0, 1,
 // final excursion n_c - j) on both branches, printing "name|side|j 2 n center_re center_im area_hi area_lo C conv
-// island_address target_address side" (the combinatorial label: addresses of the island's and the target's preimages
+// island_address target_address side own|other island_re island_im" (the combinatorial label: addresses of the island's and the target's preimages
 // of the critical point, the branch's side at the critical passage, and j).  With --address, ordinary output lines
 // end with the single-transit address of the center.
+//
+//   ./build/release/lavaurs_area --labels < centers > out
+// reads lines "name n sigma_re sigma_im" (single-transit centers) and prints "name n address" (no areas).
 //
 //   ./build/release/lavaurs_area --walk [threads] < walks > out
 // reads lines "name r n0 step count s1_re s1_im s2_re s2_im ..." (a class of components whose excursion grows by step:
@@ -120,11 +123,14 @@ static int island_main(const int threads) {
             const auto res = lavaurs_area(2, n, s);
             if (!res.ok || std::hypot(res.center.r - s.r, res.center.i - s.i) > 1e-7) continue;
             const char side = lavaurs_island_side(p.nu, res.center);
+            // The component's true island (its horn-map critical point), against the island it was tracked from
+            Complex<double> isl = res.center;
+            const bool own = lavaurs_island_center(isl) && std::hypot(isl.r - p.u.r, isl.i - p.u.i) < 1e-8;
             char line[1024];
-            snprintf(line, sizeof(line), "%s|%c|%d 2 %d %.17g %.17g %.17g %.17g %.17g %.1e %s %s %c\n", p.name.c_str(),
-                     side, j, n, res.center.r, res.center.i, res.area.x[0], res.area.x[1],
+            snprintf(line, sizeof(line), "%s|%c|%d 2 %d %.17g %.17g %.17g %.17g %.17g %.1e %s %s %c %s %.15g %.15g\n",
+                     p.name.c_str(), side, j, n, res.center.r, res.center.i, res.area.x[0], res.area.x[1],
                      M_PI * M_PI / 4 * double(res.area), res.conv, ua.empty() ? "-" : ua.c_str(),
-                     p.nc ? lavaurs_address(p.nc, p.c).c_str() : "-", side);
+                     p.nc ? lavaurs_address(p.nc, p.c).c_str() : "-", side, own ? "own" : "other", isl.r, isl.i);
             text += line;
             found++;
           }
@@ -140,6 +146,14 @@ static int island_main(const int threads) {
 int main(int argc, char** argv) {
   if (argc > 1 && std::string(argv[1]) == "--walk") return walk_main(argc > 2 ? atoi(argv[2]) : 2);
   if (argc > 1 && std::string(argv[1]) == "--island") return island_main(argc > 2 ? atoi(argv[2]) : 2);
+  if (argc > 1 && std::string(argv[1]) == "--labels") {
+    char name[256];
+    int n;
+    double sr, si;
+    while (scanf("%255s %d %lf %lf", name, &n, &sr, &si) == 4)
+      printf("%s %d %s\n", name, n, n ? lavaurs_address(n, Complex<double>(sr, si)).c_str() : "-");
+    return 0;
+  }
   const bool address = argc > 1 && std::string(argv[1]) == "--address";
   if (address) { argc--; argv++; }
   const int threads = argc > 1 ? atoi(argv[1]) : 2;

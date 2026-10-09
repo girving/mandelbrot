@@ -64,6 +64,9 @@ bool lavaurs_theta(const Complex<double> sigma, Complex<double>& theta, Complex<
 // Θ(σ) = target by a homotopy in the target from the island center, on branch ±1 (the quadratic's two roots)
 bool lavaurs_island(const Complex<double> center, const Complex<double> target, const int branch,
                     Complex<double>& sigma);
+// The island containing σ: Newton on H'(ζ0 + σ) = 0 (each island has exactly one critical point of the horn map, at
+// its single-transit center: Φ_a' = 0 at the critical preimage and Ψ' ≠ 0); σ is replaced by that center
+bool lavaurs_island_center(Complex<double>& sigma);
 // The branch label of a point σ in the island of a center with excursion n_u: the side of F^{n_u}(Ψ(ζ0 + σ)) (the
 // orbit's passage by the critical point, where F is 2:1)
 char lavaurs_island_side(const int n_u, const Complex<double> sigma);
