@@ -899,3 +899,53 @@ deduplicated by center and labeled by the critical point they reach, not by the 
 - r transits: Θ_r(σ) = p_r - ζ0 with p_{i+1} = H(p_i) + σ; (r-1)-transit centers are the tracking sources (Θ_r' = 1
   there).  D2's region over the bulb (three transits): C = 3.336e-5 = 0.18 D2.  The transit series decays slower
   than first estimated (S_1/S_0 ≈ 0.14; chain S1 → D2 → D3 ratios 0.11, 0.18).
+
+**Tunings and the cusp classifier (2026-10-09 overnight).**  The multiplier map's cusp measure |σ'(1)|/|a_1| (~1e-17 at
+a primitive cusp, O(1) at a satellite root) separates primitive components from satellites (doublings, the bulb's
+children, the cardioid's bulbs), but a cusp-primitive r-transit component can still be tuned: U*X with U an r'-transit
+component and X primitive of period r/r' in M.  Its cycle is (F^n g^r F)^p: r p transits, excursion p n + p - 1.
+`lavaurs_area` with LAVAURS_TUNE computes U*X from U's multiplier map (σ ≈ center + 2 a_1 c_X, refined by
+interpolating the copy map through the tunings already found, linear fallback for distorted satellite copies).
+- Top 1000 single-transit families + the bulb: the airplane and the period-4 primitive (c = -1.9408) tunings all found,
+  all cusp-primitive, no duplicates; ratios area(U*A)/area(U): median 3.450e-4 (S1: 3.334e-4; bulb: 7.9e-4), for
+  -1.9408: 9.74e-7.  Σ C(U*A) over NRP families ≈ 6.3e-7, which must leave the r = 3 sector (it is in R_U).
+- Copies are far from area-conformal in σ: doubling ratios 0.161 (S1), 0.184 (j4_0), 0.153 (j4_2) vs 1/6 in M.  So
+  R_W at the 1e-6 level needs per-copy evaluation (profile functional plus primitive sub-copies), not μ(M)/A_card.
+- The D-chain over the bulb (r = 2..7: 1.858e-4, 3.336e-5, 2.834e-6, 2.42e-8, 2.20e-9, 2.94e-11) converges to
+  σ ≈ -0.033 + 0.601i with irregular ratios; a single chain says little about S_{r+1}/S_r (branching dominates).
+
+**Finite k.**  Per limb, the census (16,383 one-transit families, complete at k = 16..64) and the two-transit labels
+(13,844 present at all k = 16..96) give G_r(k) = k^4 Σ area, fitted as model constant + Σ b_j k^-j:
+- one transit: b1..3 = 6.957e-4, -2.846e-2, -0.159 (b1/S = 0.37), Σ_{k≥16} G/k^4 = 1.6458005e-7, Σ_{k≥32} =
+  2.0152846e-8, Σ_{k≥64} = 2.46939912e-9 (fit orders 6-8 agree to ~1e-15).
+- two-transit labels (model D = 2.2475848e-4): b1 = 3.528e-4 (b1/D = 1.57), b2 = -5.99e-3; Σ_{k≥16} = 2.0230606e-8,
+  Σ_{k≥64} = 2.9678829e-10.
+- The Jacobian of δ = c + 3/4 = iπ/(2k + σ_M) explains only part of the 1/k term; the rest is family-specific, and
+  the phases drift as (σ_M(k) - σ_M∞) k = -1.50-0.16i, -1.98+0.34i, -1.91-0.64i at k = 64 (j2_0, j4_0, j4_2), still
+  moving (log k / k terms from the Fatou coordinate's log).  So model centers do not seed M at small k for small
+  components; island-only components have no M data yet.
+- Error budget for 1e-12 in μ(M): at K = 64 the tail needs S_tot to ~3e-7 and b1 to ~10%; at K = 16 S_tot to ~5e-9,
+  b1 to ~1e-7 absolute, b2 to ~2e-6.  K = 64 is the natural cut for this layer; limbs 16..63 need M-side data for
+  every component above ~1e-9 (or a next-order Lavaurs model).
+
+**Sectors after cusp classification, and the Farey limbs in the strip.**  All 23,372 distinct two-transit centers
+(labels + island censuses) and 9,887 three-transit centers (island3: top 300 two-transit sources × bulb + top 30
+families, shifts -4..1) rerun with the cusp measure (cluster cpu queue, 27 min); the cusp histogram has an empty gap
+from 1e-12 to 1e-1, so the classification is unambiguous.
+- r = 2: **S_1 = 2.93675e-4** over 23,359 primitive components (labels 2.2842e-4, island-only 6.53e-5); 12
+  satellites (the cardioid bulb B_2 = 1.5065e-2, S1's doubling 2.779e-4, j4_2's, j1_0's, a chain of doublings of
+  the j(2m+1)_(4^m-1) families).  Island-found mass is complete in the shift j (geometric decay past j = -6).
+- r = 3 (partial census): 5.0805e-5 primitive and not tuned (93% bulb-targeted; D3 = 3.336e-5 dominates), 3
+  satellites (S1's 1/3 satellite 2.6e-5 among them).  Ratios S_1/S_0 = 0.155, S_2/S_1 ≥ 0.17.
+- The σ strip holds more than the limb k/(2k+1).  Rotation numbers between θ_k = k/(2k+1) and θ_{k+1} belong to
+  Farey descendants B_a (the mediant (2k+1)/(4k+4) is the cardioid bulb B_2 at -0.5009 + 0.0418i, area ratio to the
+  bulb 0.072 ≈ (q_1/q_2)^4), each with its own limb of NRPs.  The bulb-source island census shows the mediant
+  limb's one-transit layer: bulb~t|R|-6 for single-transit families t, with C ≈ (0.005–0.013) C_t (j2_0: 0.0126,
+  j4_0: 0.0083, j4_2: 0.0093, j1_0: 0.0047), a non-conformal scaled copy of the census at r = 2.
+- So the transit count mixes limbs: a Farey limb at level a contributes at ~a times the transits, and S_r gets a
+  power-law part (~r^-3 from φ(m) m^-4 sizes) on top of the bulb limb's own series.  Bookkeeping: the strip
+  computes all limbs with rotation numbers in [θ_k, θ_{k+1}), which is the consistent definition of this layer
+  (the satellite/tree side then handles rotation numbers < θ_K); the sum should be organized per limb (the
+  bulb's layer plus Σ_F ρ_F × copy, ρ_mediant ≈ 0.0115 for the one-transit part), not by raw transit count.
+- Open: a wake classifier in the model (which limb a component's α-rotation puts it in); the M-side labels are
+  bulb-limb by construction, and limb-5 σ_M matching is too noisy (finite-k drift O(1) at k = 5).
