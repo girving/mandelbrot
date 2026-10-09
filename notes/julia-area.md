@@ -862,3 +862,28 @@ lavaurs.py, centers.py, calibrate.py, model_area.py; Python prototype in double 
   Θ^{-1}(single-transit centers), two per island.  The largest, D2 (-|1|2|-), lies in S1's island over the limb's
   bulb: Θ(D2) = the bulb's center.  Targets include tuned components (bulb, satellites), and island u over target u
   is u's period doubling, so a model-native census of the NRP sector needs a tuning filter.
+
+**Rigor plan (discussed 2026-10-09)**: layers and what each can be.
+- L0: Σ_hyperbolic ≤ μ(M) is a theorem; equality needs no queer components (MLC) and μ(∂M) = 0 (open), so the
+  rigorous end products are a certified lower bound and a conditional "μ(M) ∈ [L, L + T]".
+- L1: the countable index set (tuning tree, NRPs per limb, kneading digits, transit counts, island × target pairs) is
+  rigorous combinatorics in principle; our empirical rules (stable-range kneading bijection, 2-bit insertions, the
+  universal unstable band, island preimages) need proofs, and the combinatorics-to-component bridge (ray landing,
+  tuning, Lavaurs' theorem) would enter Lean as axioms.
+- L2: each component's area can be certified (Krawczyk on |μ| = r > 1, Cauchy tail bound; model components need
+  certified Fatou coordinates).
+- L3: tails and accelerations (1/k, n^{-1/2} expansions, Neville, automata, class and transit truncations) are
+  heuristic; rigorous tail bounds via Koebe distortion and fading-memory estimates are plausible at modest precision.
+- L4–L5: ball arithmetic and Rust + Aeneas → Lean for the kernels are feasible; CUDA stays a bitwise-checked mirror.
+- Practice from now on: every computed component carries a combinatorial label (M kneading tails / digit words for
+  one transit; for two, the constituent labels with branch side, shift j and the horn map's critical point), so a
+  later certified pass reuses the enumeration unchanged.
+
+**Two-transit census in the model (islands)**: two-transit centers solve Θ(σ) = σ_c + j/2 for single-transit
+centers σ_c; tracked from a source center by Euler-Newton path lifting with adaptive steps.  Island S1 over the
+limb's bulb gives D2 (L branch) and 10|1|0|- (R branch) exactly.  Over the top 30 × 30 pairs: 264 distinct
+components; 28 are doublings (source u over target u: u's period-doubling satellite, tuned, absent from the NRP
+labels, mass 4.5e-5); of the 236 others 99 are M labels and 137 (7.0e-7) were missing from the label census (most
+likely the 166 ambiguous labels skipped there).  The immediate basin's Ψ-preimage is one region holding a whole
+sequence of single-transit centers (S1, j4_2, j6_10, j8_42, …), where H has many critical points; so components are
+deduplicated by center and labeled by the critical point they reach, not by the source they were tracked from.
