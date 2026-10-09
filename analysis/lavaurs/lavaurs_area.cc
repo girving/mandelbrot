@@ -37,6 +37,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <mutex>
 #include <thread>
 #include <vector>
 using namespace mandelbrot;
@@ -122,8 +123,10 @@ static int island_main(const int threads) {
   double ur, ui, cr, ci;
   while (scanf("%255s %d %lf %lf %d %lf %lf", name, &nu, &ur, &ui, &nc, &cr, &ci) == 7)
     pairs.push_back({name, nu, nc, Complex<double>(ur, ui), Complex<double>(cr, ci)});
-  std::vector<std::string> out(pairs.size());
-  std::atomic<int64_t> next(0), found(0);
+  // Each pair's lines are written as soon as it finishes (order varies; names identify), so a run cut short keeps
+  // its finished pairs
+  std::mutex io;
+  std::atomic<int64_t> next(0), found(0), done(0);
   std::vector<std::thread> pool;
   for (int t = 0; t < threads; t++)
     pool.emplace_back([&]() {
@@ -151,11 +154,13 @@ static int island_main(const int threads) {
             text += line;
             found++;
           }
-        out[i] = text;
+        std::lock_guard<std::mutex> lock(io);
+        fputs(text.c_str(), stdout);
+        fflush(stdout);
+        if (++done % 1000 == 0) fprintf(stderr, "lavaurs_area --island: %lld / %zu pairs\n", (long long)done, pairs.size());
       }
     });
   for (auto& t : pool) t.join();
-  for (const auto& s : out) fputs(s.c_str(), stdout);
   fprintf(stderr, "lavaurs_area --island: %zu pairs, %lld components\n", pairs.size(), (long long)found);
   return 0;
 }
