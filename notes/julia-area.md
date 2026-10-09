@@ -1065,3 +1065,15 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   component's area exact to the formula's accuracy); the missing 1.8e-5 are children of large sources whose islands
   the local start does not reach (H232 1.37e-5, H9386 3.0e-6, N-series): more starts per source, or path tracking for
   the top sources.
+- Fast census levels 3–6 (sources: two-transit components > 1e-10 and satellites, heavy sources with 26 Newton
+  starts, small ones with 2 and the top 30 targets; heavy children exact with cusp; satellites kept as sources):
+  ~1.5 h on 4 cores.  It recovers the exact three-transit set (1.42239e-4 of 1.42260e-4) and finds what the
+  path-tracked censuses missed (e.g. the children of H232, 1.37e-5, absent from island3's sources).
+- Tunings are everywhere past three transits: U*X for every primitive X of period r in M (periods 3–6: 1, 3, 11, 20
+  primitives, `primitives.py`; period 4 has three: -1.9408 and -0.1565 ± 1.0322i) and V*airplane for two-transit
+  sources (B_2*A = 2.115e-5 at r = 6).  Tuned with LAVAURS_TUNE over the bulb + 200 families and 40 two-transit
+  sources; removed by center (`assemble.py`).
+- **Strip sectors (one side, all censuses merged, tunings and satellites removed)**: r = 1..6:
+  1.8935e-3, 2.9412e-4, 1.5130e-4, 1.0378e-4, 7.683e-5, ≥2.265e-5 (level 6 least complete).  Ratios 0.155, 0.51,
+  0.69, 0.74: beyond two transits the decay is slow (Farey limbs at r ≈ m + 1); the tail past r = 5 is 1–2e-4 if
+  it continues, the dominant uncertainty in S_tot ≈ 2.65–2.75e-3.
