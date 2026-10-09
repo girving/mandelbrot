@@ -8,7 +8,7 @@
 //   ./build/release/lavaurs_area --island [threads] < pairs > out
 // reads lines "name n_u u_re u_im n_c c_re c_im" (an island: single-transit center σ_u with excursion n_u; a target:
 // single-transit center σ_c with excursion n_c) and finds the two-transit centers Θ(σ) = σ_c + j/2 (j = jmin..1 with
-// jmin = $LAVAURS_JMIN or -1,
+// jmin = $LAVAURS_JMIN or -1; with LAVAURS_R = r > 2 the sources are (r-1)-transit centers and the results r-transit),
 // final excursion n_c - j) on both branches, printing "name|side|j 2 n center_re center_im area_hi area_lo C conv
 // island_address target_address side own|other island_re island_im" (the combinatorial label: addresses of the island's and the target's preimages
 // of the critical point, the branch's side at the critical passage, and j).  With --address, ordinary output lines
@@ -99,9 +99,11 @@ static int walk_main(const int threads) {
 }
 
 static int jmin = -1;  // Shifts j = jmin..1 (env LAVAURS_JMIN)
+static int transits = 2;  // r (env LAVAURS_R): sources are (r-1)-transit centers
 
 static int island_main(const int threads) {
   if (getenv("LAVAURS_JMIN")) jmin = atoi(getenv("LAVAURS_JMIN"));
+  if (getenv("LAVAURS_R")) transits = atoi(getenv("LAVAURS_R"));
   struct Pair { std::string name; int nu, nc; Complex<double> u, c; };
   std::vector<Pair> pairs;
   char name[256];
@@ -123,16 +125,16 @@ static int island_main(const int threads) {
             const int n = p.nc - j;
             if (n < 0) continue;
             Complex<double> s;
-            if (!lavaurs_island(p.u, Complex<double>(p.c.r + 0.5 * j, p.c.i), branch, s)) continue;
-            const auto res = lavaurs_area(2, n, s);
+            if (!lavaurs_island(p.u, Complex<double>(p.c.r + 0.5 * j, p.c.i), branch, s, transits)) continue;
+            const auto res = lavaurs_area(transits, n, s);
             if (!res.ok || std::hypot(res.center.r - s.r, res.center.i - s.i) > 1e-7) continue;
             const char side = lavaurs_island_side(p.nu, res.center);
             // The component's true island (its horn-map critical point), against the island it was tracked from
             Complex<double> isl = res.center;
-            const bool own = lavaurs_island_center(isl) && std::hypot(isl.r - p.u.r, isl.i - p.u.i) < 1e-8;
+            const bool own = lavaurs_island_center(isl, transits) && std::hypot(isl.r - p.u.r, isl.i - p.u.i) < 1e-8;
             char line[1024];
-            snprintf(line, sizeof(line), "%s|%c|%d 2 %d %.17g %.17g %.17g %.17g %.17g %.1e %s %s %c %s %.15g %.15g\n",
-                     p.name.c_str(), side, j, n, res.center.r, res.center.i, res.area.x[0], res.area.x[1],
+            snprintf(line, sizeof(line), "%s|%c|%d %d %d %.17g %.17g %.17g %.17g %.17g %.1e %s %s %c %s %.15g %.15g\n",
+                     p.name.c_str(), side, j, transits, n, res.center.r, res.center.i, res.area.x[0], res.area.x[1],
                      M_PI * M_PI / 4 * double(res.area), res.conv, ua.empty() ? "-" : ua.c_str(),
                      p.nc ? lavaurs_address(p.nc, p.c).c_str() : "-", side, own ? "own" : "other", isl.r, isl.i);
             text += line;

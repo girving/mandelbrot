@@ -59,14 +59,17 @@ std::string lavaurs_address(const int n, const Complex<double> sigma);
 // Two-transit centers as island preimages: Θ(σ) = H(ζ0 + σ) + σ - ζ0, H = Φ_a ∘ Ψ the horn map; at a single-transit
 // center σ_u (excursion n_u) Θ(σ_u) = σ_u - (n_u + 1)/2 and Θ'(σ_u) = 1, Θ is 2:1 on the island, and a two-transit
 // center is a solution of Θ(σ) = σ_c + j/2 with σ_c a single-transit center (final excursion n_c - j).
+// More generally Θ_r(σ) = p_r - ζ0 with p_1 = ζ0 + σ, p_{i+1} = H(p_i) + σ: the r-transit centers are the solutions of
+// Θ_r(σ) = σ_c + j/2, and at an (r-1)-transit center (excursion n) Θ_r' = 1 and Θ_r = σ - (n + 1)/2 again, so they
+// are tracked from (r-1)-transit centers the same way.
 bool lavaurs_theta(const Complex<double> sigma, Complex<double>& theta, Complex<double>& dtheta,
-                   Complex<double>& d2theta);
+                   Complex<double>& d2theta, const int r = 2);
 // Θ(σ) = target by a homotopy in the target from the island center, on branch ±1 (the quadratic's two roots)
 bool lavaurs_island(const Complex<double> center, const Complex<double> target, const int branch,
-                    Complex<double>& sigma);
+                    Complex<double>& sigma, const int r = 2);
 // The island containing σ: Newton on H'(ζ0 + σ) = 0 (each island has exactly one critical point of the horn map, at
 // its single-transit center: Φ_a' = 0 at the critical preimage and Ψ' ≠ 0); σ is replaced by that center
-bool lavaurs_island_center(Complex<double>& sigma);
+bool lavaurs_island_center(Complex<double>& sigma, const int r = 2);
 // The branch label of a point σ in the island of a center with excursion n_u: the side of F^{n_u}(Ψ(ζ0 + σ)) (the
 // orbit's passage by the critical point, where F is 2:1)
 char lavaurs_island_side(const int n_u, const Complex<double> sigma);

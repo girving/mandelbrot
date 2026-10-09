@@ -310,24 +310,34 @@ std::string lavaurs_address(const int n, const Complex<double> sigma) {
 }
 
 bool lavaurs_theta(const Complex<double> sigma, Complex<double>& theta, Complex<double>& dtheta,
-                   Complex<double>& d2theta) {
-  Cd z0, q0, q1, q2, p0, p1, p2; int pv, petal;
-  zeta0(z0, pv);
-  if (!model_d().psi(z0 + sigma, pv, q0, q1, q2)) return false;
-  if (!model_d().phi_a(q0, p0, p1, p2, petal)) return false;
-  theta = p0 + sigma - z0;
-  dtheta = p1 * q1 + Cd(1);
-  d2theta = p2 * sqr(q1) + p1 * q2;
+                   Complex<double>& d2theta, const int r) {
+  // p_1 = ζ0 + σ, p_{i+1} = H(p_i) + σ (H = Φ_a ∘ Ψ with each exit through the petal of the previous entry);
+  // Θ_r = p_r - ζ0 with its σ-derivatives
+  Cd z0; int petal;
+  zeta0(z0, petal);
+  Cd p = z0 + sigma, dp(1), ddp(0);
+  for (int i = 1; i < r; i++) {
+    Cd q0, q1, q2, a0, a1, a2;
+    if (!model_d().psi(p, petal, q0, q1, q2)) return false;
+    if (!model_d().phi_a(q0, a0, a1, a2, petal)) return false;
+    const Cd h1 = a1 * q1, h2 = a2 * sqr(q1) + a1 * q2;  // H', H''
+    ddp = h2 * sqr(dp) + h1 * ddp;
+    dp = h1 * dp + Cd(1);
+    p = a0 + sigma;
+  }
+  theta = p - z0;
+  dtheta = dp;
+  d2theta = ddp;
   return true;
 }
 
 bool lavaurs_island(const Complex<double> center, const Complex<double> target, const int branch,
-                    Complex<double>& sigma) {
+                    Complex<double>& sigma, const int r) {
   // Path tracking of Θ(σ) = Θ_c + t (target - Θ_c), t: 0 → 1: Euler predictor, Newton corrector, adaptive steps (a step
   // is redone at half size if Newton needs more than a small correction relative to the predicted move), so the lift
   // stays on its branch inside the island
   Cd t0, d, dd;
-  if (!lavaurs_theta(center, t0, d, dd)) return false;
+  if (!lavaurs_theta(center, t0, d, dd, r)) return false;
   const Cd span = target - t0;
   double t = 0, dt = 1e-3;
   // Start a little way out on the branch: the quadratic Θ ≈ Θ_c + δ + Θ''δ²/2
@@ -344,7 +354,7 @@ bool lavaurs_island(const Complex<double> center, const Complex<double> target, 
     moved = 0;
     for (int it = 0; it < 12; it++) {
       Cd v, dv, ddv;
-      if (!lavaurs_theta(s, v, dv, ddv)) return false;
+      if (!lavaurs_theta(s, v, dv, ddv, r)) return false;
       const Cd st = cdiv(v - tgt, dv);
       s = s - st;
       moved += cabs(st);
@@ -355,7 +365,7 @@ bool lavaurs_island(const Complex<double> center, const Complex<double> target, 
   for (int guard = 0; t < 1 && guard < 200000; guard++) {
     const double step = std::min(dt, 1 - t);
     Cd v, dv, ddv;
-    if (!lavaurs_theta(sigma, v, dv, ddv)) return false;
+    if (!lavaurs_theta(sigma, v, dv, ddv, r)) return false;
     const Cd pred = sigma + cdiv(Cd(step) * span, dv);  // Euler: dσ/dt = span / Θ'
     Cd s = pred;
     double moved;
@@ -373,11 +383,11 @@ bool lavaurs_island(const Complex<double> center, const Complex<double> target, 
   return t >= 1;
 }
 
-bool lavaurs_island_center(Complex<double>& sigma) {
+bool lavaurs_island_center(Complex<double>& sigma, const int r) {
   // Newton on H'(ζ0 + σ) = 0, H' = Θ' - 1, H'' = Θ''
   for (int it = 0; it < 60; it++) {
     Cd v, d, dd;
-    if (!lavaurs_theta(sigma, v, d, dd)) return false;
+    if (!lavaurs_theta(sigma, v, d, dd, r)) return false;
     const Cd st = cdiv(d - Cd(1), dd);
     sigma = sigma - st;
     if (cabs(st) < 1e-14) return true;
