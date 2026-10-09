@@ -987,3 +987,10 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   Farey limbs of denominator ~r - 1.  The bulb limb's own series (S_0, 2.711e-4, …) looks geometric (~0.15).
   Organize: strip = bulb limb (transit series) + Σ_F limb F, each limb F ≈ a distorted copy, with a scaling law in m
   (bulbs: 1.19 m^-4 exactly in the pattern so far) and a tail ~M^-2 in the denominator cutoff.
+- Farey edge t = 1/m (bulb B_m as an r = m source over the limb's bulb at r = m + 1 gives B_{m+1} and limb m's heavy
+  NRPs): bulbs C = 1.5065e-2, 3.061e-3, 9.645e-4, 3.896e-4, 1.849e-4, 9.83e-5, 5.68e-5 for m = 2..8, i.e. m^4 C =
+  0.241, 0.248, 0.247, 0.244, 0.240, 0.236, 0.233 (the bulb itself: 0.208); the m = 4 step also gives the t = 2/5
+  bulb (4.09e-4 at -0.400).  Heaviest NRP from B_m's region: 6.91e-5, 1.58e-5, 1.19e-6, 8.06e-7, 1.85e-7, 6.3e-8 for
+  m = 2..7, ratios to the bulb 4.6e-3, 5.2e-3, 1.2e-3, 2.1e-3, 1.0e-3, 6.4e-4: falling faster than the bulbs (~m^-6),
+  so the Farey part converges faster than φ(m) m^-4 would suggest, but these are single components, not limb
+  totals.
