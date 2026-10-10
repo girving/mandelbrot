@@ -8,7 +8,7 @@ maps the copy to ≈ M; a decoration at j returns has exit point w = Φ_M(c')^(2
 import argparse, cmath, math
 import numpy as np
 ap = argparse.ArgumentParser(); ap.add_argument('--cU', type=complex, default=complex(-1.9407998065, 0)); ap.add_argument('--p', type=int, default=4)
-ap.add_argument('--emax', type=int, default=6); ap.add_argument('--rmin', type=float, default=1.3); ap.add_argument('--rmax', type=float, default=5.0)
+ap.add_argument('--emax', type=int, default=6); ap.add_argument('--top', type=int, default=12); ap.add_argument('--quiet', action='store_true'); ap.add_argument('--rmin', type=float, default=1.3); ap.add_argument('--rmax', type=float, default=5.0)
 a = ap.parse_args()
 def center(c, P):
     for _ in range(80):
@@ -24,6 +24,10 @@ def exact_period(c, P):
         z = z * z + c
         if abs(z) < 1e-8 and P % k == 0: return False
     return True
+def orbit(c, n):
+    z = 0j
+    for _ in range(n): z = z * z + c
+    return z
 def size2(c, P):   # |s|² with s = 1/(β Λ²), Λ = Π 2 z_i, β = Σ 1/Π_{j≤i} 2 z_j
     z = c; lam = 1; beta = 0
     for i in range(1, P):
@@ -83,12 +87,13 @@ for e in range(1, a.emax + 1):
             k = (P, round(c.real, 10), round(c.imag, 10))
             found[k] = (c, P, cp)
 print('%d j = 0 decorations (periods %d..%d): %s' % (len(found), p + 1, p + a.emax, sorted({k[0] for k in found})))
-rows = sorted(found.values(), key=lambda t: -size2(t[0], t[1]))[:12]
+rows = sorted(found.values(), key=lambda t: -size2(t[0], t[1]))[:a.top]
+stats = {1: [], 2: []}
 for c, P, cp in rows:
     z0 = Phi(cp)
     if z0 is None: continue
     s0 = size2(c, P); d0 = renorm(c, p)[1]; dz0 = dPhi(cp)
-    print('j=0  P %2d c\' %+.4f%+.4fi |s|² %.3e  ζ %.4f∠%.4f' % (P, cp.real, cp.imag, s0, abs(z0), (cmath.phase(z0) / (2 * math.pi)) % 1))
+    if not a.quiet: print('j=0  P %2d c\' %+.4f%+.4fi |s|² %.3e  ζ %.4f∠%.4f' % (P, cp.real, cp.imag, s0, abs(z0), (cmath.phase(z0) / (2 * math.pi)) % 1))
     # j returns then the atom: P_j(c') = c'_0 with P_0(c') = c', P_{i+1} = P_i² + c' (the critical orbit of z² + c')
     for j in (1, 2):
         coef = np.array([1.0 + 0j])        # polynomial P_j(c') coefficients, highest first
@@ -96,13 +101,36 @@ for c, P, cp in rows:
         for _ in range(j): Pj = np.polyadd(np.polymul(Pj, Pj), np.array([1.0, 0.0], dtype=complex))
         roots = np.roots(np.polysub(Pj, np.array([cp], dtype=complex)))
         dPj = np.polyder(Pj)
+        xa = orbit(c, p)   # the base's atom (its critical orbit after one pass)
         for cp1 in roots:
-            c1 = center(cU + cp1 / A_D, P + j * p)
+            # stage 1: the orbit after (j + 1) passes at the atom: f_c^((j+1)p)(0) = x_a, from the predicted c'
+            cc = cU + cp1 / A_D
+            for _ in range(60):
+                z, dz = 0j, 0j
+                for _ in range((j + 1) * p): dz = 2 * z * dz + 1; z = z * z + cc
+                st = (z - xa) / dz; cc -= st
+                if abs(st) < 1e-15 * (1 + abs(cc)): break
+            c1 = center(cc, P + j * p)
             if c1 is None: print('      j=%d predicted c\' %+.4f%+.4fi: Newton failed' % (j, cp1.real, cp1.imag)); continue
             cp1f, d1 = renorm(c1, p)
             # size ∝ 1/(A_W D_W): the transversality P_j'(c') and the dynamic derivative (g^j)'(c') = Π_{i<j} 2 g^i(c')
             gd, g = 1.0 + 0j, cp1
             for _ in range(j): gd *= 2 * g; g = g * g + cp1
             pred = abs(d0) ** 2 / (abs(d1) ** 2 * abs(np.polyval(dPj, cp1)) ** 2 * abs(gd) ** 2)
-            print('      j=%d predicted c\' %+.4f%+.4fi → found %+.4f%+.4fi (|Δ| %.2e, exact %s)  |s|² ratio %.4g predicted %.4g' % (
-                j, cp1.real, cp1.imag, cp1f.real, cp1f.imag, abs(cp1f - cp1), exact_period(c1, P + j * p), size2(c1, P + j * p) / s0, pred))
+            ex = exact_period(c1, P + j * p)
+            # identity: after (j + 1) p steps the partner's orbit is at the base's atom (after p steps)
+            xa, x1 = orbit(c, p), orbit(c1, (j + 1) * p)
+            same = abs(x1 - xa) < 0.05 * abs(xa)
+            ex = ex and same
+            if not same and not a.quiet: print('      (j=%d partner at %+.4f%+.4fi is not at the base atom: |Δx|/|x| %.2f)' % (j, cp1f.real, cp1f.imag, abs(x1 - xa) / abs(xa)))
+            if ex: stats[j].append((abs(cp1f - cp1) / max(abs(cp1), 1e-9), abs(math.log(size2(c1, P + j * p) / s0 / pred)), abs(cp1.imag) > 0.2 and abs(cp.imag) > 0.2))
+            if not a.quiet: print('      j=%d predicted c\' %+.4f%+.4fi → found %+.4f%+.4fi (|Δ| %.2e, exact %s)  |s|² ratio %.4g predicted %.4g' % (
+                j, cp1.real, cp1.imag, cp1f.real, cp1f.imag, abs(cp1f - cp1), ex, size2(c1, P + j * p) / s0, pred))
+
+med = lambda v: sorted(v)[len(v) // 2] if v else float('nan')
+for j in (1, 2):
+    st = stats[j]
+    print('p %d |AD| %.4g  j=%d: %d partners, median relative position error %.3f, median |log size ratio / predicted| %.3f' % (
+        p, abs(A_D), j, len(st), med([x[0] for x in st]), med([x[1] for x in st])))
+    nr = [x for x in st if x[2]]
+    print('        off the real axis (base and partner): %d, position %.3f, |log size| %.3f' % (len(nr), med([x[0] for x in nr]), med([x[1] for x in nr])))
