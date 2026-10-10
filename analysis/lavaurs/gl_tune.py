@@ -32,6 +32,7 @@ def main():
     ap.add_argument('--umin', type=float, default=1e-9)   # candidate tuners above this constant
     ap.add_argument('--wmin', type=float, default=0)
     ap.add_argument('--loose', type=float, default=2.5)
+    ap.add_argument('--dump-pairs', default='')   # every tested pair: "W U ratio C_W sat_W"
     ap.add_argument('--dump', default='')   # every component's best ratio: "name U ratio C sat"
     a = ap.parse_args()
     env = dict(os.environ, GL_SIDE=str(a.gate))
@@ -74,6 +75,10 @@ def main():
         byu[f[1]].append((f[0], ratio))
     Cof = {c[0]: (c[4], c[5]) for c in comps}
     rU = {c[0]: c[1] for c in comps}
+    if a.dump_pairs:
+        with open(a.dump_pairs, 'w') as fo:
+            for u, lst in byu.items():
+                for w, ratio in lst: fo.write('%s %s %.4g %.6e %d\n' % (w, u, ratio, Cof[w][0], Cof[w][1]))
     # The distortion of U's copy makes the ratio of a tuning by a primitive X (whose little orbit reaches |c'| ~ 2) as
     # large as ~1.6 (bulb*airplane), overlapping non-tunings, so a threshold alone is ambiguous: accept clear cases
     # (ratio ≤ 1), and per U the heaviest primitive candidates below --loose up to the number of primitive
