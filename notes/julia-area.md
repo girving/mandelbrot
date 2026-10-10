@@ -1330,3 +1330,17 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   limb's offset residue mod q is calibrated per root (-1 at q = 2, 3, 2 at q = 4); the gate's kneading angle is the
   lower (gate +1) or upper (gate -1) of the root angles, the adjacent pair 1/(2^q - 1) apart in the rotation-p/q
   doubling cycle (`gl_common.py`).
+- **Bug fixed: the transit was not f-equivariant** (found at q = 4, where the level-2 census gave S_1/S_0 = 2.2 in one
+  half and 0.81 in the other).  phi_a labelled a basin point by the attracting petal its orbit first hits, so w and
+  f(w) got the same label; any Lavaurs map (a limit of f_c^N) commutes with f, and that needs the label
+  ℓ = k - p N mod q (k hit after N steps; f advances it by p) and the consistent coordinate Φ_k(w_N) - N/q - (k - kvh)τ.
+  Now g_σ(w) = Ψ_{e(ℓ)}(Φ + σ + (e(ℓ) - e(ℓ_v))τ) commutes with f to roundoff (`glavaurs geq`: 1e-15..1e-11 at q =
+  2..5; before ~0.4 everywhere).  The old formula agreed only when pN ≡ 0 mod q: single transits are unaffected (a
+  relabelling: S_0 unchanged at q = 2, 3, 4), but multi-transit censuses had spurious children.  Checks: q = 4 now
+  sane in the gate's own half (lower, as the classifier says): S_1/S_0 = 0.143, satellites 0.0730 (mediant bulb) and
+  0.0651 (the bulb's doubling) of the bulb (q = 2: 0.0724, 0.0656; q = 3: 0.0728, 0.0653), the other half nearly empty
+  (2e-8).  q = 2 (3 sources x 3 targets): of the old model's 413 children 228 are common with the new (weights equal to
+  1e-7), 185 old-only and 24 new-only; in the q = 2 reference model (lavaurs_area, conjugate σ, validated against M's
+  two-transit labels) all 228 common and all 24 new-only children are centers, and 168 of the 185 old-only ones are
+  not: the new model is right, the old one had spurious children (~0.9% of level 2 in a 20 x 20 census; the old q = 2
+  agreement with the reference was partly compensation).  The q = 2 and 1/3 multi-transit numbers above must be redone.

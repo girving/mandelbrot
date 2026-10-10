@@ -3,7 +3,8 @@
 #   bash analysis/lavaurs/gl_pipeline.sh p q gate theta levels outdir [check]
 # single transits (gl_single.py), then per level r = 2..levels: children (gl_census.py; on the GPU when there is one),
 # tunings (gl_tune.py), limbs (gl_limbsum.py; CLASSIFY_MIN: classify only components above it), with timings.  With
-# "check": first a small census on CPU and GPU, compared.  SOURCES, TARGETS: census sizes (default 300, 100).
+# "check": first a small census on CPU and GPU, compared.  GL_SOURCES, GL_TARGETS: census sizes (default 300, 100;
+# not TARGETS, which bench.sh uses for build targets).
 set -euo pipefail
 p=$1 q=$2 gate=$3 theta=$4 levels=$5 out=$6 check=${7:-}
 T=${MANDELBROT_THREADS:-8}
@@ -25,10 +26,10 @@ for ((r = 2; r <= levels; r++)); do
   stamp "level $r census"
   if [ $r = 2 ]; then
     python3 "$D/gl_census.py" $p $q $gate "$out/single.txt" --levels 2 --threads $T --starts 26 --big-src 1e-9 --out "$out/c" \
-      --sources ${SOURCES:-300} --targets ${TARGETS:-100}
+      --sources ${GL_SOURCES:-300} --targets ${GL_TARGETS:-100}
   else
     python3 "$D/gl_census.py" $p $q $gate "$out/single.txt" --levels $r --resume $r --threads $T --starts 26 --big-src 1e-9 \
-      --src-min ${SRC_MIN:-1e-10} --out "$out/c" --targets ${TARGETS:-100}
+      --src-min ${GL_SRC_MIN:-1e-10} --out "$out/c" --targets ${GL_TARGETS:-100}
   fi
   stamp "level $r tunings"
   python3 "$D/gl_tune.py" $p $q $gate "$out/single.txt" "$out/c" --level $r --threads $T | head -12

@@ -73,7 +73,8 @@ template<class S> struct GLCoreT {
   typedef Complex<S> Cd;
   static constexpr int kMaxA = 64;
   static constexpr double kRepel = 400;   // Re ζ' ≤ -max(kRepel, 2|Im ζ'|) for the repelling local inverse
-  int p, q, side, kv, N;
+  int p, q, side, kv, N;                  // kv: the critical value's label (below)
+  int kvh;                                // the attracting petal the critical value's orbit first hits
   double r0;                              // |w| below which the attracting series is used
   S argA, argmA;                          // arg A, arg(-A)
   Cd lam, A, v, crit, beta, tau;          // τ = 2πiβ/q
@@ -90,10 +91,19 @@ template<class S> struct GLCoreT {
     return ((j % q) + q) % q;
   }
 
-  __host__ __device__ Cd transit_shift(const int k) const {
-    const int j = (exit_petal(k) - k) - (exit_petal(kv) - kv);
+  // The f-equivariant transit.  phi_a returns, for w whose orbit first hits attracting petal k after N steps, the
+  // consistent coordinate Φ_k(w_N) - N/q - (k - kvh) τ (Φ_{k'}(f u) = Φ_k(u) + 1/q + (k' - k) τ across petals, so this
+  // advances by exactly 1/q under f; equal to the per-petal value for the critical value) and the label
+  // ℓ = k - p N mod q (the petal w belongs to: f advances it by p).  Then g_σ(w) = Ψ_{e(ℓ)}(Φ + σ + transit_shift(ℓ))
+  // with transit_shift(ℓ) = (e(ℓ) - e(ℓ_v)) τ commutes with f (with Ψ_{j'}(ζ + 1/q + (j' - j) τ) = f(Ψ_j(ζ))).  (Labelling by
+  // the first petal hit, as before, broke the commutation whenever p N ≢ 0 mod q: harmless at q = 2, 3, not at 4.)
+  __host__ __device__ Cd transit_shift(const int l) const {
+    const int j = exit_petal(l) - exit_petal(kv);
     return Cd(S(double(j))) * tau;
   }
+  __host__ __device__ int label(const int k, const int n) const { return ((k - p * (n % q)) % q + q) % q; }
+  // the consistency offset of a point hitting petal k: -(k - kvh) τ
+  __host__ __device__ Cd hit_offset(const int k) const { return -(Cd(S(double(k - kvh))) * tau); }
 
   // Φ, Φ', Φ'' by the series with L(w) = log|w| + i (θ + wrap(arg w - θ)), continuous within π of the axis θ (a fixed
   // integer branch of the principal log(w^q) would jump where arg(w^q) = π, which for q = 2 is the repelling axis)
@@ -129,7 +139,8 @@ template<class S> struct GLCoreT {
   }
 
   // Attracting coordinate with derivatives and the entering petal
-  __host__ __device__ bool phi_a(Cd w, Cd& s, Cd& d, Cd& dd, int& pet, const int max_steps = 1 << 20) const {
+  __host__ __device__ bool phi_a(Cd w, Cd& s, Cd& d, Cd& dd, int& pet, const int max_steps = 1 << 20,
+                                 int* nhit = nullptr) const {
     using namespace glcore;
     Cd d1(1), d2(0);
     for (int n = 0; n < max_steps; n++) {
@@ -141,7 +152,9 @@ template<class S> struct GLCoreT {
           s = ss - Cd(S(double(n)) / S(double(q)));
           d = sd * d1;
           dd = sdd * sqr(d1) + sd * d2;
-          pet = k;
+          if (kvh >= 0) { s = s + hit_offset(k); pet = label(k, n); }
+          else pet = k;   // (while building the core: the raw hit petal)
+          if (nhit) *nhit = n;
           return true;
         }
       }
@@ -340,11 +353,11 @@ template<class S> __host__ __device__ static inline bool gl_phi_a3(const GLCoreT
       if (k >= 0) {
         Cd ss, sd, sdd, s3;
         gl_series3(L, w, L.axis(-1, k), ss, sd, sdd, s3);
-        s = ss - Cd(S(double(n)) / S(double(L.q)));
+        s = ss - Cd(S(double(n)) / S(double(L.q))) + L.hit_offset(k);
         d = sd * d1;
         dd = sdd * sqr(d1) + sd * d2;
         d3 = s3 * d1 * sqr(d1) + Cd(3) * sdd * d1 * d2 + sd * e3;
-        pet = k;
+        pet = L.label(k, n);
         return true;
       }
     }
