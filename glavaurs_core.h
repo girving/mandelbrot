@@ -300,6 +300,132 @@ template<class S> struct GLCoreT {
 };
 typedef GLCoreT<double> GLCore;
 
+// Third-order jets of the return map (for the shape of a component beyond its normal form): value and the derivatives
+// ∂w, ∂σ, ∂ww, ∂wσ, ∂σσ, ∂www of R_σ(w)
+template<class S> struct GLJet3 {
+  typedef Complex<S> C;
+  C v, w, s, ww, ws, ss, www;
+  // composition with a univariate map with derivatives f1, f2, f3 at v
+  __host__ __device__ GLJet3 apply(const C f0, const C f1, const C f2, const C f3) const {
+    return GLJet3{f0, f1 * w, f1 * s, f2 * sqr(w) + f1 * ww, f2 * w * s + f1 * ws, f2 * sqr(s) + f1 * ss,
+                  f3 * w * sqr(w) + C(3) * f2 * w * ww + f1 * www};
+  }
+};
+
+// The Fatou series' third derivative: 2β/w^3 + Σ_j a_j j (j-1) (j-2) w^(j-3)
+template<class S> __host__ __device__ static inline void gl_series3(const GLCoreT<S>& L, const Complex<S> w, const S ax,
+    Complex<S>& s, Complex<S>& d, Complex<S>& dd, Complex<S>& d3) {
+  typedef Complex<S> Cd;
+  using namespace glcore;
+  L.series(w, ax, s, d, dd);
+  const Cd iw = cinv(w), iw3 = iw * sqr(iw);
+  Cd D3 = Cd(2) * L.beta * iw3;
+  Cd pw = cpow(w, -L.q);
+  for (int j = -L.q; j <= L.N; j++, pw = pw * w) {
+    if (!j) continue;
+    D3 += Cd(S(double(j) * double(j - 1) * double(j - 2))) * (L.a[j + L.q] * pw * iw3);
+  }
+  d3 = D3;
+}
+
+// Φ_a with three derivatives (f(w) = λw + w²: f' = λ + 2w, f'' = 2, f''' = 0)
+template<class S> __host__ __device__ static inline bool gl_phi_a3(const GLCoreT<S>& L, Complex<S> w, Complex<S>& s,
+    Complex<S>& d, Complex<S>& dd, Complex<S>& d3, int& pet) {
+  typedef Complex<S> Cd;
+  using namespace glcore;
+  Cd d1(1), d2(0), e3(0);
+  for (int n = 0; n < (1 << 20); n++) {
+    if (::hypot(dbl(w.r), dbl(w.i)) < L.r0) {
+      const int k = L.petal(w, -1);
+      if (k >= 0) {
+        Cd ss, sd, sdd, s3;
+        gl_series3(L, w, L.axis(-1, k), ss, sd, sdd, s3);
+        s = ss - Cd(S(double(n)) / S(double(L.q)));
+        d = sd * d1;
+        dd = sdd * sqr(d1) + sd * d2;
+        d3 = s3 * d1 * sqr(d1) + Cd(3) * sdd * d1 * d2 + sd * e3;
+        pet = k;
+        return true;
+      }
+    }
+    const Cd df = L.lam + twice(w);
+    e3 = Cd(6) * d1 * d2 + df * e3;
+    d2 = Cd(2) * sqr(d1) + df * d2;
+    d1 = df * d1;
+    w = L.lam * w + sqr(w);
+    if (::hypot(dbl(w.r), dbl(w.i)) > 10) return false;
+  }
+  return false;
+}
+
+// Ψ_k with three derivatives: the inverse of the series near 0 (g = Φ^-1: g' = 1/Φ', g'' = -Φ'' g'^3,
+// g''' = (3Φ''² - Φ'Φ''') g'^5), then f^{qm}
+template<class S> __host__ __device__ static inline bool gl_psi3(const GLCoreT<S>& L, const Complex<S> zeta, const int k,
+    Complex<S>& w, Complex<S>& d, Complex<S>& dd, Complex<S>& d3) {
+  typedef Complex<S> Cd;
+  using namespace glcore;
+  const double zr = dbl(zeta.r), zi = dbl(zeta.i);
+  if (!(::hypot(zr, zi) < 1e6)) return false;
+  const double mm = ::ceil(zr + ::fmax(GLCoreT<S>::kRepel, 2 * ::fabs(zi)));
+  const long long m = mm > 0 ? (long long)mm : 0;
+  if (m > 200000) return false;
+  const Cd zl = zeta - Cd(S(double(m)));
+  const S br = L.axis(1, k);
+  const double base = -dbl(L.argA) / L.q + 2 * M_PI * k / L.q;
+  const Complex<double> ratio = glcore::cdiv(Complex<double>(dbl(L.a[0].r), dbl(L.a[0].i)), Complex<double>(dbl(zl.r), dbl(zl.i)));
+  const Complex<double> rr = glcore::cpolar(::pow(glcore::cabs(ratio), 1.0 / L.q), ::atan2(ratio.i, ratio.r) / L.q);
+  Complex<double> best = rr;
+  double bd = 10;
+  for (int t = 0; t < L.q; t++) {
+    const Complex<double> uu = rr * glcore::cpolar(1.0, 2 * M_PI * t / L.q);
+    const double dlt = ::fabs(glcore::wrap(::atan2(uu.i, uu.r) - base));
+    if (dlt < bd) { bd = dlt; best = uu; }
+  }
+  Cd u(S(best.r), S(best.i));
+  Cd s, sd, sdd, s3;
+  for (int it = 0; it < 80; it++) {
+    L.series(u, br, s, sd, sdd);
+    const Cd step = cdiv(s - zl, sd);
+    u = u - step;
+    if (::hypot(dbl(step.r), dbl(step.i)) < eps_of<S>() * ::hypot(dbl(u.r), dbl(u.i))) break;
+  }
+  gl_series3(L, u, br, s, sd, sdd, s3);
+  Cd d1 = cinv(sd);
+  Cd d2 = -(sdd * d1 * sqr(d1));
+  Cd e3 = (Cd(3) * sqr(sdd) - sd * s3) * sqr(sqr(d1)) * d1;
+  for (long long i = 0; i < L.q * m; i++) {
+    const Cd df = L.lam + twice(u);
+    e3 = Cd(6) * d1 * d2 + df * e3;
+    d2 = Cd(2) * sqr(d1) + df * d2;
+    d1 = df * d1;
+    u = L.lam * u + sqr(u);
+    if (::hypot(dbl(u.r), dbl(u.i)) > 10) return false;
+  }
+  w = u; d = d1; dd = d2; d3 = e3;
+  return true;
+}
+
+// The return map's third-order jet
+template<class S> __host__ __device__ static inline bool gl_return_map3(const GLCoreT<S>& L, const int r, const int n,
+    const Complex<S> w, const Complex<S> sigma, GLJet3<S>& x) {
+  typedef Complex<S> Cd;
+  x = GLJet3<S>{w, Cd(1), Cd(0), Cd(0), Cd(0), Cd(0), Cd(0)};
+  x = x.apply(L.lam * x.v + sqr(x.v), L.lam + twice(x.v), Cd(2), Cd(0));
+  for (int t = 0; t < r; t++) {
+    Cd p0, p1, p2, p3, q0, q1, q2, q3;
+    int pet;
+    if (!gl_phi_a3(L, x.v, p0, p1, p2, p3, pet)) return false;
+    x = x.apply(p0, p1, p2, p3);
+    x.v = x.v + sigma;
+    x.s = x.s + Cd(1);
+    if (!gl_psi3(L, x.v + L.transit_shift(pet), L.exit_petal(pet), q0, q1, q2, q3)) return false;
+    x = x.apply(q0, q1, q2, q3);
+  }
+  for (int i = 0; i < n; i++) x = x.apply(L.lam * x.v + sqr(x.v), L.lam + twice(x.v), Cd(2), Cd(0));
+  return true;
+}
+
+
 // The frozen fiber chain from x: p_1 = x, p_{i+1} = H(p_i) + sadd (i < r), with H' and H'' at each p_i (i < r);
 // false if a step fails or r > kMaxChain
 static constexpr int kMaxChain = 32;

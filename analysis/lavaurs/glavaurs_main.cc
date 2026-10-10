@@ -10,6 +10,7 @@
 //   glavaurs p q fchildren threads < (as children)            # children by the frozen-σ horn-map dynamics
 //   glavaurs p q frefine threads < "name r y_re y_im sX_re sX_im sW_re sW_im"   # frozen-σ child from the exact one
 //   glavaurs p q consist                                      # cross-petal branch conventions
+//   glavaurs p q jetarea threads < "name r n re im"           # C_nf and the first-order shape-corrected area
 //   glavaurs p q hp r n re im [N Nb]                          # center, C_nf, area in double, Expansion<2>, Expansion<3>
 //   glavaurs p q arc sgn                                      # the critical arc: Φ_a(w) = Φ_a(crit) + i sgn t
 //   glavaurs p q orbit J < "name r n re im"                   # explicit critical-orbit points, for kneading
@@ -87,6 +88,170 @@ static bool orbit_points(const GeneralLavaurs& L, const int r, const int n, cons
     w = L.lam * w + w * w;
     pts.push_back({'f', r, s, w});
   }
+  return true;
+}
+
+// Truncated Taylor series for the shape of a component (host, double): univariate T4 (degree 4) and bivariate B4 in
+// (u, δ) with weight i + 2j ≤ 4 (u = w - crit, δ = σ - σ_c: near a center δ ~ u², so these are the consistent orders)
+struct GLT4 { std::complex<double> c[5]; };
+static inline GLT4 t4_mul(const GLT4& a, const GLT4& b) {
+  GLT4 r{};
+  for (int i = 0; i < 5; i++) for (int j = 0; i + j < 5; j++) r.c[i + j] += a.c[i] * b.c[j];
+  return r;
+}
+// f ∘ g for g with zero constant term: Σ_k f_k g^k
+static inline GLT4 t4_compose(const GLT4& f, const GLT4& g) {
+  GLT4 r{}, p{};
+  p.c[0] = 1;
+  for (int k = 0; k < 5; k++) {
+    for (int i = 0; i < 5; i++) r.c[i] += f.c[k] * p.c[i];
+    p = t4_mul(p, g);
+  }
+  return r;
+}
+struct GLB4 {
+  // monomials u^i δ^j with i + 2j ≤ 4
+  static constexpr int M = 9;
+  static constexpr int I[M] = {0, 1, 2, 3, 4, 0, 1, 2, 0}, J[M] = {0, 0, 0, 0, 0, 1, 1, 1, 2};
+  std::complex<double> c[M];
+  static int index(const int i, const int j) {
+    for (int m = 0; m < M; m++) if (I[m] == i && J[m] == j) return m;
+    return -1;
+  }
+};
+static inline GLB4 b4_mul(const GLB4& a, const GLB4& b) {
+  GLB4 r{};
+  for (int x = 0; x < GLB4::M; x++)
+    for (int y = 0; y < GLB4::M; y++) {
+      const int k = GLB4::index(GLB4::I[x] + GLB4::I[y], GLB4::J[x] + GLB4::J[y]);
+      if (k >= 0) r.c[k] += a.c[x] * b.c[y];
+    }
+  return r;
+}
+// g(x) for the univariate Taylor series g about x's constant term
+static inline GLB4 b4_apply(const GLT4& g, const GLB4& x) {
+  GLB4 d = x, r{}, p{};
+  d.c[0] = 0;
+  p.c[0] = 1;
+  for (int k = 0; k < 5; k++) {
+    for (int m = 0; m < GLB4::M; m++) r.c[m] += g.c[k] * p.c[m];
+    p = b4_mul(p, d);
+  }
+  return r;
+}
+
+// Taylor coefficients (Φ^{(k)}/k!, k ≤ 4) of the Fatou series at w on the branch of axis ax
+static inline GLT4 gl_series_t4(const GLCore& L, const std::complex<double> w, const double ax) {
+  typedef std::complex<double> SC;
+  GLT4 t{};
+  Complex<double> s, d, dd;
+  L.series(Complex<double>(w.real(), w.imag()), ax, s, d, dd);
+  t.c[0] = SC(s.r, s.i);
+  const SC beta(L.beta.r, L.beta.i);
+  // β log: derivatives (-1)^{k-1} (k-1)!/w^k; w^j: j (j-1)..(j-k+1) w^{j-k}
+  for (int k = 1; k <= 4; k++) {
+    double fact = 1; for (int i = 2; i < k; i++) fact *= i;   // (k-1)!
+    SC v = beta * ((k % 2 ? 1.0 : -1.0) * fact) / std::pow(w, k);
+    for (int j = -L.q; j <= L.N; j++) {
+      if (!j) continue;
+      double ff = 1; for (int i = 0; i < k; i++) ff *= (j - i);
+      v += SC(L.a[j + L.q].r, L.a[j + L.q].i) * ff * std::pow(w, j - k);
+    }
+    double kf = 1; for (int i = 2; i <= k; i++) kf *= i;
+    t.c[k] = v / kf;
+  }
+  return t;
+}
+static inline GLT4 t4_f(const GLCore& L, const GLT4& g) {   // λ g + g²
+  GLT4 r = t4_mul(g, g);
+  const std::complex<double> lam(L.lam.r, L.lam.i);
+  for (int i = 0; i < 5; i++) r.c[i] += lam * g.c[i];
+  return r;
+}
+// Φ_a(w0 + h) as a series in h, and the entering petal
+static inline bool gl_phi_a_t4(const GLCore& L, const std::complex<double> w0, GLT4& out, int& pet) {
+  GLT4 g{};
+  g.c[0] = w0; g.c[1] = 1;
+  for (int n = 0; n < (1 << 20); n++) {
+    const std::complex<double> w = g.c[0];
+    if (std::abs(w) < L.r0) {
+      const int k = L.petal(Complex<double>(w.real(), w.imag()), -1);
+      if (k >= 0) {
+        const GLT4 P = gl_series_t4(L, w, L.axis(-1, k));
+        GLT4 dlt = g; dlt.c[0] = 0;
+        out = t4_compose(P, dlt);
+        out.c[0] -= double(n) / L.q;
+        pet = k;
+        return true;
+      }
+    }
+    g = t4_f(L, g);
+    if (std::abs(g.c[0]) > 10) return false;
+  }
+  return false;
+}
+// Ψ_k(ζ0 + h) as a series in h
+static inline bool gl_psi_t4(const GLCore& L, const std::complex<double> z0, const int k, GLT4& out) {
+  typedef std::complex<double> SC;
+  Complex<double> w, d, dd;
+  if (!L.psi(Complex<double>(z0.real(), z0.imag()), k, w, d, dd)) return false;   // validity and the same branch
+  const double mm = std::ceil(z0.real() + std::max(GLCore::kRepel, 2 * std::fabs(z0.imag())));
+  const long long m = mm > 0 ? (long long)mm : 0;
+  const SC zl = z0 - double(m);
+  // u with Φ(u) = zl: Newton from psi's own choice (rerun the local solve)
+  const double ax = L.axis(1, k);
+  const double base = -L.argA / L.q + 2 * M_PI * k / L.q;
+  const SC ratio = SC(L.a[0].r, L.a[0].i) / zl;
+  const SC rr = std::polar(std::pow(std::abs(ratio), 1.0 / L.q), std::arg(ratio) / L.q);
+  SC u = rr;
+  double bd = 10;
+  for (int t = 0; t < L.q; t++) {
+    const SC uu = rr * std::polar(1.0, 2 * M_PI * t / L.q);
+    const double dl = std::fabs(std::remainder(std::arg(uu) - base, 2 * M_PI));
+    if (dl < bd) { bd = dl; u = uu; }
+  }
+  for (int it = 0; it < 80; it++) {
+    Complex<double> s, sd, sdd;
+    L.series(Complex<double>(u.real(), u.imag()), ax, s, sd, sdd);
+    const SC step = (SC(s.r, s.i) - zl) / SC(sd.r, sd.i);
+    u -= step;
+    if (std::abs(step) < 1e-16 * std::abs(u)) break;
+  }
+  const GLT4 P = gl_series_t4(L, u, ax);
+  // reversion: Φ(u + Δ) = zl + h, Δ = Σ b_k h^k
+  const SC p1 = P.c[1], p2 = P.c[2], p3 = P.c[3], p4 = P.c[4];
+  const SC b1 = 1.0 / p1, b2 = -p2 * b1 * b1 / p1, b3 = -(2.0 * p2 * b1 * b2 + p3 * b1 * b1 * b1) / p1;
+  const SC b4 = -(p2 * (b2 * b2 + 2.0 * b1 * b3) + 3.0 * p3 * b1 * b1 * b2 + p4 * b1 * b1 * b1 * b1) / p1;
+  GLT4 g{};
+  g.c[0] = u; g.c[1] = b1; g.c[2] = b2; g.c[3] = b3; g.c[4] = b4;
+  for (long long i = 0; i < L.q * m; i++) {
+    g = t4_f(L, g);
+    if (std::abs(g.c[0]) > 10) return false;
+  }
+  out = g;
+  return true;
+}
+// The return map R_{σ_c + δ}(crit + u) as a bivariate series
+static inline bool gl_return_b4(const GLCore& L, const int r, const int n, const std::complex<double> sc, GLB4& x) {
+  typedef std::complex<double> SC;
+  const SC lam(L.lam.r, L.lam.i);
+  x = GLB4{};
+  x.c[0] = SC(L.crit.r, L.crit.i); x.c[GLB4::index(1, 0)] = 1;
+  const auto F = [&]() { GLB4 y = b4_mul(x, x); for (int m = 0; m < GLB4::M; m++) y.c[m] += lam * x.c[m]; x = y; };
+  F();
+  for (int t = 0; t < r; t++) {
+    GLT4 P;
+    int pet;
+    if (!gl_phi_a_t4(L, x.c[0], P, pet)) return false;
+    x = b4_apply(P, x);
+    x.c[0] += sc;
+    x.c[GLB4::index(0, 1)] += 1.0;
+    const Complex<double> sh = L.transit_shift(pet);
+    GLT4 Q;
+    if (!gl_psi_t4(L, x.c[0] + SC(sh.r, sh.i), L.exit_petal(pet), Q)) return false;
+    x = b4_apply(Q, x);
+  }
+  for (int i = 0; i < n; i++) F();
   return true;
 }
 
@@ -852,6 +1017,117 @@ int main(int argc, char** argv) {
     }
     Cd sg = sig;
     printf("center(1,1) ok %d -> %.12g%+.12gi\n", L.center(1, 1, sg), sg.r, sg.i);
+    return 0;
+  }
+  if (mode == "jetarea") {
+    // At a center the return map is R = crit + D δ + A u² + E u δ + F δ² + B u³ + ... (u = w - crit, δ = σ - σ_c,
+    // R_w = 0).  The attracting fixed point with multiplier μ: to zeroth order u0 = μ/(2A), δ0 = (μ/2 - μ²/4)/(AD)
+    // (the cardioid: area_σ = (3π/8)/|AD|², C_nf); to first order in (B, E, F) u1 = -(3B u0² + E δ0)/(2A) and
+    // D δ1 = (1 - μ) u1 - B u0³ - E δ0 u0 - F δ0², a polynomial in μ of degree 4, whose area is π Σ k |a_k|² exactly.
+    // Prints "name C_nf C_jet1 |B|/|A|^2·|...| scale" (the first-order area constant and a nonlinearity measure).
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    struct Job { std::string name; int r, n; Cd s; };
+    std::vector<Job> jobs;
+    char name[256];
+    int r, n;
+    double sr, si;
+    while (scanf("%255s %d %d %lf %lf", name, &r, &n, &sr, &si) == 5) jobs.push_back({name, r, n, Cd(sr, si)});
+    std::vector<std::string> out(jobs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int t = 0; t < threads; t++)
+      pool.emplace_back([&]() {
+        for (int64_t i; (i = next++) < int64_t(jobs.size());) {
+          const auto& jb = jobs[i];
+          char line[512];
+          snprintf(line, sizeof(line), "%s failed", jb.name.c_str());
+          Cd c = jb.s;
+          GLJet3<double> x;
+          if (L.center(jb.r, jb.n, c) && gl_return_map3(L.core, jb.r, jb.n, L.crit, c, x)) {
+            typedef std::vector<SCd> P;   // polynomial coefficients in μ
+            const auto mul = [](const P& a, const P& b) { P c(a.size() + b.size() - 1, 0.0); for (size_t i = 0; i < a.size(); i++) for (size_t j = 0; j < b.size(); j++) c[i + j] += a[i] * b[j]; return c; };
+            const auto add = [](P a, const P& b, const SCd f) { if (a.size() < b.size()) a.resize(b.size(), 0.0); for (size_t i = 0; i < b.size(); i++) a[i] += f * b[i]; return a; };
+            const SCd A = 0.5 * SCd(x.ww.r, x.ww.i), D(x.s.r, x.s.i), E(x.ws.r, x.ws.i), F = 0.5 * SCd(x.ss.r, x.ss.i),
+                      B = SCd(x.www.r, x.www.i) / 6.0;
+            const P mu = {0.0, 1.0};
+            const P u0 = {0.0, 1.0 / (2.0 * A)};
+            const P d0 = {0.0, 0.5 / (A * D), -0.25 / (A * D)};
+            P u1 = add(add(P{}, mul(u0, u0), -3.0 * B / (2.0 * A)), d0, -E / (2.0 * A));
+            P Dd1 = mul(P{1.0, -1.0}, u1);
+            Dd1 = add(Dd1, mul(mul(u0, u0), u0), -B);
+            Dd1 = add(Dd1, mul(d0, u0), -E);
+            Dd1 = add(Dd1, mul(d0, d0), -F);
+            const P dl = add(d0, Dd1, 1.0 / D);
+            const auto area = [](const P& a) { double s = 0; for (size_t k = 1; k < a.size(); k++) s += k * std::norm(a[k]); return M_PI * s; };
+            const double cnf = K * area(d0), cj1 = K * area(dl);
+            // nonlinearity: the first-order correction's size relative to the cardioid's
+            double num = 0, den = 0;
+            for (size_t k = 1; k < dl.size(); k++) { num += std::norm(dl[k] - (k < d0.size() ? d0[k] : 0.0)); den += std::norm(k < d0.size() ? d0[k] : 0.0); }
+            // the weight-4 truncated model: solve R(u, δ) = crit + u, ∂_u R = μ on |μ| = 1 (radially, then around)
+            double cb4 = NAN;
+            GLB4 X;
+            const bool b4ok = gl_return_b4(L.core, jb.r, jb.n, SCd(c.r, c.i), X);
+            if (getenv("JET_DEBUG")) {
+              fprintf(stderr, "b4 %d:", b4ok);
+              for (int m = 0; m < GLB4::M; m++) fprintf(stderr, " (%d,%d) %.3e%+.3ei", GLB4::I[m], GLB4::J[m], X.c[m].real(), X.c[m].imag());
+              fprintf(stderr, "\n jet3: A %.3e D %.3e E %.3e F %.3e B %.3e\n", std::abs(A), std::abs(D), std::abs(E), std::abs(F), std::abs(B));
+            }
+            if (b4ok) {
+              const auto ev = [&](const SCd u, const SCd d, SCd& R, SCd& Ru, SCd& Rd, SCd& Ruu, SCd& Rud) {
+                R = Ru = Rd = Ruu = Rud = 0;
+                // integer powers by multiplication (std::pow on complex 0 gives nan)
+                SCd up[6] = {1, u, u * u, u * u * u, u * u * u * u, 0}, dp[4] = {1, d, d * d, 0};
+                const auto pw = [&](const SCd* t, const int e) { return e >= 0 ? t[e] : SCd(0); };
+                for (int m = 0; m < GLB4::M; m++) {
+                  const int i = GLB4::I[m], j = GLB4::J[m];
+                  const SCd cm = X.c[m];
+                  R += cm * pw(up, i) * pw(dp, j);
+                  if (i >= 1) Ru += cm * double(i) * pw(up, i - 1) * pw(dp, j);
+                  if (j >= 1) Rd += cm * double(j) * pw(up, i) * pw(dp, j - 1);
+                  if (i >= 2) Ruu += cm * double(i * (i - 1)) * pw(up, i - 2) * pw(dp, j);
+                  if (i >= 1 && j >= 1) Rud += cm * double(i * j) * pw(up, i - 1) * pw(dp, j - 1);
+                }
+              };
+              const SCd cr(L.crit.r, L.crit.i);
+              const int Nb = 64;
+              std::vector<SCd> pts(Nb);
+              SCd u = 0, d = 0;
+              bool ok = true;
+              const auto solve = [&](const SCd mu) {
+                for (int it = 0; it < 50; it++) {
+                  SCd R, Ru, Rd, Ruu, Rud;
+                  ev(u, d, R, Ru, Rd, Ruu, Rud);
+                  const SCd F1 = R - cr - u, F2 = Ru - mu;
+                  const SCd a11 = Ru - 1.0, a12 = Rd, a21 = Ruu, a22 = Rud, det = a11 * a22 - a12 * a21;
+                  const SCd du = (F1 * a22 - a12 * F2) / det, dd = (a11 * F2 - a21 * F1) / det;
+                  u -= du; d -= dd;
+                  if (std::abs(du) + std::abs(dd) < 1e-12 * (std::abs(u) + std::abs(d))) return true;
+                }
+                return false;
+              };
+              for (int i = 1; i <= 16 && ok; i++) ok = solve(std::polar(double(i) / 16, M_PI / Nb));
+              for (int j = 0; j < Nb && ok; j++) {
+                if (j) for (int t = 1; t < 4 && ok; t++) ok = solve(std::polar(1.0, M_PI * (2 * j - 1 + 2.0 * t / 4) / Nb));
+                if (ok) ok = solve(std::polar(1.0, M_PI * (2 * j + 1) / Nb));
+                pts[j] = d;
+              }
+              if (ok) {
+                double sum = 0;
+                for (int k = 1; k < Nb; k++) {
+                  SCd ak = 0;
+                  for (int j = 0; j < Nb; j++) ak += pts[j] * std::polar(1.0, -M_PI * double((int64_t(k) * (2 * j + 1)) % (2 * Nb)) / Nb);
+                  sum += k * std::norm(ak);
+                }
+                cb4 = K * M_PI * sum / (double(Nb) * Nb);
+              }
+            }
+            snprintf(line, sizeof(line), "%s %.10e %.10e %.3e %.10e", jb.name.c_str(), cnf, cj1, std::sqrt(num / den), cb4);
+          }
+          out[i] = line;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& l : out) printf("%s\n", l.c_str());
     return 0;
   }
   if (mode == "hp") {
