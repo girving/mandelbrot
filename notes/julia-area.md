@@ -1670,3 +1670,27 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   converge, all classified into limb 1/m (first0 = 2mk + m + 2: 128, 170, 248, 289): the model's heuristic classifier
   is wrong for them, the family stays in its limb.  To do: a robust model → M map (several k, damped Newton, the
   first-order finite-k correction of the parameter map).
+
+**Layer 3 by renormalization: towers of copy decorations (2026-10-11).**
+- Goal: replace the near-critical refinement (e^{O(√n)}) by a renormalization pairing.  Picture: near a copy U*M
+  (period p) the return map is quadratic-like, with renormalized parameter c' = A_c f_c^p(0) (A_c = (f_c^p)''(0)/2); a
+  decoration at j returns has its critical orbit leave the quadratic-like domain after j steps of g = z² + c' and land
+  on an outer atom (a preimage of 0 of the outer dynamics) at w: P_j(c') = w with P_0 = c', P_{i+1} = P_i² + c'.  So
+  each j = 0 decoration (c'_0 = its atom) carries a tower of 2^j decorations at depth j, sizes ∝ 1/|P_j'(c') (g^j)'(c')|
+  (transversality times the dynamic derivative, as C = C_t |Π H'|^-2 |Θ'|^-2 in the model); the per-atom decoration
+  mass is a universal kernel K(w) = Σ_j Σ_{P_j(c')=w} |P_j'(c')|^-2 |(g^j)'(c')|^-2 of the quadratic family alone, and an
+  island's near-critical mass is its outer atom measure paired with K (plus jet corrections).  (Φ_M(c')^(2^j) = w is
+  the large-|w| asymptotic form; the first test with it on the strip's satellites found no matches, being too crude
+  and too nonlinear there.)
+- Test in M (`experiments/copy_towers.py`, the real period-4 copy at -1.9408, A D = 1008): 478 j = 0 decorations
+  (periods 8-16) by Newton near the copy; for each, the predicted j = 1, 2 partners exist as exact-period centres where
+  P_j(c') = c'_0 puts them: e.g. c'_0 = 7.658 (period 9): j = 1 predicted -3.312, 2.312, found -3.690, 2.473; j = 2
+  predicted -2.348, -0.412 ± 1.616i, 1.172, found -2.468, -0.393 ± 1.688i, 1.237; c'_0 = -9.974: j = 1 -0.500 ± 3.118i
+  → -0.405 ± 2.888i, j = 2 errors 0.05-0.08.  Size ratios within factors ~1-3 (1.12e-3 vs 9.9e-4, 3.5e-6 vs 6.0e-6,
+  1.2e-4 vs 3.6e-4), outliers near the copy's cusp region (100x).  So the tower structure is real at zeroth order;
+  the residuals (5-10% in position) are the copy's nonlinearity (the true return map is z² + c' plus higher jets, and
+  the atom moves with c).
+- Exactness must come from holomorphic perturbation in the return map's jets (the decorations solve holomorphic
+  equations in the actual family), not from the straightening (only quasiconformal).  Next: residuals vs copy depth
+  (smaller copies: errors should fall with the nonlinearity), then the first-order jet correction (errors to second
+  order).
