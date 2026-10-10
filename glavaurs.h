@@ -29,12 +29,17 @@ struct GeneralLavaurs {
   GeneralLavaurs(const int p, const int q, const int side = 1, const int N = 16);
   // The repelling petal paired with attracting petal k
   int exit_petal(const int k) const;
+  // The per-petal branches of L make Φ_{k'}(f(w)) = Φ_k(w) + 1/q + (k' - k) τ and f(Ψ_j(ζ)) = Ψ_{j'}(ζ + 1/q + (j' - j) τ)
+  // (τ = 2πiβ/q), so the f-equivariant transit from attracting petal k is Ψ_e(Φ_k(w) + σ + transit_shift(k)), e =
+  // exit_petal(k), normalized to 0 on the critical value's petal kv
+  int kv;
+  C transit_shift(const int k) const;
 
-  // Φ, Φ', Φ'' by the series with L(w) = (log(w^q) + 2πi branch)/q
-  void series(const C w, const int branch, C& s, C& d, C& dd) const;
-  // The petal (kind = -1 attracting, +1 repelling) whose sector contains w, or -1; and the branch of L there
+  // Φ, Φ', Φ'' by the series with L(w) = log|w| + i (θ + wrap(arg w - θ)), continuous within π of the axis angle θ
+  void series(const C w, const double axis, C& s, C& d, C& dd) const;
+  // The petal (kind = -1 attracting, +1 repelling) whose sector contains w, or -1; and its axis angle (L's branch)
   int petal(const C w, const int kind) const;
-  int branch(const C w, const int kind, const int k) const;
+  double axis(const int kind, const int k) const;
   // Attracting coordinate with derivatives and the entering petal (false if the orbit does not enter)
   bool phi_a(C w, C& s, C& d, C& dd, int& petal, const int max_steps = 1 << 20) const;
   // Repelling parametrization of petal k with derivatives
@@ -47,7 +52,7 @@ struct GeneralLavaurs {
             C& a1, const int Nb = 64) const;
   // Multiplier-map point σ(μ) of a component
   bool multiplier_point(const int r, const int n, const C center, const C mu, C& sigma) const;
-  // Θ_r(σ) = p_r - ζ0 (p_1 = ζ0 + σ, p_{i+1} = H(p_i) + σ), its σ-derivative and Π_{i<r} H'(p_i)
+  // Θ_r(σ) = p_r - ζ0 (p_1 = ζ0 + σ, p_{i+1} = H(p_i) + σ + transit_shift), its σ-derivative and Π_{i<r} H'(p_i)
   bool theta(const C sigma, const int r, C& th, C& dth, C& d2th, C& hprod) const;
   C zeta0() const;
 };
