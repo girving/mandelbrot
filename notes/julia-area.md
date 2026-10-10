@@ -1367,3 +1367,17 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   | 4 | 4.2900e-6 | 5.382e-7 | 1.0779e-6 | 2.2561e-6 |
   Level 4 removed 7.9e-6 of tunings (999 components) by the heuristic rule, so its split is the least certain.  The
   q = 2 pattern (mediant entering at level 2 and dominating at 3, each Farey denominator at r ≈ m + 1) recurs.
+- **The 1/2 strip redone with the corrected model** (one H200, 390 s for levels 2-4; `results/strip_1_2_gpu.log`):
+  | level | bulb limb (reference) | mediant (reference) | 1/3 | 2/3 |
+  | 2 | 2.6952e-4 (2.711e-4) | 2.3007e-5 (2.30e-5) | | |
+  | 3 | 6.235e-5 (6.05e-5) | 8.3825e-5 (8.37e-5) | 1.579e-6 | 4.4e-8 |
+  | 4 | 3.097e-5 (1.97e-5) | 4.166e-6 (4.0e-6) | 7.225e-6 | 1.5820e-5 |
+  Levels 2-3 reproduce the reference by limb; the level-4 bulb-limb excess (1.1e-5) is about bulb*P4a (the reference's
+  bulb period-4 tunings are 3.5e-5, 1.4e-5, 1.2e-5), which the heaviest-candidate rule's ratio cutoff misses (the
+  case tunelabel also slips on): exact tuning labels are still the open item for level ≥ 4.
+- **κ (levels 1-4, `gl_kappa.py`), 1/2 vs 1/3**: bulb limb 1.0841e-2 (1.078e-2 without the suspected bulb*P4a) vs
+  9.031e-3 (ratio 0.83); mediant 7.368e-3 vs 6.813e-3 (0.92); thirds entering, 1/3 2.88e-3 vs 2.84e-3, 2/3 5.18e-3 vs
+  5.00e-3.  Level ratios are nearly root-independent: bulb limb 0.142, 0.231, 0.50 (1/2) vs 0.144, 0.239, 0.54
+  (1/3); per level, 1/3 / 1/2 = 0.122, 0.123, 0.127, 0.139 for the bulb limb (bulb ratio 0.147) and 0.128, 0.139,
+  0.129 for the mediant (its bulb ratio 0.147).  So across roots the strip is the same structure with a slowly
+  varying weight per level: the automaton over CF digits looks feasible.
