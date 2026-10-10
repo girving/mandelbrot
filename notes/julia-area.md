@@ -1506,3 +1506,32 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   with their own bases), each refinement level gaining a factor ε: a multi-scale tree, finite work if (branching) ×
   ε < 1 per level.  Next: measure, in the island formulation, the mass share of atoms with ε_U / D > 1 per island
   against ε_U (predicted ∝ ε_U), and the refinement's branching.
+- **Island children** (`glavaurs ichildren`): U's island map κ = Θ_{r+1} has a branch point σ_c next to σ_U
+  (κ'(σ_c) = 0, |σ_c - σ_U| ~ 1/|κ''|); for each target copy y the island's two children are the ends of the two
+  preimage paths of the segment κ(σ_c) → y, continued from σ_c (Newton tolerance on the residual: κ carries ~1e-12 of
+  noise, so near σ_c steps cannot reach 1e-13).  They are island-local (S1 × bulb: all within 0.2 of S1, where the
+  census's children reach -2.5 - 0.04i, in other islands).  Completeness at level 2 (q = 2, all 434 own-half level-1
+  sources × 22 targets, `experiments/island_complete.py`): island children 2.92295e-4 vs census children 2.92677e-4;
+  census-only 3.8e-7 (0.13%, a few components, largest 1.9e-7 at 0.369 - 0.749i: failed paths), island-only 1.5e-10.
+  Not yet a partition: 34,850 components (1.5% of the raw children mass, satellites included) are reached from
+  more than one island (the straight-segment slits of neighbouring islands are not mutually consistent).
+- **Branching factor and scaling** (`experiments/branching.py`, island children, satellites dropped, tunings by
+  known components dropped with the block rule; `results/island_branching.log`).  Per island U: bad share = mass
+  share of the grandchildren (one transit after the island) with ρ = |σ_G - σ_U| / |y - v_U| > 1/2, and B90/B99 = the
+  children carrying 90/99% of it (the sub-islands to process; capped at the 6 expanded):
+  | level | ε | bad ρ > 1/2 | ρ > 1 | B90 / B99 |
+  | 1 | 1.0 (×3) | 0.22, 0.43, 0.048 | 0.11, 0.34, 0.0076 | 2-4 / 2-5 |
+  | 2 | 0.35, 0.15, 0.079 | 0.43, 0.023, 0.018 | 0, 4.5e-3, 4.2e-3 | 1 / 1-3 |
+  | 3 | 0.10, 0.061 | 2.4e-3, 1.0e-3 | 1.3e-5, 4.3e-5 | 1-2 / 2-4 |
+  | 4 | 0.071, 0.048, 0.034 | 2.8e-4, 2.0e-4, 6.7e-5 | ≤ 3e-6 | 1-2 / 4-5 |
+  | 5 | 0.050, 0.038, 0.029 | 2.4e-4, 7.2e-5, 4.2e-5 | ≤ 7e-7 | 1-4 / 5-6 |
+  The bad share is a function of ε (levels 4 and 5 agree at equal ε), ≈ 2ε³ for ε ≤ 0.1: steeper than the ∝ ε
+  estimate.  (With census children instead, which are not island-local, the bad share was 0.7-0.98 at every level.)
+- **Cost model.**  Refinement level k processes ~B^k sub-islands (B ≈ 5) and leaves a residual Π f_j with f = 2ε³; ε
+  shrinks ~0.7-0.75 per level (0.05 at level 5), so log10 f_k ≈ -3.6 - 0.47 k and the residual after k levels is
+  10^-(3.6 k + 0.23 k²): 1e-40 at k ≈ 7.6, i.e. ~2e5 sub-islands per base island, each a frozen transfer-operator
+  solve plus its expansion (ρ ≤ 1/2 for the good atoms: ~130 orders at ρ = 1/2, so a smaller threshold ρ* trades bad
+  share for order).  Against enumeration (count ~ η^-0.28: ~1e11 components for η = 1e-40) the refinement is
+  feasible if the per-island solve is cheap.  Caveats: one lineage at q = 2; only one post-island transit
+  (deeper atoms not measured); tunings by components outside the sampled lineage are not excluded (children/C up
+  to 3 for some islands); the islands overlap at the 1.5% level and miss 0.13%.
