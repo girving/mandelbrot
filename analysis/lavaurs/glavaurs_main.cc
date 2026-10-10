@@ -577,9 +577,31 @@ int main(int argc, char** argv) {
                 d2 = dd;
               }
               const SCd sx(Q.sx.r, Q.sx.i);
-              snprintf(line, sizeof(line), "%s %.17g %.17g %.6e %.6e %.6e %.17g %.17g %.17g %.17g", Q.name.c_str(), s.real(),
+              // D: the frozen chain's closest approach to the critical value ζ0 + σ_X of F (mod 1/q and τ), over the
+              // points after the first: where the chain's holomorphic motion in δ branches (radius of the δ-series)
+              double D = INFINITY;
+              {
+                const SCd tau(L.core.tau.r, L.core.tau.i), vX = SCd(L.zeta0().r, L.zeta0().i) + sx;
+                Cd pp = L.zeta0() + Cd(s.real(), s.imag());
+                Cd s0, ds0, dds0;
+                int pt;
+                L.phi_a(L.v, s0, ds0, dds0, pt);
+                for (int i = 1; i < Q.r; i++) {
+                  Cd q0, q1, q2, a0, a1, a2;
+                  int pt2;
+                  if (!L.psi(pp, L.exit_petal(pt), q0, q1, q2) || !L.phi_a(q0, a0, a1, a2, pt2)) break;
+                  pp = a0 + Q.sx + L.core.transit_shift(pt2);
+                  pt = pt2;
+                  for (int k = -2; k <= 2; k++) {
+                    SCd dz = SCd(pp.r, pp.i) - vX - double(k) * tau;
+                    dz -= std::round(dz.real() * q) / q;
+                    D = std::min(D, std::abs(dz));
+                  }
+                }
+              }
+              snprintf(line, sizeof(line), "%s %.17g %.17g %.6e %.6e %.6e %.17g %.17g %.17g %.17g %.4g", Q.name.c_str(), s.real(),
                        s.imag(), we, 1 / std::norm(SCd(dq.r, dq.i) * H), 1 / std::norm(H * H), (sx + d1).real(),
-                       (sx + d1).imag(), (sx + d2).real(), (sx + d2).imag());
+                       (sx + d1).imag(), (sx + d2).real(), (sx + d2).imag(), D);
             }
           }
           out[i] = line;
