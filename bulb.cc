@@ -83,7 +83,7 @@ template<class S> __host__ __device__ static bool solve(const int n, const int s
                                                         const Complex<S> mu, Complex<S>& z, Complex<S>& c,
                                                         Complex<S>& dzdmu, Complex<S>& dcdmu, const double accept,
                                                         const int iters = 40) {
-  const double done = sizeof(S) == sizeof(double) ? 1e-15 : 1e-28;
+  const double done = sizeof(S) == sizeof(double) ? 1e-15 : BULB_E == 2 ? 1e-28 : 1e-44;
   double last = INFINITY;
   for (int it = 0; it < iters; it++) {
     last = newton_step(n, shift, P, mu, z, c, dzdmu, dcdmu);
@@ -277,7 +277,7 @@ __host__ __device__ static BulbResult bulb_one(const BulbJob& job, const Ce* tw,
     jacobian(n, shift, par, z, cb, ja, jb, jd, je);
     Ce ze = to_e(z), cee = to_e(cb);
     for (int it = 0; it < p.polish; it++)
-      if (polish_e(n, shift, par, tw[2 * j + 1], ze, cee, ja, jb, jd, je) < 1e-24 * (1 + cabs(cb))) break;
+      if (polish_e(n, shift, par, tw[2 * j + 1], ze, cee, ja, jb, jd, je) < (BULB_E == 2 ? 1e-24 : 1e-40) * (1 + cabs(cb))) break;
     cj[j] = cee - ce;
   }
   // a_k = (1/N) Σ_j c_j μ_j^-k, μ_j^-k = conj(tw_{k(2j+1) mod 2N}); the N/2 subrule uses even j only

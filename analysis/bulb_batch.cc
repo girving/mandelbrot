@@ -69,8 +69,14 @@ int main(int argc, char** argv) {
   for (size_t i = 0; i < jobs.size(); i++) {
     const auto& r = res[i];
     if (r.status == bulb_ok)
-      fprintf(out, "%s %d %d %.17g %.17g %.17g %.17g %.17g %.1e 0 %.17g %.17g\n", keys[i].c_str(), jobs[i].p, jobs[i].q,
+    {
+      // area and F parts with 60 digits: %.17g identifies a double but is up to ~5e-18 relative off its value, which
+      // the lower parts cannot repair (the 3e-17 floor of the old M-side family fits; %.25g still leaves 5e-26)
+      fprintf(out, "%s %d %d %.17g %.17g %.60g %.60g %.17g %.1e 0 %.60g %.60g", keys[i].c_str(), jobs[i].p, jobs[i].q,
              r.center.r, r.center.i, r.area.x[0], r.F.x[0], r.w, r.conv, r.area.x[1], r.F.x[1]);
+      for (int k = 2; k < BULB_E; k++) fprintf(out, " %.60g %.60g", r.area.x[k], r.F.x[k]);   // bulb_batch3's third parts
+      fprintf(out, "\n");
+    }
     else {
       fprintf(out, "%s %d %d failed %s\n", keys[i].c_str(), jobs[i].p, jobs[i].q, why[r.status]);
       failed++;
