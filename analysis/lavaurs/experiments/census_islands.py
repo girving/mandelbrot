@@ -111,7 +111,8 @@ def main():
             tsat = rkey(zs[-1]) in sat_y
             agg[(in_sat(nm), tsat)][0] += CW
             if rho > 0.5: agg[(in_sat(nm), tsat)][1] += CW
-            atoms.append((in_sat(nm), tsat, eps.get(nm, float('nan')), D, abs(dd), CW, rho > 0.5, r, mm, sW))
+            atoms.append((in_sat(nm), tsat, eps.get(nm, float('nan')), D, abs(dd), CW, rho > 0.5, r, mm, sW, nm, w,
+                          min(range(r + 1, len(zs)), key=lambda i: lat(zs[i] - vU)) + 1))
             tot[mm] += CW
             if rho > 0.5:
                 bad[mm] += CW; badby[pieces[r]] += CW
@@ -178,6 +179,16 @@ def main():
             for x in near:
                 if x[2]: h[int(((math.atan2(x[0].imag, x[0].real) / (2 * math.pi)) % 1) * 24)] += x[1]
             print('     ' + ' '.join('%d:%.1e' % (k, h[k]) for k in range(24) if h[k] > 0))
+    # dissection: the heaviest bad atoms of islands at levels 2-3 inside a satellite's island
+    y2name = {rkey(it[nm][1][-1]): nm for nm in it if comps[nm][0] == 1}
+    tname = lambda nm: y2name.get(rkey(it[nm][1][-1]), '?')
+    bad_in = sorted([x for x in atoms if x[0] and x[6] and x[7] in (2, 3)], key=lambda x: -x[5])[:25]
+    print('heaviest bad atoms of level 2-3 islands inside a satellite island:')
+    for x in bad_in:
+        U, W = x[10], x[11]
+        print('  U %-12s L%d σ %.4f%+.4fi C %.2e ε %.4f target %-8s | W %-12s L%d σ %.4f%+.4fi C %.2e target %-8s d %.3f D %.3f (at z_%d of %d) pieces %s' % (
+            U, comps[U][0], comps[U][2].real, comps[U][2].imag, comps[U][3], x[2], tname(U), W, comps[W][0], comps[W][2].real, comps[W][2].imag,
+            comps[W][3], tname(W), x[4], x[3], x[12], comps[W][0], ''.join(p[0] for p in it[W][0])))
     print('done, %.0f s' % (time.time() - t0))
 if __name__ == '__main__':
     main()
