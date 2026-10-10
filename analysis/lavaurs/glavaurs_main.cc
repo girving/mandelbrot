@@ -5,7 +5,9 @@
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
 //   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
-//   glavaurs p q dchildren threads < (as children)            # the same children at frozen σ (the horn map's dynamics)
+//   glavaurs p q dchildren threads < (as children)            # children by the one-step map (linearized source)
+//   glavaurs p q fchildren threads < (as children)            # children by the frozen-σ horn-map dynamics
+//   glavaurs p q frefine threads < "name r y_re y_im sX_re sX_im sW_re sW_im"   # frozen-σ child from the exact one
 //   glavaurs p q consist                                      # cross-petal branch conventions
 //   glavaurs p q arc sgn                                      # the critical arc: Φ_a(w) = Φ_a(crit) + i sgn t
 //   glavaurs p q orbit J < "name r n re im"                   # explicit critical-orbit points, for kneading
@@ -244,6 +246,132 @@ int main(int argc, char** argv) {
       if (!L.theta(Cd(sr, si), r, t, d, dd, hp)) { printf("%s %d failed\n", name, r); continue; }
       printf("%s %d %.15g %.15g %.15g %.15g %.15g %.15g\n", name, r, t.r, t.i, d.r, d.i, hp.r, hp.i);
     }
+    return 0;
+  }
+  if (mode == "frefine") {
+    // For an exact child σ_W of source σ_X (Θ_r(σ_W) = y): Newton on the frozen-σ Θ_r (σ frozen at σ_X after the first
+    // transit) from σ_W.  Prints "name sf_re sf_im w_exact wT wmult" (w = |Θ' Π H'|^-2 exact at σ_W; the frozen child's
+    // weight with the parameter derivative along the frozen orbit, and |Π H'|^-4), or "name failed".
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    struct Q { std::string name; int r; Cd y, sx, sw; };
+    std::vector<Q> qs;
+    char name[256];
+    int r;
+    double a1, a2, b1, b2, c1, c2;
+    while (scanf("%255s %d %lf %lf %lf %lf %lf %lf", name, &r, &a1, &a2, &b1, &b2, &c1, &c2) == 8)
+      qs.push_back({name, r, Cd(a1, a2), Cd(b1, b2), Cd(c1, c2)});
+    std::vector<std::string> out(qs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int th = 0; th < threads; th++)
+      pool.emplace_back([&]() {
+        for (int64_t i; (i = next++) < int64_t(qs.size());) {
+          const auto& Q = qs[i];
+          char line[512];
+          Cd t, d, dd, hp;
+          snprintf(line, sizeof(line), "%s failed", Q.name.c_str());
+          if (L.theta(Q.sw, Q.r, t, d, dd, hp)) {
+            const double we = 1 / std::norm(SCd(d.r, d.i) * SCd(hp.r, hp.i));
+            SCd s(Q.sw.r, Q.sw.i);
+            bool ok = false;
+            Cd tf, dz, dq, hq, pr;
+            int pet;
+            for (int it = 0; it < 60; it++) {
+              if (!L.core.theta_frozen(Cd(s.real(), s.imag()), Q.sx, Q.r, tf, dz, dq, hq, pr, pet)) break;
+              const SCd step = (SCd(tf.r, tf.i) - SCd(Q.y.r, Q.y.i)) / SCd(dz.r, dz.i);
+              s -= step;
+              if (!(std::abs(step) < 10)) break;
+              if (std::abs(step) < 1e-11 * (1 + std::abs(s))) { ok = true; break; }
+            }
+            if (ok) {
+              L.core.theta_frozen(Cd(s.real(), s.imag()), Q.sx, Q.r, tf, dz, dq, hq, pr, pet);
+              const SCd H(hq.r, hq.i);
+              snprintf(line, sizeof(line), "%s %.17g %.17g %.6e %.6e %.6e", Q.name.c_str(), s.real(), s.imag(), we,
+                       1 / std::norm(SCd(dq.r, dq.i) * H), 1 / std::norm(H * H));
+            }
+          }
+          out[i] = line;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& l : out) printf("%s\n", l.c_str());
+    return 0;
+  }
+  if (mode == "fchildren") {
+    // Children by the frozen-σ dynamics: with σ frozen at the source's σ_X in every transit after the first, the
+    // r-transit condition is F^{r-1}(p_1) ∈ targets for the single map F(p) = H(p) + σ_X, p_1 = ζ0 + σ exactly linear
+    // in σ (no linearization of the source's parameter map).  Newton on the frozen Θ_r from the same starts as
+    // children; kept when the last landing point reaches the critical point in n_c - j steps.  Prints "name|±|j re im w
+    // 0 sat" with w = |dpar Π H'|^-2 (FCH_T=1, default: the parameter derivative along the frozen orbit) or |Π H'|^-4
+    // (FCH_T=0: purely multiplicative).
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    const int m = getenv("CHILDREN_STARTS") ? atoi(getenv("CHILDREN_STARTS")) : 0;
+    const bool useT = !getenv("FCH_T") || atoi(getenv("FCH_T"));
+    struct Q { std::string name; int r, nu, nc, jlo, jhi; Cd u, c; double rad; };
+    std::vector<Q> qs;
+    char name[256];
+    int r, nu, nc, jlo, jhi;
+    double ur, ui, rad, cr, ci;
+    while (scanf("%255s %d %d %lf %lf %lf %d %lf %lf %d %d", name, &r, &nu, &ur, &ui, &rad, &nc, &cr, &ci, &jlo, &jhi) == 11)
+      qs.push_back({name, r, nu, nc, jlo, jhi, Cd(ur, ui), Cd(cr, ci), rad});
+    std::vector<std::string> out(qs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int th = 0; th < threads; th++)
+      pool.emplace_back([&]() {
+        for (int64_t qi; (qi = next++) < int64_t(qs.size());) {
+          const auto& Q = qs[qi];
+          std::string text;
+          Cd t0, d0, dd0, hp0;
+          if (!L.theta(Q.u, Q.r, t0, d0, dd0, hp0)) continue;   // the starts, as in children
+          const SCd u(Q.u.r, Q.u.i);
+          for (int j = Q.jlo; j <= Q.jhi; j++) {
+            if (Q.nc - j < 0) continue;
+            const SCd y(Q.c.r + double(j) / q, Q.c.i);
+            const SCd a = 0.5 * SCd(dd0.r, dd0.i), b(d0.r, d0.i), cc = SCd(t0.r, t0.i) - y;
+            const SCd sq = std::sqrt(b * b - 4.0 * a * cc);
+            std::vector<SCd> starts;
+            for (const int sgn : {1, -1}) starts.push_back(u + (-b + double(sgn) * sq) / (2.0 * a));
+            const double rho = std::abs(starts[0] - u);
+            for (const double f : {0.5, 1.0, 2.0})
+              for (int k = 0; k < m; k++) starts.push_back(u + std::polar(f * rho, 2 * M_PI * (k + 0.5) / m));
+            std::vector<SCd> found;
+            for (size_t si = 0; si < starts.size(); si++) {
+              SCd s = starts[si];
+              bool ok = false;
+              Cd tf, dz, dq, hp, pr;
+              int pet = -1;
+              for (int it = 0; it < 60; it++) {
+                if (!L.core.theta_frozen(Cd(s.real(), s.imag()), Q.u, Q.r, tf, dz, dq, hp, pr, pet)) break;
+                const SCd step = (SCd(tf.r, tf.i) - y) / SCd(dz.r, dz.i);
+                s -= step;
+                if (!(std::abs(step) < 10)) break;
+                if (std::abs(step) < 1e-11 * (1 + std::abs(s))) { ok = true; break; }
+              }
+              if (!ok) continue;
+              bool dup = false;
+              for (const auto& fk : found) dup |= std::abs(fk - s) < 1e-9;
+              if (dup) continue;
+              found.push_back(s);
+              L.core.theta_frozen(Cd(s.real(), s.imag()), Q.u, Q.r, tf, dz, dq, hp, pr, pet);
+              Cd x, d1, d2;
+              if (!L.psi(pr, L.exit_petal(pet), x, d1, d2)) continue;
+              for (int i = 0; i < Q.nc - j; i++) x = L.lam * x + x * x;
+              if (!(std::hypot((x - L.crit).r, (x - L.crit).i) < 1e-6)) continue;
+              const SCd H(hp.r, hp.i);
+              const double w = useT ? 1 / std::norm(SCd(dq.r, dq.i) * H) : 1 / std::norm(H * H);
+              const int sat = std::abs(s - u) < 4 * Q.rad;
+              char line[512];
+              snprintf(line, sizeof(line), "%s|%c|%d %.17g %.17g %.6e 0 %d\n", Q.name.c_str(), si == 0 ? '+' : '-', j,
+                       s.real(), s.imag(), w, sat);
+              text += line;
+            }
+          }
+          out[qi] = text;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& t : out) fputs(t.c_str(), stdout);
     return 0;
   }
   if (mode == "dchildren") {

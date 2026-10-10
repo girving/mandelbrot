@@ -1207,3 +1207,26 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   representative.  Level 2 checks it: every doubling U*(1/2-bulb) comes out at ratio ≈ 0.5 (exactly the 1/2 bulb's
   little orbit, crit → c' = -1, scaled), the bulb's own doubling included (q = 2: 1.3662e-2, q = 3: 1.9947e-3);
   everything else has ratio ≥ 1.
+- **Three transits at a general root** (local CPU census, 341 / 174 sources × 101 targets, 95–104 min on 3 cores): q = 2
+  level 3 = 3.1745e-4 with tunings; the little-Julia test needs a combinatorial count, because the distortion of U's
+  copy pushes the ratio of a tuning by a primitive X (little orbit out to |c'| ≈ 2) to ~1.6 (bulb*airplane 1.563),
+  overlapping non-tunings (the best-ratio distribution is continuous from 0.4 to 4).  Rule: ratio ≤ 1, plus per U the
+  heaviest primitive candidates below 2.5 up to M's number of primitive centers of period p = r/r_U (0, 1, 3, 11, 20).
+  It removes bulb*airplane 1.6457e-4 and every U's 1/3, 2/3 satellites: **S_2 = 1.512692e-4** (reference 1.5130e-4);
+  bulb limb 6.569e-5, mediant 8.395e-5, thirds 1.62e-6 (reference 6.05e-5, 8.37e-5, 2.6e-6).  1/3, k/(3k+1) side:
+  bulb*airplane 2.4148e-5 (ratio 1.592), S_2 = 2.0156e-5: bulb limb 8.301e-6, mediant 1.1642e-5, thirds 2.13e-7;
+  level by level 0.12–0.14 of q = 2 (bulb ratio 0.147).
+- **The operator, tested** (`glavaurs dchildren|fchildren|frefine`, `gl_opdiag.py`, `gl_eps_scaling.py`).  Factorization:
+  w = |Θ_r' Π H'|^-2 = |Π H'|^-4 |T|^-2, T = Θ_r'/Π H' = Σ_i 1/Π_{j<i} H'(p_j); the non-multiplicative part is T and the
+  σ-dependence (σ enters every transit).  Exact statement: σ is invariant under (p, σ) ↦ (H(p) + σ, σ), so the model is
+  a family of 1D frozen-σ dynamics F_σ = H + σ, and the parameter set is the diagonal slice: mass = ∫ d²σ g_σ(ζ0 + σ),
+  g_σ = (I - K_σ)^{-1} ν (exact, linear, but not an operator on p alone).  Tests: level 2 from single-transit sources
+  (ε = 1): the one-step map H(p) + ε(p - p*) is exact (all 351,911 children, 1e-13); frozen σ misses almost all of the
+  mass.  Level 3 (q = 2, the 40 heaviest two-transit sources, 452k census-kept children refined under frozen σ): ε_X =
+  1/|Θ'_2(σ_X)| ranges 0.02–0.35; the median relative position error is ≈ |ε| (log-log slope 1.08) and the median
+  |log w_param/w_frozen| ≈ 8|ε| (slope 0.87), heavy-tailed (90th percentile several units); keeping T in the weight
+  barely helps.  So freezing σ is a first-order approximation whose error fades only geometrically (ε shrinks by ~|H'|
+  per level, 0.1–0.4 at the first step): exact parameter censuses for the first L levels, the frozen-σ operator only
+  past them, error ~ (tail mass) × 8 ε_L; next: the first-order correction in δσ (error O(ε²)).
+- GPU: the evaluation core (glavaurs_core.h) is shared by CPU and GPU (CPU results unchanged to 1e-13); GPU children
+  (one Newton start per thread) with the same output; a one-GPU job (scratch/gpu/glavaurs-job.yaml) is queued.

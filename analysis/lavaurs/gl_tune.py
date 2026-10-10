@@ -31,6 +31,8 @@ def main():
     ap.add_argument('--threads', type=int, default=4)
     ap.add_argument('--umin', type=float, default=1e-9)   # candidate tuners above this constant
     ap.add_argument('--wmin', type=float, default=0)
+    ap.add_argument('--loose', type=float, default=2.5)
+    ap.add_argument('--dump', default='')   # every component's best ratio: "name U ratio C sat"
     a = ap.parse_args()
     env = dict(os.environ, GL_SIDE=str(a.gate))
     head = subprocess.run([BIN, str(a.p), str(a.q), 'consist'], capture_output=True, text=True, env=env).stderr
@@ -40,23 +42,24 @@ def main():
     r = a.level
     W = [c for c in comps if c[1] == r and c[4] > a.wmin]
     U = [c for c in comps if c[1] < r and r % c[1] == 0 and c[4] > a.umin]
-    # grid over Re σ mod 1 and Im σ
-    G = 0.05
+    # grid of the W over Re σ mod 1 and Im σ; each tuner U scans the cells within its own reach
+    G = 0.02
+    NX = int(round(1 / G))
     grid = defaultdict(list)
-    for u in U: grid[(int(math.floor((u[3].real % 1) / G)), int(math.floor(u[3].imag / G)))].append(u)
+    for w in W: grid[(int(math.floor((w[3].real % 1) / G)) % NX, int(math.floor(w[3].imag / G)))].append(w)
     lines = []
-    for w in W:
-        sw = w[3]
-        x0, y0 = (sw.real % 1) / G, sw.imag / G
-        # neighbours within reach radii: scan cells up to the largest tuner reach (bounded by 2 in σ)
-        span = 2.0
-        for dx in range(-int(span / G) - 1, int(span / G) + 2):
-            for dy in range(-int(span / G) - 1, int(span / G) + 2):
-                for u in grid.get(((int(math.floor(x0)) + dx) % int(1 / G), int(math.floor(y0)) + dy), []):
-                    su = u[3]
+    for u in U:
+        su = u[3]
+        R = a.reach * rad(u[4])
+        x0, y0 = int(math.floor((su.real % 1) / G)), int(math.floor(su.imag / G))
+        span = int(math.ceil(R / G)) + 1
+        for dx in range(-min(span, NX), min(span, NX) + 1):
+            for dy in range(-span, span + 1):
+                for w in grid.get(((x0 + dx) % NX, y0 + dy), []):
+                    sw = w[3]
                     j = round(su.real - sw.real)
                     s2 = sw + j
-                    if abs(s2 - su) > a.reach * rad(u[4]): continue
+                    if abs(s2 - su) > R: continue
                     n2 = w[2] - j * r * a.q
                     if n2 + 1 != (r // u[1]) * (u[2] + 1): continue
                     lines.append('%s %d %d %.17g %.17g %s %d %d %.17g %.17g' % (w[0], r, n2, s2.real, s2.imag, u[0], u[1], u[2], su.real, su.imag))
@@ -64,11 +67,27 @@ def main():
     out = subprocess.run([BIN, str(a.p), str(a.q), 'tuned', str(a.threads)], input='\n'.join(lines) + '\n',
                          capture_output=True, text=True, env=env).stdout
     best = {}
+    byu = defaultdict(list)
     for l in out.splitlines():
         f = l.split(); ratio = float(f[2])
         if f[0] not in best or ratio < best[f[0]][1]: best[f[0]] = (f[1], ratio)
+        byu[f[1]].append((f[0], ratio))
     Cof = {c[0]: (c[4], c[5]) for c in comps}
-    tuned = {k: v for k, v in best.items() if v[1] <= 1.5}
+    rU = {c[0]: c[1] for c in comps}
+    # The distortion of U's copy makes the ratio of a tuning by a primitive X (whose little orbit reaches |c'| ~ 2) as
+    # large as ~1.6 (bulb*airplane), overlapping non-tunings, so a threshold alone is ambiguous: accept clear cases
+    # (ratio ≤ 1), and per U the heaviest primitive candidates below --loose up to the number of primitive
+    # hyperbolic centers of period p = r/r_U in M (0, 1, 3, 11, 20 for p = 2..6).
+    NPRIM = {2: 0, 3: 1, 4: 3, 5: 11, 6: 20}
+    tuned = {k: v for k, v in best.items() if v[1] <= 1.0}
+    for u, lst in byu.items():
+        pp = r // rU[u]
+        cands = sorted([(Cof[w][0], w, ratio) for w, ratio in lst if ratio <= a.loose and not Cof[w][1]], reverse=True)
+        for C, w, ratio in cands[:NPRIM.get(pp, 0)]:
+            if w not in tuned: tuned[w] = (u, ratio)
+    if a.dump:
+        with open(a.dump, 'w') as fo:
+            for k, (u, ratio) in best.items(): fo.write('%s %s %.4g %.6e %d\n' % (k, u, ratio, Cof[k][0], Cof[k][1]))
     hist = defaultdict(int)
     for k, (u, ratio) in best.items(): hist[min(8, int(math.floor(math.log10(ratio)))) if ratio > 0 and ratio < float('inf') else 'inf'] += 1
     print('ratio histogram (log10 floor):', dict(hist))

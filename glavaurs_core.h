@@ -231,6 +231,31 @@ struct GLCore {
     if (pet_out) *pet_out = pet;
     return true;
   }
+
+  // Θ_r with σ frozen at sadd in the transits after the first (p_1 = ζ0 + σ, p_{i+1} = H(p_i) + sadd): the frozen
+  // horn-map dynamics F(p) = H(p) + sadd from p_1.  dfz = dΘ/dσ of that frozen composition (= Π H'), dpar the true
+  // parameter derivative recursion along the frozen orbit (dp_{i+1} = H' dp_i + 1), and the last state (p_r, petal)
+  __host__ __device__ bool theta_frozen(const Cd sigma, const Cd sadd, const int r, Cd& th, Cd& dfz, Cd& dpar, Cd& hprod,
+                                        Cd& pr, int& pet_out) const {
+    Cd s0, ds, dds;
+    int pet;
+    if (!phi_a(v, s0, ds, dds, pet)) return false;
+    Cd pp = s0 + sigma, dz(1), dq(1), hp(1);
+    for (int i = 1; i < r; i++) {
+      Cd q0, q1, q2, a0, a1, a2;
+      int pet2;
+      if (!psi(pp, exit_petal(pet), q0, q1, q2)) return false;
+      if (!phi_a(q0, a0, a1, a2, pet2)) return false;
+      const Cd h1 = a1 * q1;
+      dz = h1 * dz;
+      dq = h1 * dq + Cd(1);
+      hp = hp * h1;
+      pp = a0 + sadd + transit_shift(pet2);
+      pet = pet2;
+    }
+    th = pp - s0; dfz = dz; dpar = dq; hprod = hp; pr = pp; pet_out = pet;
+    return true;
+  }
 };
 
 // One children job (glavaurs children): the r-transit children of the source u over the target c, shifts jlo..jhi
