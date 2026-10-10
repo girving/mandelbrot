@@ -1230,3 +1230,10 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   past them, error ~ (tail mass) × 8 ε_L; next: the first-order correction in δσ (error O(ε²)).
 - GPU: the evaluation core (glavaurs_core.h) is shared by CPU and GPU (CPU results unchanged to 1e-13); GPU children
   (one Newton start per thread) with the same output; a one-GPU job (scratch/gpu/glavaurs-job.yaml) is queued.
+- **Area-from-center formula vs exact areas** (`gl_formula_err.py`): children of the satellite targets (the bulbs) come
+  out at exactly 2/3 of their exact areas (median log ratio -0.400 vs log(2/3) = -0.405, tight, at q = 2 and 3, levels 2
+  and 3): the formula transfers the target's area, but every child is primitive, so a satellite target must transfer its
+  normal-form scale with the cardioid factor (3π/8)/(π/4) = 3/2.  Fixed in gl_census.py.  Effect: the light (formula-
+  only) bulb-target children were 1/3 low, +0.02% (q = 2, level 2) to +0.48% (q = 3, level 3) of the level mass; the q = 2
+  fast_census.py used the same approximation for the bulb.  Children of primitive targets: formula/exact = +2.5% to
+  +8% (median) for the heavy (> 1e-8) ones: the conformal distortion over the target, shrinking with relative size.

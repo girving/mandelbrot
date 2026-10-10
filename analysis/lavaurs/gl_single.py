@@ -33,26 +33,26 @@ def main():
     for l in res.splitlines():
         f = l.split()
         if f[3] == 'failed': continue
-        exact[int(f[0][1:])] = (float(f[6]), float(f[8]), complex(float(f[3]), float(f[4])), float(f[7]))
+        exact[int(f[0][1:])] = (float(f[6]), float(f[8]), complex(float(f[3]), float(f[4])), float(f[7]), float(f[9]))
     S0 = 0.0; sats = []; failed = 0; est_part = 0.0; conv_err = 0.0
     rows = []
     for i, (C, n, s) in enumerate(comps):
         if i < len(heavy):
             if i not in exact: failed += 1; S0 += C; continue
-            Cx, cusp, c, conv = exact[i]
-            if cusp >= 0.01: sats.append((Cx, cusp, c, n)); continue   # double-precision cusp noise ~1e-9..1e-6
-            S0 += Cx; conv_err += Cx * abs(conv); rows.append((Cx, n, c, 'exact'))
+            Cx, cusp, c, conv, cnf = exact[i]
+            if cusp >= 0.01: sats.append((Cx, cusp, c, n, cnf)); continue   # double-precision cusp noise ~1e-9..1e-6
+            S0 += Cx; conv_err += Cx * abs(conv); rows.append((Cx, n, c, 'exact', cnf))
         else:
-            S0 += C; est_part += C; rows.append((C, n, s, 'est'))
+            S0 += C; est_part += C; rows.append((C, n, s, 'est', C))
     print('%d/%d side %+d: %d distinct single-transit components (C_est > %g), %d exact (%d failed, counted by estimate)' % (
         a.p, a.q, a.side, len(comps), a.cmin, len(heavy), failed))
-    print('  satellites: ' + ', '.join('C %.6e (cusp %.2f) @%.4f%+.4fi' % (C, cu, c.real, c.imag) for C, cu, c, n in sats))
+    print('  satellites: ' + ', '.join('C %.6e (cusp %.2f) @%.4f%+.4fi' % (C, cu, c.real, c.imag) for C, cu, c, n, cnf in sats))
     print('  S_0 (both sides) = %.10e  (estimated light part %.3e, Σ C |conv| %.1e)' % (S0, est_part, conv_err))
-    for C, n, c, how in rows[:8]: print('    %.6e n=%d σ %.5f%+.5fi %s' % (C, n, c.real, c.imag, how))
+    for C, n, c, how, cnf in rows[:8]: print('    %.6e n=%d σ %.5f%+.5fi %s' % (C, n, c.real, c.imag, how))
     if a.out:
         with open(a.out, 'w') as fo:
-            for C, n, c, how in rows: fo.write('%d %.17g %.17g %.10e %s\n' % (n, c.real, c.imag, C, how))
-            for C, cu, c, n in sats: fo.write('sat%d %.17g %.17g %.10e %.3f\n' % (n, c.real, c.imag, C, cu))
+            for C, n, c, how, cnf in rows: fo.write('%d %.17g %.17g %.10e %s %.10e\n' % (n, c.real, c.imag, C, how, cnf))
+            for C, cu, c, n, cnf in sats: fo.write('sat%d %.17g %.17g %.10e %.3f %.10e\n' % (n, c.real, c.imag, C, cu, cnf))
 
 if __name__ == '__main__':
     main()
