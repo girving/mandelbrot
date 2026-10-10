@@ -11,6 +11,7 @@
 //   glavaurs p q frefine threads < "name r y_re y_im sX_re sX_im sW_re sW_im"   # frozen-σ child from the exact one
 //   glavaurs p q consist                                      # cross-petal branch conventions
 //   glavaurs p q jetarea threads < "name r n re im"           # C_nf and the first-order shape-corrected area
+//   glavaurs p q tunelabel X:p:cre:cim,... < "U r n re im"     # predicted tunings U*X from U's weight-4 jet
 //   glavaurs p q hp r n re im [N Nb]                          # center, C_nf, area in double, Expansion<2>, Expansion<3>
 //   glavaurs p q arc sgn                                      # the critical arc: Φ_a(w) = Φ_a(crit) + i sgn t
 //   glavaurs p q orbit J < "name r n re im"                   # explicit critical-orbit points, for kneading
@@ -573,7 +574,8 @@ int main(int argc, char** argv) {
           const SCd u(Q.u.r, Q.u.i);
           for (int j = Q.jlo; j <= Q.jhi; j++) {
             if (Q.nc - j < 0) continue;
-            const SCd y(Q.c.r + double(j) / q, Q.c.i);
+            const Cd ts = L.core.target_shift(j);
+            const SCd y = SCd(Q.c.r + double(j) / q, Q.c.i) + SCd(ts.r, ts.i);
             const SCd a = 0.5 * SCd(dd0.r, dd0.i), b(d0.r, d0.i), cc = SCd(t0.r, t0.i) - y;
             const SCd sq = std::sqrt(b * b - 4.0 * a * cc);
             std::vector<SCd> starts;
@@ -657,7 +659,8 @@ int main(int argc, char** argv) {
           if (!L.horn(Cd(ps.real(), ps.imag()), pet, h0, dh0, ddh0, pet2)) continue;
           for (int j = Q.jlo; j <= Q.jhi; j++) {
             if (Q.nc - j < 0) continue;
-            const SCd target = SCd(Q.c.r + double(j) / q, Q.c.i) + SCd(z0.r, z0.i) - u;
+            const Cd ts = L.core.target_shift(j);
+            const SCd target = SCd(Q.c.r + double(j) / q, Q.c.i) + SCd(ts.r, ts.i) + SCd(z0.r, z0.i) - u;
             // local quadratic H(p*) + ε u + a u² = target (H'(p*) = 0)
             const SCd a = 0.5 * SCd(ddh0.r, ddh0.i), cc = SCd(h0.r, h0.i) - target;
             const SCd sq = std::sqrt(eps * eps - 4.0 * a * cc);
@@ -747,7 +750,8 @@ int main(int argc, char** argv) {
           if (!L.theta(Q.u, Q.r, t0, d0, dd0, hp0)) continue;
           for (int j = Q.jlo; j <= Q.jhi; j++) {
             if (Q.nc - j < 0) continue;
-            const SCd y(Q.c.r + double(j) / q, Q.c.i);
+            const Cd ts = L.core.target_shift(j);
+            const SCd y = SCd(Q.c.r + double(j) / q, Q.c.i) + SCd(ts.r, ts.i);
             const SCd a = 0.5 * SCd(dd0.r, dd0.i), b(d0.r, d0.i), cc = SCd(t0.r, t0.i) - y;
             const SCd sq = std::sqrt(b * b - 4.0 * a * cc);
             std::vector<SCd> starts;
@@ -1130,6 +1134,108 @@ int main(int argc, char** argv) {
       });
     for (auto& t : pool) t.join();
     for (const auto& l : out) printf("%s\n", l.c_str());
+    return 0;
+  }
+  if (mode == "tunelabel") {
+    // U*X for primitive X of period p (center c_X in M): in U's weight-4 jet model R(crit + u, σ_U + δ), solve for the
+    // δ at which the model's critical point is p-periodic, from the normal-form guess δ = c_X/(A D), by Newton on
+    // F(δ) = u_p(δ) (u_{i+1} = R(crit + u_i, σ_U + δ) - crit, u_0 = 0); then refine the center of the r_U p-transit,
+    // excursion p (n_U + 1) - 1 component exactly from σ_U + δ.  Prints "U*X model_re model_im center_re center_im"
+    // (or "failed").
+    struct TX { std::string name; int p; SCd c; };
+    std::vector<TX> xs;
+    {
+      const std::string t = argv[4];
+      size_t i = 0;
+      while (i < t.size()) {
+        size_t j = t.find(',', i);
+        if (j == std::string::npos) j = t.size();
+        char nm[64];
+        int pp;
+        double cr, ci;
+        if (sscanf(t.substr(i, j - i).c_str(), "%63[^:]:%d:%lf:%lf", nm, &pp, &cr, &ci) == 4) xs.push_back({nm, pp, SCd(cr, ci)});
+        i = j + 1;
+      }
+    }
+    char name[256];
+    int r, n;
+    double sr, si;
+    while (scanf("%255s %d %d %lf %lf", name, &r, &n, &sr, &si) == 5) {
+      Cd c(sr, si);
+      if (!L.center(r, n, c)) { printf("%s center failed\n", name); continue; }
+      GLB4 X;
+      if (!gl_return_b4(L.core, r, n, SCd(c.r, c.i), X)) { printf("%s jet failed\n", name); continue; }
+      const SCd cr(L.crit.r, L.crit.i), A = X.c[GLB4::index(2, 0)], D = X.c[GLB4::index(0, 1)];
+      // the model's map u ↦ R(crit + u, σ_U + δ) - crit and its δ-derivative
+      const auto step = [&](const SCd u, const SCd du, const SCd d, SCd& un, SCd& dun) {
+        SCd R = 0, Ru = 0, Rd = 0;
+        SCd up[5] = {1, u, u * u, u * u * u, u * u * u * u}, dp[3] = {1, d, d * d};
+        for (int m = 0; m < GLB4::M; m++) {
+          const int i = GLB4::I[m], j = GLB4::J[m];
+          R += X.c[m] * up[i] * dp[j];
+          if (i >= 1) Ru += X.c[m] * double(i) * up[i - 1] * dp[j];
+          if (j >= 1) Rd += X.c[m] * double(j) * up[i] * dp[j - 1];
+        }
+        un = R - cr; dun = Ru * du + Rd;
+      };
+      for (const auto& tx : xs) {
+        SCd d = tx.c / (A * D);
+        bool ok = false;
+        for (int it = 0; it < 60; it++) {
+          // Newton on G = u_p / Π_{d | p, d < p} u_d: deflates δ = 0 (U itself) and lower periods
+          SCd u = 0, du = 0, logd = 0;
+          for (int k = 1; k <= tx.p; k++) {
+            SCd un, dun;
+            step(u, du, d, un, dun);
+            u = un; du = dun;
+            if (k < tx.p && tx.p % k == 0) logd -= du / u;
+          }
+          logd += du / u;   // G'/G
+          const SCd st = 1.0 / logd;
+          d -= st;
+          if (!(std::abs(st) < 10)) break;
+          if (std::abs(st) < 1e-13 * std::abs(d)) { ok = true; break; }
+        }
+        if (!ok) { printf("%s*%s model failed\n", name, tx.name.c_str()); continue; }
+        const SCd dmodel = d;
+        // homotopy from the model to the exact return map: u_{k+1} = (1 - t)(R_model - crit) + t (R_exact - crit)
+        const int rU = r, nU = n;
+        for (int ti = 1; ti <= 20 && ok; ti++) {
+          const double t = ti / 20.0;
+          bool conv = false;
+          for (int it = 0; it < 40; it++) {
+            SCd u = 0, du = 0, logd = 0;
+            bool good = true;
+            for (int k = 1; k <= tx.p && good; k++) {
+              SCd um, dum;
+              step(u, du, d, um, dum);
+              GLJet xj;
+              const SCd w = cr + u, sg = SCd(c.r, c.i) + d;
+              if (!L.core.return_map(rU, nU, Cd(w.real(), w.imag()), Cd(sg.real(), sg.imag()), xj)) { good = false; break; }
+              const SCd ue = SCd(xj.v.r, xj.v.i) - cr, due = SCd(xj.w.r, xj.w.i) * du + SCd(xj.s.r, xj.s.i);
+              u = (1 - t) * um + t * ue;
+              du = (1 - t) * dum + t * due;
+              if (k < tx.p && tx.p % k == 0) logd -= du / u;
+            }
+            if (!good) break;
+            logd += du / u;
+            const SCd st = 1.0 / logd;
+            d -= st;
+            if (!(std::abs(st) < 1)) break;
+            if (std::abs(st) < 1e-8 * std::abs(d) + 1e-14) { conv = true; break; }
+          }
+          ok = conv;
+        }
+        if (!ok) { printf("%s*%s homotopy failed\n", name, tx.name.c_str()); continue; }
+        (void)dmodel;
+        const SCd sm = SCd(c.r, c.i) + d;
+        Cd cw(sm.real(), sm.imag());
+        const int rw = r * tx.p, nw = tx.p * (n + 1) - 1;
+        if (L.center(rw, nw, cw))
+          printf("%s*%s %d %d %.17g %.17g %.17g %.17g\n", name, tx.name.c_str(), rw, nw, sm.real(), sm.imag(), cw.r, cw.i);
+        else printf("%s*%s %d %d %.17g %.17g center failed\n", name, tx.name.c_str(), rw, nw, sm.real(), sm.imag());
+      }
+    }
     return 0;
   }
   if (mode == "hp") {

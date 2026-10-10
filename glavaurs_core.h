@@ -101,6 +101,13 @@ template<class S> struct GLCoreT {
     const int j = exit_petal(l) - exit_petal(kv);
     return Cd(S(double(j))) * tau;
   }
+  // The τ-term of the r-transit target condition: with the critical value's exit petal e_v and a target σ_t (a
+  // single-transit center, landing in petal e_v), the last landing p_r must be ζ0 + σ_t + j/q + (e_r - e_v) τ, e_r =
+  // (e_v + j p) mod q (in consistent coordinates Ψ̃_j(x) = Ψ_j(x + jτ), Ψ̃_{j+p}(x + 1/q) = f(Ψ̃_j(x)))
+  __host__ __device__ Cd target_shift(const int j) const {
+    const int ev = exit_petal(kv), er = ((ev + j * p) % q + q) % q;
+    return Cd(S(double(er - ev))) * tau;
+  }
   __host__ __device__ int label(const int k, const int n) const { return ((k - p * (n % q)) % q + q) % q; }
   // the consistency offset of a point hitting petal k: -(k - kvh) τ
   __host__ __device__ Cd hit_offset(const int k) const { return -(Cd(S(double(k - kvh))) * tau); }

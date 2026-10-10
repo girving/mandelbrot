@@ -35,7 +35,7 @@ struct JobDev {
 };
 
 __device__ static Cd task_start(const GLCore& core, const JobDev& J, const int j, const int si, const int m) {
-  const Cd y(J.c.r + double(j) / core.q, J.c.i);
+  const Cd y = Cd(J.c.r + double(j) / core.q, J.c.i) + core.target_shift(j);
   const Cd a = Cd(0.5) * J.dd0, b = J.d0, cc = J.t0 - y;
   const Cd sq = csqrt(b * b - Cd(4) * a * cc);
   const Cd r0 = J.u + cdiv(-b + sq, Cd(2) * a);
@@ -59,7 +59,7 @@ __global__ void newton_kernel(const GLCore core, const JobDev* jobs, const int n
   const int j = J.jlo + int(off / J.nst), si = int(off % J.nst);
   ok[i] = 0;
   if (J.nc - j < 0) return;
-  const Cd y(J.c.r + double(j) / core.q, J.c.i);
+  const Cd y = Cd(J.c.r + double(j) / core.q, J.c.i) + core.target_shift(j);
   Cd s = task_start(core, J, j, si, m);
   for (int it = 0; it < 60; it++) {
     Cd th, d, dd, hp;
