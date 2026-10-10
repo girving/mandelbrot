@@ -5,6 +5,7 @@
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
 //   glavaurs p q itinerary threads < "name R re im"             # piece itinerary of a component (island partition)
+//   glavaurs p q mu < "name r n re im mu_re mu_im"             # the point of a component where its multiplier is μ
 //   glavaurs p q ad < "name r n re im"                          # renormalization coordinate: c = A D (σ - σ_c)
 //   glavaurs p q parent threads < "name R re im"                # canonical parent (island partition) or orphan
 //   glavaurs p q ichildren threads < "name r u_re u_im n_c c_re c_im jlo jhi"   # island children by continuation
@@ -465,6 +466,25 @@ int main(int argc, char** argv) {
       const double cn = cnf_at(c);
       printf("%d %.17g %.17g %.10e %.6e %.6e\n", k, c.r, c.i, cn, lastA, lastD);
       fflush(stdout);
+    }
+    return 0;
+  }
+  if (mode == "mu") {
+    // The point of a component's boundary (or interior) where its multiplier is μ: Newton for (w, σ) with R_σ(w) = w,
+    // R_σ'(w) = μ, continued from the centre (μ = 0) along t μ, t: 0 -> 1.  Prints "name re im" or "name failed"
+    char name[256];
+    int r, n;
+    double sr, si, mr, mi;
+    while (scanf("%255s %d %d %lf %lf %lf %lf", name, &r, &n, &sr, &si, &mr, &mi) == 7) {
+      Cd sg(sr, si);
+      bool ok = L.center(r, n, sg);
+      Cd w = L.crit;
+      for (int k = 1; ok && k <= 64; k++) {
+        const Cd mu = Cd(double(k) / 64) * Cd(mr, mi);
+        ok = L.core.newton(r, n, w, sg, mu, 1e-13, 60) < 1e-9;
+      }
+      if (ok) printf("%s %.17g %.17g\n", name, sg.r, sg.i);
+      else printf("%s failed\n", name);
     }
     return 0;
   }
