@@ -1,6 +1,11 @@
+"""Residual of the frozen-σ operator against |ε| at level 3 of a q = 2 gl_census run (glavaurs frefine): every
+census-kept child of the top sources refined under σ frozen at its source; per source the median relative position
+error and |log w| against ε_X = 1/|Θ'_2(σ_X)|.
+
+  python3 gl_eps_scaling.py dir nsources   (dir holds q2m.txt and q2u26_r2/_r3/_raw_r3/_tuned_r2/_tuned_r3.txt)"""
 import subprocess, os, sys, math
 from collections import defaultdict
-S, BIN = sys.argv[1], '/Users/irving/mandelbrot/build/release/glavaurs'
+S, BIN = sys.argv[1], os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../build/release/glavaurs')
 p, q, gate, single, prefix, r, nsrc = 1, 2, -1, S + '/q2m.txt', S + '/q2u26', 3, int(sys.argv[2])
 env = dict(os.environ, GL_SIDE=str(gate))
 T = {}; nf = ns = 0
