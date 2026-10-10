@@ -106,6 +106,7 @@ test('tree', executable('tree_test', ['tree_test.cc', 'tree.cc', 'engine.cc', 'e
 test('bit', executable('bit_test', ['bit_test.cc'], dependencies: [tests]))
 test('numpy', executable('numpy_test', ['numpy_test.cc'], dependencies: [tests]))
 test('expansion', executable('expansion_test', ['expansion_test.cc'], dependencies: [area, tests]))
+test('expansion_math', executable('expansion_math_test', ['expansion_math_test.cc'], dependencies: [area, tests]))
 test('loops', executable('loops_test', ['loops_test.cc'], dependencies: [base, tests]))
 test('arb_area', executable('arb_area_test', ['arb_area_test.cc'], dependencies: [arb_area, tests]))
 test('lavaurs', executable('lavaurs_test', ['lavaurs_test.cc', 'lavaurs.cc'], dependencies: [area, tests]))
