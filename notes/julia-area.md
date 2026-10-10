@@ -1758,3 +1758,37 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   not close on its own; its tail is layers 1-2 (Lavaurs-model asymptotics at each parabolic point of M') applied to M'
   itself, i.e. the algorithm is a recursion of M's structure onto itself through renormalization.  Its poly(n) status
   is the poly(n) status of the whole family/asymptotics scheme at the top level, not a separate question.
+
+**Probes of the poly(n) route: analytic asymptotics and family count (2026-10-10).**
+- **k-families are analytic in 1/k, uniformly enough** (`experiments/family_asym.py`, `family_fit.py`;
+  `results/family_asym_*`).  Nine model components of the q = 2 strip (levels 1-6, C from 1.7e-3 to 4.8e-7) tracked in M
+  from k = 2048 down to k = 4-5 (model prediction at large k, then Neville in 1/k on σ_M(k); misses ≤ 1e-4 radii down to
+  k = 16), areas by bulb_batch (E2, N = 128, ≤ 3e-23).  Every family is a pure power series k^4 area = C + Σ b_j k^-j:
+  16 terms over k ≥ 13 leave 1e-22 (level 1) to 1.5e-17 (level 6), the limits match the model's C to its printed digits,
+  and the coefficients grow geometrically, |b_j/C|^(1/j) → R:
+      S1 (L1) 4.6, F2 (L1) 4.6, F0/19 (L2) 6.0, F0/18 (L2) 5.0, F0/19/19 (L3) 6.8, F0/19/37 (L3) 6.2, L4 7.3, L5 8.4, L6 9.2
+  so the radius in 1/k is 1/R with R growing about linearly in the level (≈ 3.5 + 0.9 r), and members are needed
+  exactly only for k ≲ 2R.  The first coefficient splits as b_1/C = -2 Re σ_M (the conformal factor |2k + σ_M|^-4) +
+  an intrinsic part 1.81, 1.87 (L1), 3.3-4.9 (L2), 3.8-5.3 (L3), 7.7, 10.3, 13.2 (L4-L6 chain): it grows additively,
+  ≈ 2.6 per transit along the chain, as a sum of per-transit terms would (a finite-k horn map H + H_1/k + ...).
+- **In-model families are analytic too** (`experiments/farey_m_fit.py`, `results/farey_bulbs_hp_q2.txt`): the Farey
+  bulbs B_m (m = 2..37, model constants at Expansion<3>, ~1e-35) satisfy m^4 C = a_0 + Σ a_j m^-j with residual 4e-30 at
+  21 terms over m ≥ 12, a_0 = 0.2025905664947 (stable to 1e-13 across windows), a_1 = 0.23680, a_2 = 0.5239, growth
+  |a_j/a_0|^(1/j) ≈ 4-5.  Log terms are not needed (adding them destabilizes the coefficients without a real gain).
+  So both nested layers (k in M, m in the model) are convergent-looking power series with radius ~1/5.
+- **But the family count is a power of 1/η** (`experiments/count_exponent.py` on the S1-lineage censuses, levels 2-7):
+  N(η) = #{model components with C > η} has local slope 0.35-0.4 for η = 1e-7..1e-10 (falling to 0.25 at 1e-12, where
+  the lineage census is truncated), against M's own component count ~η^-0.28.  Since each k-family contributes only
+  (C/η)^(1/4) members, M's exponent 0.28 > 1/4 already says the count is carried by distinct families, not by
+  multiplicities: collapsing the k index does not change the exponent.  The model's parameter space has the same
+  structure (Farey bulbs ~ m^-4 like M's p/q bulbs, chains accumulating at in-model parabolic points, e.g. F0/19/19/14,
+  /13, /13, /18 with C ratios 0.24, 0.28, 0.33 → 1), so collapsing any finite number of family layers leaves a power
+  law: ~2^(0.3 n) families for n bits, ~1e12 for 1e-40.  Bounded family count, read literally, is false.
+- **What would still give poly(n)**: never enumerating families, but summing them through their analytic dependence.
+  The per-transit additivity of b_1 suggests the finite-k M structure is the model of a perturbed horn map, so a strip's
+  total is Σ_k k^-4 κ(1/k) with κ the total model mass of H + H_1/k + ...; κ and its derivatives are model-wide
+  functionals, i.e. the same problem one level down (the model's own area, with the model's own strips and families).
+  The algorithm is then a renormalization fixed point over (horn map, perturbation) data, and its poly(n) status
+  hinges on whether that operator acts on a space with poly(n)-dimensional n-bit approximations; the earlier obstacle
+  (the transfer operator is log-singular at the critical value) is where to look.  Since R grows with depth, κ(1/k) is
+  likely Gevrey rather than convergent (Σ_r ρ^r R_r^j ~ j!), which still allows optimal truncation at k ~ n.
