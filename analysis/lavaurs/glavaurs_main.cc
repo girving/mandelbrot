@@ -6,6 +6,8 @@
 #include "glavaurs.h"
 #include <atomic>
 #include <cmath>
+#include <complex>
+#include <functional>
 #include <cstdio>
 #include <cstdlib>
 #include <mutex>
@@ -14,6 +16,7 @@
 #include <vector>
 using namespace mandelbrot;
 typedef Complex<double> Cd;
+typedef std::complex<double> SCd;
 
 int main(int argc, char** argv) {
   if (argc < 4) { fprintf(stderr, "usage: glavaurs p q mode ...\n"); return 1; }
@@ -88,6 +91,85 @@ int main(int argc, char** argv) {
     for (const auto& s : out) printf("%s\n", s.c_str());
     return 0;
   }
+  if (mode == "tree") {
+    // Single-transit centers as backward paths of the critical point into a repelling petal: y_0 = crit,
+    // y_{i+1} ∈ f^{-1}(y_i) until |y| < r_loc in a repelling petal (inside r_switch the local inverse branch is followed
+    // deterministically, the other preimage of each point on the way explored as usual); then step forward t < q times
+    // into the transit's exit petal s, so that with L backward steps left, n = L mod q and m = (L - n)/q:
+    // Ψ_s(Φ_s(y) + m) = f^{qm}(y), σ = Φ_s(y) + m - ζ0, D = (f^L)'(y)/Φ_s'(y), and the size estimate
+    // C ≈ K A_card / |D² Φ_a'(v)|².  Paths are pruned when that estimate with the current derivative (an upper bound
+    // once |y| is small) falls below cmin, or past dmax branching steps.  Prints "T 1 n re im C_est L".
+    const double cmin = atof(argv[4]);
+    const int dmax = atoi(argv[5]);
+    // default r_loc: where psi trusts the series (|a_{-q}| r^{-q} ≈ 400)
+    const double rloc = argc > 6 ? atof(argv[6]) : std::pow(std::hypot(L.a[0].r, L.a[0].i) / 400, 1.0 / q);
+    Cd z0, dz0, ddz0;
+    int s0;
+    L.phi_a(L.v, z0, dz0, ddz0, s0);
+    const int sx = L.exit_petal(s0);
+    const double Acard = 3 * M_PI / 8, cv2 = std::norm(std::complex<double>(dz0.r, dz0.i));
+    int64_t found = 0, pruned = 0;
+    const double rswitch = getenv("GL_RSWITCH") ? atof(getenv("GL_RSWITCH")) : 0.3;
+    // an upper bound for |Φ_rep'| at entry (|u| ≈ rswitch), with a safety factor 10
+    const double logB = std::log(10 * q * std::hypot(L.a[0].r, L.a[0].i) * std::pow(rswitch, -q - 1));
+    std::function<void(Cd, int, int, double)> dfs = [&](Cd y, int depth, int bdepth, double logP) {
+      // depth = backward steps, bdepth = branching steps (bounded by dmax)
+      // logP = log |(f^depth)'(y)|; near 0 in a repelling sector, follow the local inverse branch into the petal
+      // (deterministic), and also explore the other preimage below (the local one too if the follow did not land)
+      bool landed = false;
+      if (std::hypot(y.r, y.i) < rswitch && L.petal(y, 1) >= 0) {
+        Cd u = y;
+        int dd = depth;
+        double lp = logP;
+        bool ok = true;
+        while (std::hypot(u.r, u.i) >= rloc) {
+          const SCd disc = std::sqrt(SCd(L.lam.r, L.lam.i) * SCd(L.lam.r, L.lam.i) + 4.0 * SCd(u.r, u.i));
+          SCd a1 = (-SCd(L.lam.r, L.lam.i) + disc) / 2.0, a2 = (-SCd(L.lam.r, L.lam.i) - disc) / 2.0;
+          const SCd nu = std::abs(a1) < std::abs(a2) ? a1 : a2, far = std::abs(a1) < std::abs(a2) ? a2 : a1;
+          // paths that follow the local branch for a while and then leave by the other preimage
+          if (dd > depth) dfs(Cd(far.real(), far.imag()), dd + 1, bdepth + 1, lp + std::log(std::abs(SCd(L.lam.r, L.lam.i) + 2.0 * far)));
+          lp += std::log(std::abs(SCd(L.lam.r, L.lam.i) + 2.0 * nu));
+          u = Cd(nu.real(), nu.imag());
+          if (++dd > depth + 200000) { ok = false; break; }
+        }
+        int k = ok ? L.petal(u, 1) : -1;
+        if (k >= 0) {
+          landed = true;
+          // step forward into the exit petal sx, where Ψ_sx(Φ_sx(u) + m) = f^{qm}(u) (psi's branch convention)
+          int t = 0;
+          for (; t < q && k != sx; t++) {
+            lp -= std::log(std::abs(SCd(L.lam.r, L.lam.i) + 2.0 * SCd(u.r, u.i)));
+            u = L.lam * u + sqr(u);
+            k = L.petal(u, 1);
+          }
+          if (k != sx) return;
+          Cd sr, sd, sdd;
+          L.series(u, L.axis(1, k), sr, sd, sdd);
+          const int n = (((dd - t) % q) + q) % q;
+          const Cd sigma = sr + Cd(double((dd - t - n) / q)) - z0;
+          const double logD = lp - std::log(std::hypot(sd.r, sd.i));
+          const double C = K * Acard / (std::exp(4 * logD) * cv2);
+          if (C > cmin) { printf("T 1 %d %.17g %.17g %.6e %d\n", n, sigma.r, sigma.i, C, dd - t); found++; }
+        }
+      }
+      if (bdepth >= dmax) { pruned++; return; }
+      if (std::log(K * Acard / cv2) + 4 * (logB - logP) < std::log(cmin)) { pruned++; return; }
+      const SCd disc = std::sqrt(SCd(L.lam.r, L.lam.i) * SCd(L.lam.r, L.lam.i) + 4.0 * SCd(y.r, y.i));
+      const bool near = landed;
+      const SCd b1 = (-SCd(L.lam.r, L.lam.i) + disc) / 2.0, b2 = (-SCd(L.lam.r, L.lam.i) - disc) / 2.0;
+      const SCd local = std::abs(b1) < std::abs(b2) ? b1 : b2;
+      for (const int sg : {1, -1}) {
+        const SCd yy = (-SCd(L.lam.r, L.lam.i) + double(sg) * disc) / 2.0;
+        if (near && yy == local) continue;   // the local branch was followed into the petal above
+        const Cd yc(yy.real(), yy.imag());
+        const double fp = std::abs(SCd(L.lam.r, L.lam.i) + 2.0 * yy);
+        dfs(yc, depth + 1, bdepth + 1, logP + std::log(fp));
+      }
+    };
+    dfs(L.crit, 0, 0, 0.0);
+    fprintf(stderr, "tree: %lld centers, %lld paths cut at depth %d\n", (long long)found, (long long)pruned, dmax);
+    return 0;
+  }
   if (mode == "debug") {
     const Cd sig(atof(argv[4]), atof(argv[5]));
     Cd s0, d0, dd0;
@@ -103,6 +185,40 @@ int main(int argc, char** argv) {
     }
     Cd sg = sig;
     printf("center(1,1) ok %d -> %.12g%+.12gi\n", L.center(1, 1, sg), sg.r, sg.i);
+    return 0;
+  }
+  if (mode == "consist") {
+    // f-equivariance of the per-petal conventions: Ψ_{k'}(ζ + 1/q) = f(Ψ_k(ζ)) (k' the petal of f(Ψ_k(ζ))), and the
+    // attracting series Φ(f(w)) = Φ(w) + 1/q across petals
+    for (int k = 0; k < q; k++) {
+      const Cd z(-60, 0.7);
+      Cd w, d, dd, w2, d2, dd2;
+      L.psi(z, k, w, d, dd);
+      const Cd fw = L.lam * w + w * w;
+      const int k2 = L.petal(fw, 1);
+      // the shift j 2πiβ/q (constant on the petal) relating the branches
+      int bj = 0;
+      double be = 1e300;
+      for (int j = -2 * q; j <= 2 * q; j++) {
+        L.psi(z + Cd(1.0 / q) + Cd(0, 2 * M_PI / q) * L.beta * Cd(double(j)), k2, w2, d2, dd2);
+        const double e = std::hypot((fw - w2).r, (fw - w2).i);
+        if (e < be) { be = e; bj = j; }
+      }
+      printf("repelling %d -> %d: f(Ψ_k(ζ)) = Ψ_k'(ζ + 1/q + %d 2πiβ/q) to %.3g (|w| %.3g)\n", k, k2, bj, be, std::hypot(w.r, w.i));
+    }
+    for (int k = 0; k < q; k++) {
+      const double base = -std::arg(std::complex<double>(-L.A.r, -L.A.i)) / q + 2 * M_PI * k / q;
+      const Cd w(0.01 * cos(base + 0.1), 0.01 * sin(base + 0.1));
+      const int kk = L.petal(w, -1);
+      const Cd fw = L.lam * w + w * w;
+      const int k2 = L.petal(fw, -1);
+      Cd s1, d1, e1, s2, d2, e2;
+      L.series(w, L.axis(-1, kk), s1, d1, e1);
+      L.series(fw, L.axis(-1, k2), s2, d2, e2);
+      const Cd e = s2 - s1 - Cd(1.0 / q);
+      const auto jb = std::complex<double>(e.r, e.i) / (std::complex<double>(0, 2 * M_PI / q) * std::complex<double>(L.beta.r, L.beta.i));
+      printf("attracting %d -> %d: Φ(f(w)) - Φ(w) - 1/q = %.3g%+.3gi = %.6g%+.2gi 2πiβ/q; exit petals %d -> %d\n", kk, k2, e.r, e.i, jb.real(), jb.imag(), L.exit_petal(kk), L.exit_petal(k2));
+    }
     return 0;
   }
   fprintf(stderr, "unknown mode %s\n", mode.c_str());

@@ -1155,3 +1155,19 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
 - Next: the single-transit census at q = 3 as a backward tree (preimages of the critical point pulled into the
   repelling petal: each branch sequence gives a center, with C ≈ K A_card/|D² Φ_a'(v)|², a Ruelle-type sum with exact
   areas for the heavy ones), then children (multi-transit), limb classification and tunings at the 1/3 root.
+- **Single-transit census at a general root** (`glavaurs p q tree`, `gl_single.py`): backward paths of the critical
+  point into a repelling petal (the local inverse branch followed deterministically inside r_switch = 0.3, the other
+  preimage of every point on the way explored too; r_loc = (|a_{-q}|/400)^{1/q}, where Ψ trusts the series), stepped
+  forward t < q times into the exit petal s, σ = Φ_s(y) + (L - t - n)/q - ζ0 with n = (L - t) mod q, so each component
+  appears once as (n mod q, σ mod 1); size estimate K A_card/|D² Φ_a'(v)|², exact areas above 1e-11.  Two convention
+  bugs fixed on the way: L = log(w^q)/q with an integer branch fixed at Newton's starting point jumps where
+  arg(w^q) = π, which for q = 2 is the repelling axis (spurious copies of components shifted by 2πiβ/q); L is now
+  continued from the petal's axis.  Across petals Φ_{k'}(f w) = Φ_k(w) + 1/q + (k' - k)τ and f(Ψ_j(ζ)) = Ψ_{j'}(ζ + 1/q +
+  (j' - j)τ), τ = 2πiβ/q; the f-equivariant transit adds (e(k) - k - e(k_v) + k_v)τ (only side -1 had it for free).
+- **One gate's σ-plane mod 1 holds both sides of the root**: the components split cleanly at Im σ = -π Re β/q (no
+  component within 0.4 of it; at q = 2 this is the 2.1598 of R_{2/3}).  q = 2: exact mirror pairs, each side
+  1.8934526396e-3 (class sum 1.8934526216e-3; the 1e-8 difference is the class sum's tail estimates), the bulb in both
+  (C = 0.20812104826).  q = 3 (cmin 1e-13): below the line the k/(3k+1) side (its family list matches M's: 2.0920e-4,
+  6.79e-6, 3.73e-6, 3.63e-6, 2.81e-6 vs 2.0898e-4, 6.84e-6, 3.72e-6, 3.60e-6, 2.81e-6), S_0 = 2.30234e-4 with bulb C =
+  3.05291e-2; above it the k/(3k-1) side, S_0 = 2.23324e-4, bulb 3.06349e-2.  Single-transit NRP/bulb ratios: 1/2:
+  9.098e-3, 1/3: 7.541e-3 and 7.290e-3.  Runtime: seconds at q = 2, a minute at q = 3.

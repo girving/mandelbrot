@@ -98,6 +98,13 @@ GeneralLavaurs::GeneralLavaurs(const int p_, const int q_, const int side_, cons
   acb_mat_clear(B);
   A = -cdiv(Cd(1), Cd(q) * a[0]);
   if (std::fabs(A.i) < 1e-12 * cabs(A)) A.i = 0;   // a canonical arg for the petal axes
+  Cd s, d, dd;
+  slow_assert(phi_a(v, s, d, dd, kv), "the critical value does not enter a petal");
+}
+
+Cd GeneralLavaurs::transit_shift(const int k) const {
+  const int j = (exit_petal(k) - k) - (exit_petal(kv) - kv);
+  return cd(SC(0, 2 * M_PI * j / q) * sc(beta));
 }
 
 int GeneralLavaurs::exit_petal(const int k) const {
@@ -107,9 +114,11 @@ int GeneralLavaurs::exit_petal(const int k) const {
   return ((j % q) + q) % q;
 }
 
-void GeneralLavaurs::series(const Cd w, const int br, Cd& s, Cd& d, Cd& dd) const {
+void GeneralLavaurs::series(const Cd w, const double ax, Cd& s, Cd& d, Cd& dd) const {
   const SC W = sc(w);
-  const SC L = (std::log(std::pow(W, q)) + SC(0, 2 * M_PI * br)) / double(q);
+  // log(w^q)/q continued from the axis: a fixed integer branch of the principal log(w^q) would jump where arg(w^q) = π,
+  // which for q = 2 is the repelling axis itself
+  const SC L(std::log(std::abs(W)), ax + wrap(std::arg(W) - ax));
   SC S = sc(beta) * L, D = sc(beta) / W, DD = -sc(beta) / (W * W);
   SC pw = std::pow(W, -q);   // w^j for j = -q
   for (int j = -q; j <= N; j++, pw *= W) {
@@ -130,10 +139,8 @@ int GeneralLavaurs::petal(const Cd w, const int kind) const {
   return ((k % q) + q) % q;
 }
 
-int GeneralLavaurs::branch(const Cd w, const int kind, const int k) const {
-  const double base = -std::arg(sc(A) * double(kind)) / q + 2 * M_PI * k / q;
-  const double target = q * (base + wrap(std::arg(sc(w)) - base));
-  return int(std::lround((target - std::arg(std::pow(sc(w), q))) / (2 * M_PI)));
+double GeneralLavaurs::axis(const int kind, const int k) const {
+  return -std::arg(sc(A) * double(kind)) / q + 2 * M_PI * k / q;
 }
 
 bool GeneralLavaurs::phi_a(Cd w, Cd& s, Cd& d, Cd& dd, int& pet, const int max_steps) const {
@@ -143,7 +150,7 @@ bool GeneralLavaurs::phi_a(Cd w, Cd& s, Cd& d, Cd& dd, int& pet, const int max_s
       const int k = petal(w, -1);
       if (k >= 0) {
         Cd ss, sd, sdd;
-        series(w, branch(w, -1, k), ss, sd, sdd);
+        series(w, axis(-1, k), ss, sd, sdd);
         s = ss - Cd(double(n) / q);
         d = sd * d1;
         dd = sdd * sqr(d1) + sd * d2;
@@ -176,7 +183,7 @@ bool GeneralLavaurs::psi(const Cd zeta, const int k, Cd& w, Cd& d, Cd& dd) const
     if (dlt < bd) { bd = dlt; best = u; }
   }
   Cd u = cd(best);
-  const int br = branch(u, 1, k);
+  const double br = axis(1, k);
   Cd s, sd, sdd;
   for (int it = 0; it < 60; it++) {
     series(u, br, s, sd, sdd);
@@ -218,7 +225,7 @@ bool return_map(const GeneralLavaurs& L, const int r, const int n, const Cd w, c
     x = x.apply(p0, p1, p2);
     x.v = x.v + sigma;
     x.s = x.s + Cd(1);
-    if (!L.psi(x.v, L.exit_petal(pet), q0, q1, q2)) return false;
+    if (!L.psi(x.v + L.transit_shift(pet), L.exit_petal(pet), q0, q1, q2)) return false;
     x = x.apply(q0, q1, q2);
   }
   for (int i = 0; i < n; i++) F();
@@ -312,13 +319,13 @@ bool GeneralLavaurs::theta(const Cd sigma, const int r, Cd& th, Cd& dth, Cd& d2t
   for (int i = 1; i < r; i++) {
     Cd q0, q1, q2, a0, a1, a2;
     int pet2;
-    if (!psi(pp, exit_petal(pet), q0, q1, q2)) return false;
+    if (!psi(pp, exit_petal(pet), q0, q1, q2)) return false;   // pp includes transit_shift(pet)
     if (!phi_a(q0, a0, a1, a2, pet2)) return false;
     const Cd h1 = a1 * q1, h2 = a2 * sqr(q1) + a1 * q2;
     ddp = h2 * sqr(dp) + h1 * ddp;
     dp = h1 * dp + Cd(1);
     hp = hp * h1;
-    pp = a0 + sigma;
+    pp = a0 + sigma + transit_shift(pet2);
     pet = pet2;
   }
   th = pp - s0;
