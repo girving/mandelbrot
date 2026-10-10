@@ -1,0 +1,34 @@
+L1 F0               C 1.725e-03 eps 1.0000  children  810 (mass/C 0.145, top 6 = 98%)  grandchildren mass/C 0.0304  bad rho>.5 2.21e-01 rho>1 1.11e-01  B90 2 B99 2 of 6
+L1 F2               C 5.902e-05 eps 1.0000  children  814 (mass/C 0.017, top 6 = 75%)  grandchildren mass/C 0.0002  bad rho>.5 4.34e-01 rho>1 3.35e-01  B90 4 B99 5 of 5
+L1 F5               C 4.117e-05 eps 1.0000  children  812 (mass/C 0.072, top 6 = 96%)  grandchildren mass/C 0.0096  bad rho>.5 4.83e-02 rho>1 7.62e-03  B90 2 B99 2 of 5
+L2 F0/19            C 1.858e-04 eps 0.1516  children  806 (mass/C 0.233, top 6 = 97%)  grandchildren mass/C 0.0540  bad rho>.5 2.30e-02 rho>1 4.45e-03  B90 1 B99 3 of 5
+L2 F0/37            C 3.943e-05 eps 0.3464  children  556 (mass/C 0.219, top 6 = 98%)  grandchildren mass/C 0.0541  bad rho>.5 4.29e-01 rho>1 0.00e+00  B90 1 B99 1 of 1
+L2 F0/17            C 1.317e-05 eps 0.0788  children  899 (mass/C 3.002, top 6 = 99%)  grandchildren mass/C 0.7559  bad rho>.5 1.78e-02 rho>1 4.21e-03  B90 1 B99 2 of 6
+L3 F0/19/19         C 3.336e-05 eps 0.1021  children  647 (mass/C 0.296, top 6 = 98%)  grandchildren mass/C 0.0891  bad rho>.5 2.35e-03 rho>1 1.29e-05  B90 2 B99 4 of 5
+L3 F0/19/17         C 4.571e-06 eps 0.0605  children  805 (mass/C 2.069, top 6 = 99%)  grandchildren mass/C 0.6345  bad rho>.5 1.03e-03 rho>1 4.31e-05  B90 1 B99 2 of 6
+L3 F0/37/11         C 3.761e-06 eps 0.0537  children    0 (mass/C 0.000, top 0 = 0%)  grandchildren mass/C 0.0000  bad rho>.5 0.00e+00 rho>1 0.00e+00  B90 0 B99 0 of 0
+L4 F0/19/19/14      C 6.993e-06 eps 0.0710  children  552 (mass/C 0.412, top 6 = 97%)  grandchildren mass/C 0.1426  bad rho>.5 2.83e-04 rho>1 4.71e-07  B90 2 B99 4 of 4
+L4 F0/19/19/12      C 1.694e-06 eps 0.0477  children  782 (mass/C 1.622, top 6 = 99%)  grandchildren mass/C 0.5833  bad rho>.5 1.98e-04 rho>1 5.93e-07  B90 1 B99 5 of 6
+L4 F0/19/19/10      C 4.673e-07 eps 0.0342  children  899 (mass/C 2.250, top 6 = 98%)  grandchildren mass/C 2.0653  bad rho>.5 6.74e-05 rho>1 3.21e-06  B90 1 B99 4 of 6
+L5 F0/19/19/14/13   C 1.683e-06 eps 0.0505  children  586 (mass/C 0.583, top 6 = 96%)  grandchildren mass/C 0.2409  bad rho>.5 2.39e-04 rho>1 7.23e-07  B90 3 B99 5 of 5
+L5 F0/19/19/14/11   C 6.534e-07 eps 0.0382  children  829 (mass/C 1.474, top 6 = 98%)  grandchildren mass/C 0.6142  bad rho>.5 7.17e-05 rho>1 5.07e-07  B90 4 B99 6 of 6
+L5 F0/19/19/14/9    C 2.334e-07 eps 0.0290  children  901 (mass/C 2.068, top 6 = 98%)  grandchildren mass/C 1.6991  bad rho>.5 4.23e-05 rho>1 5.45e-07  B90 1 B99 6 of 6
+
+ichildren: 34850 components found from more than one source (mass 6.692e-04 of 4.363e-02)
+children: 117256 components found from more than one source (mass 4.363e-02 of 4.363e-02)
+island children: 112910 components, primitive mass 2.922947e-04
+census children: 467853 components, primitive mass 2.926765e-04
+in both: 66498 (mass 2.922946e-04); island only 46412 (1.485e-10); census only 401355 (3.819e-07)
+  census only: C 1.941e-07 at 0.369148-0.748786i
+  census only: C 4.955e-08 at 0.062468-0.779182i
+  census only: C 3.638e-08 at -2.305665-0.895749i
+  census only: C 2.123e-08 at -0.563042-0.760025i
+  census only: C 9.681e-09 at 0.351317-0.758733i
+  census only: C 7.125e-09 at -4.301570-0.881311i
+  census only: C 6.992e-09 at -3.803235-0.739117i
+  census only: C 6.018e-09 at -0.178816-0.961733i
+  island only: C 8.377e-11 at -1.254028-0.532613i
+  island only: C 1.875e-11 at -1.258851-0.553862i
+  island only: C 1.631e-11 at -1.259734-0.560594i
+  island only: C 1.151e-11 at -1.263936-0.541248i
+  island only: C 5.173e-12 at 1.986062-0.807098i

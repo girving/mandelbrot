@@ -4,6 +4,7 @@
 //   glavaurs p q area threads < "name r n re im"              # areas: "name r n cre cim area_σ C conv cusp C_nf"
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
+//   glavaurs p q ichildren threads < "name r u_re u_im n_c c_re c_im jlo jhi"   # island children by continuation
 //   glavaurs p q tsolve < "name r n_c c_re c_im j s_re s_im"  # Newton on Θ_r = target (shift j) from a start
 //   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
 //   glavaurs p q walk r n count < "re im" seeds               # a family σ_k ≈ σ_0 + k (n fixed): centers and C_nf
@@ -462,6 +463,115 @@ int main(int argc, char** argv) {
       printf("%d %.17g %.17g %.10e %.6e %.6e\n", k, c.r, c.i, cn, lastA, lastD);
       fflush(stdout);
     }
+    return 0;
+  }
+  if (mode == "ichildren") {
+    // Island children: the source U's island map κ(σ) = Θ_{r+1}(σ) has its critical point σ_c next to σ_U (κ' = 0); for
+    // each target copy y = σ_c' + j/q + shift, the two children in U's island are the ends of the two preimage paths of
+    // the straight segment from κ(σ_c) to y, continued from σ_c (the island = the 2:1 branch over the plane slit along
+    // these segments).  Kept when the landing reaches the critical point in n_c - j steps.  Prints "name|±|j re im w"
+    // (w = |Θ' Π H'|^-2) or nothing for a failed path.
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    struct Q { std::string name; int r, nc, jlo, jhi; Cd u, c; };
+    std::vector<Q> qs;
+    char name[256];
+    int r, nc, jlo, jhi;
+    double ur, ui, cr, ci;
+    while (scanf("%255s %d %lf %lf %d %lf %lf %d %d", name, &r, &ur, &ui, &nc, &cr, &ci, &jlo, &jhi) == 9)
+      qs.push_back({name, r, nc, jlo, jhi, Cd(ur, ui), Cd(cr, ci)});
+    Cd z0, d0, dd0;
+    int s0;
+    L.phi_a(L.v, z0, d0, dd0, s0);
+    std::vector<std::string> out(qs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int th = 0; th < threads; th++)
+      pool.emplace_back([&]() {
+        for (int64_t qi; (qi = next++) < int64_t(qs.size());) {
+          const auto& Q = qs[qi];
+          std::string text;
+          const auto kap = [&](const SCd sg, SCd& k0, SCd& k1, SCd& k2, int& pet) {
+            Cd t, d, dd, hp;
+            if (!L.theta(Cd(sg.real(), sg.imag()), Q.r, t, d, dd, hp, &pet)) return false;
+            k0 = SCd(t.r, t.i); k1 = SCd(d.r, d.i); k2 = SCd(dd.r, dd.i);
+            return true;
+          };
+          // the critical point of κ next to σ_U
+          SCd sc(Q.u.r, Q.u.i), k0, k1, k2;
+          int pet;
+          bool ok = false;
+          for (int it = 0; it < 40; it++) {
+            if (!kap(sc, k0, k1, k2, pet)) break;
+            const SCd step = k1 / k2;
+            sc -= step;
+            if (std::abs(step) < 1e-13 * (1 + std::abs(sc))) { ok = true; break; }
+          }
+          if (!ok || !kap(sc, k0, k1, k2, pet)) { if (getenv("ICH_DEBUG")) fprintf(stderr, "%s: no critical point\n", Q.name.c_str()); continue; }
+          const SCd kc = k0, a2 = 0.5 * k2;
+          if (getenv("ICH_DEBUG")) fprintf(stderr, "%s: σ_c %.12g%+.12gi (|σ_c - σ_U| %.3g) κ_c %.6g%+.6gi κ'' %.4g\n", Q.name.c_str(), sc.real(), sc.imag(), std::abs(sc - SCd(Q.u.r, Q.u.i)), kc.real(), kc.imag(), std::abs(k2));
+          for (int j = Q.jlo; j <= Q.jhi; j++) {
+            if (Q.nc - j < 0) continue;
+            const Cd ts = L.core.target_shift(j);
+            const SCd y = SCd(Q.c.r + double(j) / q + ts.r, Q.c.i + ts.i);
+            for (const int sgn : {1, -1}) {
+              double lam = 1e-6;
+              SCd sg = sc + double(sgn) * std::sqrt(lam * (y - kc) / a2);
+              bool good = true;
+              for (int it = 0; it < 20; it++) {   // polish the start on κ = κ_c + λ (y - κ_c)
+                SCd q0, q1, q2;
+                int pe;
+                if (!kap(sg, q0, q1, q2, pe)) { good = false; break; }
+                const SCd step = (q0 - (kc + lam * (y - kc))) / q1;
+                sg -= step;
+                if (std::abs(q0 - (kc + lam * (y - kc))) < 1e-11 * (1 + std::abs(q0))) break;
+              }
+              double h = 1e-6;
+              while (lam < 1 && good) {
+                double lt = std::min(1.0, lam + h);
+                SCd s1 = sg;
+                // predictor: dσ/dλ = (y - kc)/κ'(σ)
+                SCd q0, q1, q2;
+                int pe;
+                if (!kap(s1, q0, q1, q2, pe)) { good = false; break; }
+                s1 += (lt - lam) * (y - kc) / q1;
+                bool conv = false;
+                for (int it = 0; it < 12; it++) {
+                  if (!kap(s1, q0, q1, q2, pe)) break;
+                  const SCd step = (q0 - (kc + lt * (y - kc))) / q1;
+                  if (getenv("ICH_NEWTON")) fprintf(stderr, "      it %d |res| %.3g |κ'| %.3g |step| %.3g |s1-σc| %.3g\n", it, std::abs(q0 - (kc + lt * (y - kc))), std::abs(q1), std::abs(step), std::abs(s1 - sc));
+                  s1 -= step;
+                  if (!(std::abs(step) < 0.3 * std::abs(s1 - sc))) break;
+                  // near σ_c the roundoff floor is ~1e-16 |κ| / |κ'| with κ' ∝ σ - σ_c: tolerance relative to it
+                  if (std::abs(q0 - (kc + lt * (y - kc))) < 1e-11 * (1 + std::abs(q0)) || std::abs(step) < 1e-13 * (1 + std::abs(s1))) {
+                    conv = true; break;
+                  }
+                }
+                if (getenv("ICH_DEBUG") && getenv("ICH_STEPS")) fprintf(stderr, "    λ %.3g h %.3g conv %d |Δσ| %.3g |σ-σc| %.3g\n", lam, h, conv, std::abs(s1 - sg), std::abs(sg - sc));
+                if (conv && std::abs(s1 - sg) < 0.25 * std::abs(sg - sc) + 4 * std::sqrt(h * std::abs((y - kc) / a2))) {
+                  sg = s1; lam = lt; h = std::min(2 * h, 0.05);
+                } else {
+                  h *= 0.25;
+                  if (h < 1e-12) good = false;
+                }
+              }
+              if (!good) { if (getenv("ICH_DEBUG")) fprintf(stderr, "  j %d %c: path failed at λ %.3g\n", j, sgn > 0 ? '+' : '-', lam); continue; }
+              Cd t, d, dd, hp;
+              if (!L.theta(Cd(sg.real(), sg.imag()), Q.r, t, d, dd, hp, &pet)) continue;
+              Cd x, d1, d2;
+              if (!L.psi(t + z0, L.exit_petal(pet), x, d1, d2)) continue;
+              for (int i = 0; i < Q.nc - j; i++) x = L.lam * x + x * x;
+              if (!(std::hypot((x - L.crit).r, (x - L.crit).i) < 1e-6)) { if (getenv("ICH_DEBUG")) fprintf(stderr, "  j %d %c: landing fails\n", j, sgn > 0 ? '+' : '-'); continue; }
+              char line[512];
+              snprintf(line, sizeof(line), "%s|%c|%d %.17g %.17g %.6e\n", Q.name.c_str(), sgn > 0 ? '+' : '-', j, sg.real(),
+                       sg.imag(), 1 / std::norm(SCd(d.r, d.i) * SCd(hp.r, hp.i)));
+              text += line;
+            }
+          }
+          out[qi] = text;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& t : out) fputs(t.c_str(), stdout);
     return 0;
   }
   if (mode == "tsolve") {
