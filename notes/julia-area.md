@@ -1286,3 +1286,16 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   1.724974063498964762e-3: 1.0e-19 apart (6e-17 relative), 5x its claimed 1e-20 subset agreement: either the 1/k
   extrapolation has a small systematic bias (fractional powers or logs in the finite-k expansion?) or the model is off
   at 1e-19 — to resolve (it is exactly the finite-k obstacle).
+- **A component's shape from its local jet** (`glavaurs jetarea`): near a center R(crit + u, σ_c + δ) is exactly even
+  in u (f(crit + u) = f(crit - u)), and to leading order R ≈ crit + X + κ X² with X = A u² + D δ: the quartic,
+  mixed and δ² coefficients satisfy c40/A² ≈ c21/(2AD) ≈ c02/D² (|κ| ≈ 2.7 for S1), the outer map's curvature.  So
+  the consistent truncation is in weight i + 2j (δ ~ u²): truncated Taylor series pushed through f, Φ_a (series
+  derivatives), Ψ (series reversion) and the transits give R to weight 4; the truncated model's multiplier map,
+  solved on |μ| = 1 by Newton, has an exactly computable area.  Against exact areas (q = 2, 794 components of levels
+  2-3): |log(exact/C)| median, C_nf → weight 4: 1.4e-3 → 3e-8 (C ~ 1e-11), 2.1e-3 → 3.5e-8 (1e-10..1e-9), 6.2e-3 →
+  1.4e-7..4.4e-7 (1e-8..1e-7), 4.3e-2 → 5.8e-5 (> 1e-6): the residual ∝ (nonlinearity)², the small components' 3e-8
+  being the double-precision exact areas' own floor (boundary points accepted at 1e-8).  (A first attempt keeping only
+  the F δ² term recovered just a third of the deviation: the companions κA²u⁴ and 2κAD u²δ are of the same order.)
+  So per-component areas are a systematic expansion in the local jet, converging geometrically in the nonlinearity;
+  higher weights for higher orders (1e-40 needs weight ~2·(40/3) at nonlinearity 1e-3), and jets compose along chains,
+  so the shape fits into the operator's state.
