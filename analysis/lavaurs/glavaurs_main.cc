@@ -595,7 +595,8 @@ int main(int argc, char** argv) {
     // A component's piece itinerary (the island partition: pieces = components of H^-1(Voronoi cell of a critical value),
     // critical values PARENT_CRIT as in parent): for each transit i = 1..R-1 (and i = R with ITIN_LAST=1), the piece of
     // z_i is named by its preimage of the cell's critical value c, found by continuing H(z) = w + λ (c - w) from z_i
-    // (w = H(z_i)); the end is a critical point of H ('C', a target: the piece is that target's island) or not ('N').
+    // (w = H(z_i)); the end is a critical point of H ('C+' or 'C-' by the sheet of the 2:1 piece: a target's island) or
+    // not ('N').
     // σ-independent (H only).  Prints "name i kind re im ..." per transit.
     std::vector<SCd> crit;
     {
@@ -685,7 +686,12 @@ int main(int argc, char** argv) {
               if (std::abs(step) < 1e-13 * (1 + std::abs(zc))) { cv = true; break; }
             }
             SCd f, f1, f2;
-            if (cv && Hf(zc, f, f1, f2) && std::abs(f - c) < 1e-6 * (1 + std::abs(c))) snprintf(buf, sizeof(buf), " %d C %.12f %.12f", i, zc.real(), zc.imag());
+            if (cv && Hf(zc, f, f1, f2) && std::abs(f - c) < 1e-6 * (1 + std::abs(c))) {
+              // the sheet of the 2:1 piece: z - y ≈ u sqrt((1 - λ)(w - c) 2/H''(y)) with u ≈ ±1 (principal square roots:
+              // the two sheets are the piece's two tiles, cut along the preimage of the ray w - c < 0)
+              const SCd u = (z - zc) / (std::sqrt(1 - lam) * std::sqrt(w - c) * std::sqrt(2.0 / f2));
+              snprintf(buf, sizeof(buf), " %d C%c %.12f %.12f", i, u.real() > 0 ? '+' : '-', zc.real(), zc.imag());
+            }
             else {
               SCd zn = z;   // non-critical end: Newton on H = c
               for (int it = 0; it < 30; it++) { if (!Hf(zn, f, f1, f2)) break; zn -= (f - c) / f1; }

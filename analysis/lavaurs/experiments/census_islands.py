@@ -3,7 +3,8 @@ c_tuned_r*): every component above --cmin gets its piece itinerary (glavaurs iti
 (pieces 1..r-1, critical point z_r), and every descendant is assigned to the islands whose key prefixes its itinerary
 (the exact partition).  Per island U (level r): ε_U, descendant mass / C_U at levels r+1..r+3, the share of the
 atoms one and two transits past the island with ρ = |σ_W - σ_U| / D > 1/2 (D = the post-island chain's closest
-approach to v_U = ζ0 + σ_U mod the deck lattice), B90/B99 over the sub-island pieces at transit r+1, and the share
+approach to v_U = ζ0 + σ_U mod the deck lattice), B90/B99 over the sub-island pieces at transit r+1 (critical pieces
+carry their sheet, so the two sibling islands on one 2:1 piece are distinct), and the share
 through a non-critical piece.  Globally: per level, the mass whose parent island is found, orphaned (non-critical
 piece) or unmatched.
 
@@ -73,7 +74,7 @@ def main():
     for nm, (pieces, zs) in it.items():
         r = comps[nm][0]
         for rr in range(1, r):
-            k = tuple(pieces[:rr - 1]) + (('C', pieces[rr - 1][1]),) if pieces[rr - 1][0] == 'C' else None
+            k = tuple(pieces[:rr - 1]) + (('C', pieces[rr - 1][1]),) if pieces[rr - 1][0].startswith('C') else None
             if k is not None and k in island: desc[island[k]].append(nm)
     cand = sorted([nm for nm in island.values() if comps[nm][0] <= a.levels - 2], key=lambda nm: -comps[nm][3])[:a.islands]
     loc = subprocess.run([B, '1', '2', 'locate'], input=''.join('%s %d %.17g %.17g\n' % (nm, comps[nm][0], comps[nm][2].real, comps[nm][2].imag) for nm in cand),
@@ -107,18 +108,18 @@ def main():
             if not b90 and acc >= 0.9 * tb: b90 = k
             if not b99 and acc >= 0.99 * tb: b99 = k
         e = eps.get(nm, float('nan'))
-        rows.append((r, e, bad[1] / tot[1] if tot[1] else float('nan'), bad[2] / tot[2] if tot[2] else float('nan'), b90, b99))
+        rows.append((r, e, bad[1] / tot[1] if tot[1] else float('nan'), bad[2] / tot[2] if tot[2] else float('nan'), b90, b99, tot[1], tot[2]))
         print('L%d %-12s C %.3e sat %d eps %.4f  desc/C %s  bad m=1 %.2e m=2 %.2e (via N %.2e)  B90 %d B99 %d of %d' % (
             r, nm, CU, satU, e, ' '.join('%.3g' % (m_by[k] / CU) for k in (1, 2, 3)), rows[-1][2], rows[-1][3],
             badN / (tot[1] + tot[2]) if tot[1] + tot[2] else 0, b90, b99, len(bm)), flush=True)
-    print('by ε (islands with descendants two levels down): median bad share m=1, m=2; median B90, B99')
+    print('by ε (islands with atoms one transit past the island): mass-weighted bad share m=1, m=2; mean B90, B99')
     for lo, hi in ((0.3, 2), (0.1, 0.3), (0.03, 0.1), (0.01, 0.03), (0, 0.01)):
-        sel = [x for x in rows if lo <= x[1] < hi and x[2] == x[2]]
+        sel = [x for x in rows if lo <= x[1] < hi and x[6] > 0]
         if not sel: continue
-        med = lambda v: sorted(v)[len(v) // 2]
-        m2 = [x[3] for x in sel if x[3] == x[3]]
-        print('  ε %.2f-%.2f: %3d islands  bad m=1 %.2e  m=2 %s  B90 %d B99 %d' % (lo, hi, len(sel), med([x[2] for x in sel]),
-              '%.2e' % med(m2) if m2 else '-', med([x[4] for x in sel]), med([x[5] for x in sel])))
+        t1 = sum(x[6] for x in sel); b1 = sum(x[2] * x[6] for x in sel)
+        s2 = [x for x in sel if x[7] > 0]; t2 = sum(x[7] for x in s2); b2 = sum(x[3] * x[7] for x in s2)
+        print('  ε %.2f-%.2f: %3d islands  bad m=1 %.2e  m=2 %s  B90 %.1f B99 %.1f' % (lo, hi, len(sel), b1 / t1,
+              '%.2e' % (b2 / t2) if t2 else '-', sum(x[4] for x in sel) / len(sel), sum(x[5] for x in sel) / len(sel)))
     print('done, %.0f s' % (time.time() - t0))
 if __name__ == '__main__':
     main()
