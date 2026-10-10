@@ -1655,3 +1655,18 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   angle code (`lavaurs`, 64-bit words) stops at period 62 (m = 7 at k = 3, J = 12 is out), and full enumeration costs
   2^J, so M gives ground truth at small depth only: validation data for an exact model classifier (the gate-winding
   ray partition), which is what reaches deep limbs.
+- **Exact limb classification in M by the centre's own rays** (`analysis/m_kneading.cc`): for a centre c of period P,
+  the root ρ of the critical Fatou component = landing point of internal ray 0 (f^P ≈ A z², walked out by inverse
+  iteration, Newton on f^P(z) = z); the external ray landing at ρ traced as a field line of the Green's function
+  (log G and the step G/|∇G| = |f^n| log|f^n| / |(f^n)'| carried without the 2^-n, which underflows for near-parabolic
+  escapes of thousands of steps); partition = that ray, its negative (θ/2 + 1/2), and the internal rays through 0;
+  first0 = the first i with f^i(c) on the other side from c (the internal address' first entry after 1: q for the p/q
+  wake).  Checked against angle words (k = 3): P44_127 → 37 (limb 16/37), P51_127 → 44 (19/44: a6's family is in limb
+  1/6), P38_1 → 37; margins 0.03-0.06; milliseconds each.
+- **Model → M at finite k**: σ_gen = -conj(σ_M)/2 - 7/2 - 3πi/8 + e(k), σ_M = lim (iπ/δ - 2k), δ = c + 3/4, period
+  P = r(2k + 1) + n + 1 - 8r (in the representative Re σ ≈ -4..-5); e(k) ≈ -0.35/k + O(1/k²) from the Farey bulbs
+  (m-independent to 1e-4 at k ≥ 8).  The drift is ~700/k component radii for C ~ 1e-6, so Newton from the bare
+  prediction fails; with e(k) taken from the nearest exact bulb at the same k, 5 of 12 (a5..a8 at k = 10, 20, 40)
+  converge, all classified into limb 1/m (first0 = 2mk + m + 2: 128, 170, 248, 289): the model's heuristic classifier
+  is wrong for them, the family stays in its limb.  To do: a robust model → M map (several k, damped Newton, the
+  first-order finite-k correction of the parameter map).
