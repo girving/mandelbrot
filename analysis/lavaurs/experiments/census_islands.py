@@ -111,7 +111,7 @@ def main():
             tsat = rkey(zs[-1]) in sat_y
             agg[(in_sat(nm), tsat)][0] += CW
             if rho > 0.5: agg[(in_sat(nm), tsat)][1] += CW
-            atoms.append((in_sat(nm), tsat, eps.get(nm, float('nan')), D, abs(dd), CW, rho > 0.5, r, mm))
+            atoms.append((in_sat(nm), tsat, eps.get(nm, float('nan')), D, abs(dd), CW, rho > 0.5, r, mm, sW))
             tot[mm] += CW
             if rho > 0.5:
                 bad[mm] += CW; badby[pieces[r]] += CW
@@ -156,6 +156,28 @@ def main():
         table('  by D (distance to the target, mod lattice)', sel, lambda x: x[3], db)
         table('  by d (|σ_W - σ_U|)', sel, lambda x: x[4], db)
         table('  by island level', sel, lambda x: x[7], ((1, 2), (2, 3), (3, 4), (4, 5)))
+    # where the bad atoms sit relative to the biggest satellite (the bulb): radius in units of its σ-radius, and the
+    # angle of those near its boundary
+    bulb = max((nm for nm in comps if comps[nm][0] == 1 and comps[nm][4] and nm in it), key=lambda nm: (comps[nm][3], len(desc[nm])))
+    sB, CB = comps[bulb][2], comps[bulb][3]
+    RB = math.sqrt(CB / (2.4674011 * math.pi))
+    print('bulb %s σ %.6f%+.6fi C %.4e radius %.4f' % (bulb, sB.real, sB.imag, CB, RB))
+    for isat in (True, False):
+        sel = [x for x in atoms if x[0] == isat]
+        rel = [((lambda d: complex((d.real + 0.5) % 1 - 0.5, d.imag))(x[9] - sB) / RB, x[5], x[6]) for x in sel]
+        print('  atoms %s a satellite island: by |σ_W - σ_B| / R_B  (mass, bad share)' % ('inside' if isat else 'outside'))
+        for lo, hi in ((0, 1), (1, 1.1), (1.1, 1.3), (1.3, 1.6), (1.6, 2.5), (2.5, 5), (5, 1e9)):
+            m = [x for x in rel if lo <= abs(x[0]) < hi]
+            if not m: continue
+            M = sum(x[1] for x in m); bd = sum(x[1] for x in m if x[2])
+            print('    %4.1f-%-6.3g mass %.3e bad %.3f' % (lo, hi, M, bd / M))
+        near = [x for x in rel if 1 <= abs(x[0]) < 1.6]
+        if near:
+            print('    near the boundary (1-1.6 R_B), by angle/2π (bins of 1/24): bad mass')
+            h = defaultdict(float)
+            for x in near:
+                if x[2]: h[int(((math.atan2(x[0].imag, x[0].real) / (2 * math.pi)) % 1) * 24)] += x[1]
+            print('     ' + ' '.join('%d:%.1e' % (k, h[k]) for k in range(24) if h[k] > 0))
     print('done, %.0f s' % (time.time() - t0))
 if __name__ == '__main__':
     main()
