@@ -1091,3 +1091,20 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   closely, where the fixed arc is not the partition), nor a quadratic normal-form straightening (bulb*A → c = -2.99,
   not -1.75), nor passage distances discriminate.  Next: copy-map interpolation from many anchors (the bulb's own p/q
   satellites, H, A, Q) to place every bulb*X, B_m*X, and remove them; or a renormalization (little Julia set) test.
+- **Satellite tunings removed via anchors** (`anchors.py`, `lavaurs_area --satellites`, `lavaurs_multiplier_point`):
+  the bulb's satellite tree is placed exactly (the p/q satellite of a component is rooted at its multiplier map's
+  point e^{2πip/q}, r q transits, excursion q n + q - 1; the M side by the same recursion from the cardioid), giving
+  55 anchors (c, σ) for the copy map; a local affine fit in (c, c̄) predicts bulb*X to 0.002 (airplane), 0.004 (the
+  period-4 primitive -0.1565 + 1.0322i: the 3.51e-5 four-transit component is bulb*P4), 0.03 (-1.9408, the stretched
+  real direction).  All 35 primitives of periods 3–6 tuned (32 distinct components, 3 pairs landing on one σ):
+  total 2.6618e-4 of bulb tunings (airplane 1.646e-4, period 4: 3.5e-5 + 1.4e-5 + 1.2e-5, period 5 ~3e-5, ...).
+- Strip sectors after removing them: r = 1..6: 1.8935e-3, 2.9412e-4, 1.5130e-4, 5.461e-5, 4.675e-5, ≥1.331e-5.
+- By limb (r ≤ 6): bulb limb 1.8935e-3, 2.711e-4, 6.05e-5, 1.97e-5, 7.6e-6, 4.2e-6 (Σ 2.2566e-3); mediant 2.30e-5,
+  8.37e-5, 4.0e-6, 1.60e-5, 1.3e-6 (Σ 1.28e-4: transits in pairs, its own blocks decaying ~0.15–0.2 like the bulb
+  limb's); t = 1/3, 2/3: 2.2e-5 each; 1/4, 3/4: ≥ 5.4e-6, 6.0e-6; fifths ≥ 5.1e-6 in all (entry level only).
+- **Each limb's NRP layer is ∝ its bulb's area**: L_F/area(B_F) = 0.0108 (bulb limb), 0.0088 (mediant), 0.0072
+  (m = 3), ≥ 0.006 (m = 4), slowly varying.  So the Farey part ≈ κ̄ Σ_F area(B_F) ≈ 0.007 · 0.24 (ζ(3)/ζ(4) - 1) ≈
+  1.9e-4 (an m^-4.5 fit of the per-limb ratios gives 2.0e-4): S_strip ≈ 2.26e-3 + 2.0e-4 ≈ 2.46e-3 ± 5e-5.
+- Picture: the NRP layer of a limb p/q is κ(p/q) × area(bulb p/q) with κ a slowly varying function of the
+  continued fraction — the same fading-memory structure as the bulb areas' F(p/q).  A κ automaton over CF digits,
+  computed per limb from Lavaurs-type models at each root, would sum all limbs, not only those near 1/2.

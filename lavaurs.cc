@@ -282,6 +282,19 @@ template<class S> LavaursResult area_t(const int r, const int n, const Cd guess,
 
 }  // namespace
 
+bool lavaurs_multiplier_point(const int r, const int n, const Complex<double> center, const Complex<double> mu,
+                              Complex<double>& sigma) {
+  static const LavaursModel<double> L;
+  Complex<double> w(0.5, 0), s = center;
+  const int K = 32;
+  for (int k = 1; k <= K; k++) {
+    const Complex<double> m(mu.r * k / K, mu.i * k / K);
+    if (!(newton(L, r, n, w, s, m, 1e-14) < 1e-9)) return false;
+  }
+  sigma = s;
+  return true;
+}
+
 bool lavaurs_center(const int r, const int n, const Complex<double> guess, Complex<double>& center) {
   static const LavaursModel<double> L;
   Complex<double> w(0.5, 0), s = guess;

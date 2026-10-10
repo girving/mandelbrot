@@ -39,6 +39,7 @@
 #include <complex>
 #include <cstdio>
 #include <cstdlib>
+#include <numeric>
 #include <string>
 #include <mutex>
 #include <thread>
@@ -265,6 +266,40 @@ int main(int argc, char** argv) {
       });
     for (auto& th : pool) th.join();
     for (const auto& t : out) fputs(t.c_str(), stdout);
+    return 0;
+  }
+  if (argc > 1 && std::string(argv[1]) == "--satellites") {
+    // "name r n re im qmax": the p/q satellites (q ≤ qmax) of the component with center σ: rooted at its multiplier
+    // map's point σ(e^{2πi p/q}), with r q transits and excursion q n + q - 1; the center by Newton from points just
+    // outward of the root.  Prints "name/p:q rq nq center_re center_im root_re root_im" (or failed).
+    char name[256];
+    int r, n, qmax;
+    double sr, si;
+    while (scanf("%255s %d %d %lf %lf %d", name, &r, &n, &sr, &si, &qmax) == 6) {
+      const Complex<double> c(sr, si);
+      for (int q = 2; q <= qmax; q++)
+        for (int p = 1; p < q; p++) {
+          if (std::gcd(p, q) != 1) continue;
+          const double th = 2 * M_PI * p / q;
+          Complex<double> root;
+          const int rq = r * q, nq = q * n + q - 1;
+          if (!lavaurs_multiplier_point(r, n, c, Complex<double>(cos(th), sin(th)), root)) { printf("%s/%d:%d %d %d failed root\n", name, p, q, rq, nq); continue; }
+          // outward direction: from the multiplier map's point slightly inside the boundary
+          Complex<double> in;
+          lavaurs_multiplier_point(r, n, c, Complex<double>(0.95 * cos(th), 0.95 * sin(th)), in);
+          const Complex<double> dir = root - in;
+          bool ok = false;
+          for (const double f : {1.0, 2.0, 4.0, 8.0, 16.0}) {
+            Complex<double> cen;
+            if (lavaurs_center(rq, nq, root + Complex<double>(f, 0) * dir, cen) && std::hypot(cen.r - c.r, cen.i - c.i) > 1e-9) {
+              printf("%s/%d:%d %d %d %.17g %.17g %.17g %.17g\n", name, p, q, rq, nq, cen.r, cen.i, root.r, root.i);
+              ok = true;
+              break;
+            }
+          }
+          if (!ok) printf("%s/%d:%d %d %d failed center\n", name, p, q, rq, nq);
+        }
+    }
     return 0;
   }
   if (argc > 1 && std::string(argv[1]) == "--labels") {
