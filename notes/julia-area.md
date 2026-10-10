@@ -1562,3 +1562,18 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   own parabolic structure (its limbs accumulate at its root like the strip at the main root): it needs the
   strip/family machinery recursively (the κ of the bulb's own limbs), not island expansions.  The primitive-target
   rows (small mass, high bad share) are not yet understood.
+- **Where the bad atoms are** (full census, 2000 islands; `results/census_islands_q2_tables.log`).  By island level, the
+  bad share of atoms in satellites' islands landing on satellites is 1.00 (level 1: these are the bulb island's own
+  atoms landing back on the bulb, D = 0, each a direct child of a sub-island and so exact one level down), then 0.89,
+  0.51, 0.35 at island levels 2-4 (masses 4.9e-5, 3.4e-5, 7.5e-6); by island ε 0.99, 0.44, 0.85, 0.56, 0.24 down to
+  ε < 0.01; the bad atoms are the far ones (d > 0.1: bad 0.97-1.0; d < 0.1: 0-0.04).  Outside satellites' islands the
+  bad share is 0.6% (satellite targets, falling with level: 0.006, 0.009, 0.002, 0.000) and, for the small primitive-
+  target mass, 0.78, 0.46, 0.004, 0.013 by level.
+- **Not the bulb's boundary.**  Hypothesis: islands inside the bulb's island hug the bulb, and the bad mass accumulates
+  at the parabolic points of its boundary (p/q strips of the general model).  Measured |σ_W - σ_B| / R_B (R_B = 0.164):
+  bad mass 3.3e-7 at 1.1-1.3 R_B, 8.5e-6 at 1.3-1.6, 7.7e-5 at 1.6-2.5, 1.19e-4 at 2.5-5 (bad shares 0.37, 0.46, 0.82,
+  0.97); near the boundary no concentration at rational angles.  Rejected.  (Also not the Farey limbs: the mediant
+  bulb's island holds 4.2e-6 at level 3 against the mediant limb's 8.4e-5.)  So inside the bulb's island the refinement
+  gains only the good share (11-65% per level at levels 2-4): close to enumeration there, while outside it converges.
+  Next: dissect individual heavy bad atoms at levels 2-3 inside the bulb's island (which chain point approaches the
+  critical value, from which targets) to find the mechanism.
