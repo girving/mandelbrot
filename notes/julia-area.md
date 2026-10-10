@@ -1108,3 +1108,13 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
 - Picture: the NRP layer of a limb p/q is κ(p/q) × area(bulb p/q) with κ a slowly varying function of the
   continued fraction — the same fading-memory structure as the bulb areas' F(p/q).  A κ automaton over CF digits,
   computed per limb from Lavaurs-type models at each root, would sum all limbs, not only those near 1/2.
+- Not a tuning test: |R_U^p(1/2) - 1/2| = 0 at σ_Y (U's return map iterated) only checks Y's excursion count
+  n ≡ -1 (mod p) in the given representative, since F commutes with g_σ and R_U^p = F^{p n_U + p - 1} g^p F is the
+  return map of every such component (necessary for tuning, not sufficient).  Dropping satellite sources does not
+  avoid tunings either: Newton from primitive sources (H232's descendants) finds bulb*X too.  So deep levels need
+  tunings placed explicitly (anchors) for every primitive X of each period — M has ~54, ~100, ~250 primitives of
+  periods 7, 8, 9 — or the per-limb structure below instead of raw levels.
+- Best current estimate (one side, k → ∞): bulb limb 2.2566e-3 (+ tail 4e-6), mediant 1.280e-4 (+4e-6), m = 3
+  4.40e-5 (+5e-6), m = 4 1.10e-5 (+2e-6), m = 5 6.5e-6 (entry level × 1.3), m ≥ 6 1.1e-5 (κ = 0.005 × their bulb
+  areas): **S_strip ≈ 2.4725e-3, uncertain at ~1e-5** (Farey extrapolation, per-limb tails).  At K = 64 that is
+  ~3e-11 in μ(M) (before R); 1e-12 needs S_strip to ~3e-7.
