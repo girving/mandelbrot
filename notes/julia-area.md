@@ -1381,3 +1381,15 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   (1/3); per level, 1/3 / 1/2 = 0.122, 0.123, 0.127, 0.139 for the bulb limb (bulb ratio 0.147) and 0.128, 0.139,
   0.129 for the mediant (its bulb ratio 0.147).  So across roots the strip is the same structure with a slowly
   varying weight per level: the automaton over CF digits looks feasible.
+- **Tuning labels, status**: (a) `glavaurs tunelabel`: U's weight-4 jet model, Newton for the δ at which its critical
+  point is p-periodic (deflated by the lower periods), then the exact center (optionally via a homotopy model →
+  exact).  At q = 2 it reproduces S1*A (5.7506e-7, the census's tuning), bulb*A (1.6457e-4), bulb*P4c (3.5126e-5 =
+  the reference's bulb*P4) and bulb*P4b (1.4038e-5), but S1*P4a lands on a satellite (cusp 1.06) and bulb*P4a on a
+  1.6e-9 component: the real-axis primitive near M's tip, where the doubling cascade crowds the copy, defeats a local
+  model; the homotopy fails for the strongly distorted bulb.  (b) Kneading words (`KNEAD=1 glavaurs classify`): a
+  tuning's explicit orbit shadows U's for each return, so W = U*X iff W's word is U's repeated p times up to the
+  near-critical symbols (which spell X's kneading).  The raw explicit words are not comparable (the number of 1s
+  before a point enters the 0.15 disk drifts by ±2 between chunks), and collapsing every 1-run that touches a gate
+  marker makes U's word trivial: the comparison needs the block form of the q = 2 tail() code (1-runs counted
+  relative to gate passages), not done yet.  Until then level ≥ 4 tunings use the heuristic rule (the q = 2 level-4
+  bulb limb keeps ~1.1e-5 of bulb*P4a).
