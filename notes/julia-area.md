@@ -1704,3 +1704,10 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   and the degenerate real-tip copies.  Status: the tower structure is what the theory forces, but the zeroth-order
   quantitative test is not yet clean.  Next: exit-verified base decorations (|A f^p(0)| beyond the domain), a
   non-real primitive copy, then the jet corrections.
+- With exit-verified bases (|c'_0| > 3) and non-real copies: P4 at -0.1565 + 1.0322i (|AD| 118): position residuals
+  30% (j = 1), 19% (j = 2), |log size ratio/predicted| 1.05, 2.0; P4 at 0.2823 + 0.5301i (|AD| 11): fails (residuals
+  O(1)); the real P4 (|AD| 1008): 7%, 2.6%, size |log| 2.2, 2.9.  So the zeroth-order quadratic tower is qualitatively
+  right and its positions improve with the copy's depth, but the sizes are off by e^1-e^3 even for deep copies:
+  either the size formula misses a factor (to derive: the decoration's normal form A_W D_W through j quadratic-like
+  passes and the outer route, with the atom's own c-dependence), or the found centres are still not the tower members.
+  Layer 3's poly(n) route is not established by this test; it needs the size theory worked out exactly first.
