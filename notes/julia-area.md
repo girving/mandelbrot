@@ -1171,3 +1171,19 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   6.79e-6, 3.73e-6, 3.63e-6, 2.81e-6 vs 2.0898e-4, 6.84e-6, 3.72e-6, 3.60e-6, 2.81e-6), S_0 = 2.30234e-4 with bulb C =
   3.05291e-2; above it the k/(3k-1) side, S_0 = 2.23324e-4, bulb 3.06349e-2.  Single-transit NRP/bulb ratios: 1/2:
   9.098e-3, 1/3: 7.541e-3 and 7.290e-3.  Runtime: seconds at q = 2, a minute at q = 3.
+- **Multi-transit census at a general root** (`glavaurs p q children|locate`, `gl_census.py`): Θ_r(σ_U) = σ_U -
+  (n_U + 1)/q at every root (Θ' = 1 there), children Θ_r(σ) = σ_t + j/q verified as centers with excursion n_t - j,
+  deduplicated mod 1 (g_{σ+1}^r = f^{rq} g_σ^r), C ≈ C_t |Θ_r' Π H'|^-2, heavy ones exact.  **Only half of a gate's
+  σ-plane is its own**: single transits do not see the gate, so the other gate's single-transit components (the other
+  side of the root) appear too, but their children through this gate are spurious (q = 2 gate -1, lower half: a
+  9.9e-4 "two-transit primitive", S_1/S_0 = 0.62, wrong satellites).  The halves split at the mean Im σ of the two
+  bulbs; the gate's own half is the one whose bulb has excursion n = q - 1 (σ ≈ -1), combinatorial.
+- q = 2 (gate -1, own half, 301 sources x 101 targets, 26 starts for sources > 1e-9; 30 min on 3 cores): S_1 =
+  2.926136e-4 of the exact 2.94116e-4 (99.5%; the H232 children 1.366e-5 the old fast census missed are found),
+  satellites B_2 = 1.5065e-2, 1.3662e-2, S1's doubling 2.7793e-4.
+- q = 3, the k/(3k+1) side (gate +1, lower half; 121 sources x 51 targets, 20 min): S_1 = 3.3887e-5, S_1/S_0 = 0.147
+  (q = 2: 0.155); satellites 2.2211e-3 and 1.9947e-3, ratios to the bulb 0.0728 and 0.0653 (q = 2: 0.0724, 0.0656);
+  the heaviest child 2.252e-5 @ -1.9346+0.5950i mirrors q = 2's D2 (1.858e-4 @ -1.939-0.603i).  The k/(3k-1) side
+  (gate -1, upper half) gives S_1 ≈ 3.47e-5 (0.156).  So the 1/3 root's strip is q = 2's with the masses scaled down
+  by ~8 and nearly the same ratios.
+- Next: the limb classifier at a general root (kneading partition by the q rays at α), then κ near 1/3.

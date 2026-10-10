@@ -2,6 +2,10 @@
 //
 //   glavaurs p q single nmax re0 re1 im0 im1 grid threads   # single-transit centers by grid Newton, with areas
 //   glavaurs p q area threads < "name r n re im"              # areas: "name r n cre cim area_σ C conv cusp"
+//   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
+//   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
+//   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
+//   glavaurs p q consist                                      # cross-petal branch conventions
 // C = (4π² sin²(πp/q)/q⁴) area_σ is the family constant lim k⁴ area_M (limbs [CF(p/q), k]).
 #include "glavaurs.h"
 #include <atomic>
@@ -168,6 +172,91 @@ int main(int argc, char** argv) {
     };
     dfs(L.crit, 0, 0, 0.0);
     fprintf(stderr, "tree: %lld centers, %lld paths cut at depth %d\n", (long long)found, (long long)pruned, dmax);
+    return 0;
+  }
+  if (mode == "locate") {
+    char name[256];
+    int r;
+    double sr, si;
+    while (scanf("%255s %d %lf %lf", name, &r, &sr, &si) == 4) {
+      Cd t, d, dd, hp;
+      if (!L.theta(Cd(sr, si), r, t, d, dd, hp)) { printf("%s %d failed\n", name, r); continue; }
+      printf("%s %d %.15g %.15g %.15g %.15g %.15g %.15g\n", name, r, t.r, t.i, d.r, d.i, hp.r, hp.i);
+    }
+    return 0;
+  }
+  if (mode == "children") {
+    // The r-transit children of the (r-1)-transit source U (center, excursion, radius) over the single-transit target
+    // c (n_c < q, σ_c mod 1): Newton on Θ_r(σ) = σ_c + j/q from both roots of U's local quadratic (plus CHILDREN_STARTS
+    // points on each of three circles), each verified as a center with excursion n_c - j (this also checks that the
+    // last transit's petal matches j mod q).  Prints "name|±|j re im w sat", w = |Θ_r' Π H'|^-2 (C ≈ C_c w), sat = 1
+    // within 4 radii of U.
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    const int m = getenv("CHILDREN_STARTS") ? atoi(getenv("CHILDREN_STARTS")) : 0;
+    struct Q { std::string name; int r, nu, nc, jlo, jhi; Cd u, c; double rad; };
+    std::vector<Q> qs;
+    char name[256];
+    int r, nu, nc, jlo, jhi;
+    double ur, ui, rad, cr, ci;
+    while (scanf("%255s %d %d %lf %lf %lf %d %lf %lf %d %d", name, &r, &nu, &ur, &ui, &rad, &nc, &cr, &ci, &jlo, &jhi) == 11)
+      qs.push_back({name, r, nu, nc, jlo, jhi, Cd(ur, ui), Cd(cr, ci), rad});
+    std::vector<std::string> out(qs.size());
+    std::atomic<int64_t> next(0);
+    std::atomic<int64_t> done(0);
+    std::vector<std::thread> pool;
+    for (int th = 0; th < threads; th++)
+      pool.emplace_back([&]() {
+        for (int64_t qi; (qi = next++) < int64_t(qs.size());) {
+          const auto& Q = qs[qi];
+          std::string text;
+          Cd t0, d0, dd0, hp0;
+          if (!L.theta(Q.u, Q.r, t0, d0, dd0, hp0)) continue;
+          for (int j = Q.jlo; j <= Q.jhi; j++) {
+            if (Q.nc - j < 0) continue;
+            const SCd y(Q.c.r + double(j) / q, Q.c.i);
+            const SCd a = 0.5 * SCd(dd0.r, dd0.i), b(d0.r, d0.i), cc = SCd(t0.r, t0.i) - y;
+            const SCd sq = std::sqrt(b * b - 4.0 * a * cc);
+            std::vector<SCd> starts;
+            const SCd u(Q.u.r, Q.u.i);
+            for (const int sgn : {1, -1}) starts.push_back(u + (-b + double(sgn) * sq) / (2.0 * a));
+            const double rho = std::abs(starts[0] - u);
+            for (const double f : {0.5, 1.0, 2.0})
+              for (int k = 0; k < m; k++) starts.push_back(u + std::polar(f * rho, 2 * M_PI * (k + 0.5) / m));
+            std::vector<SCd> found;
+            for (size_t si = 0; si < starts.size(); si++) {
+              SCd s = starts[si];
+              bool ok = false;
+              for (int it = 0; it < 60; it++) {
+                Cd t, d, dd, hp;
+                if (!L.theta(Cd(s.real(), s.imag()), Q.r, t, d, dd, hp)) break;
+                const SCd step = (SCd(t.r, t.i) - y) / SCd(d.r, d.i);
+                s -= step;
+                if (!(std::abs(step) < 10)) break;
+                if (std::abs(step) < 1e-11 * (1 + std::abs(s))) { ok = true; break; }
+              }
+              if (!ok) continue;
+              bool dup = false;
+              for (const auto& fk : found) dup |= std::abs(fk - s) < 1e-9;
+              if (dup) continue;
+              found.push_back(s);
+              Cd cen(s.real(), s.imag());
+              if (!L.center(Q.r, Q.nc - j, cen) || std::hypot(cen.r - s.real(), cen.i - s.imag()) > 1e-8) continue;
+              Cd t, d, dd, hp;
+              L.theta(Cd(s.real(), s.imag()), Q.r, t, d, dd, hp);
+              const double w = 1 / std::norm(SCd(d.r, d.i) * SCd(hp.r, hp.i));
+              const int sat = std::abs(s - u) < 4 * Q.rad;
+              char line[512];
+              snprintf(line, sizeof(line), "%s|%c|%d %.17g %.17g %.6e %d\n", Q.name.c_str(), si == 0 ? '+' : '-', j,
+                       s.real(), s.imag(), w, sat);
+              text += line;
+            }
+          }
+          out[qi] = text;
+          if (++done % 1000 == 0) fprintf(stderr, "children: %lld / %zu\n", (long long)done, qs.size());
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& t : out) fputs(t.c_str(), stdout);
     return 0;
   }
   if (mode == "debug") {
