@@ -1299,3 +1299,17 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   So per-component areas are a systematic expansion in the local jet, converging geometrically in the nonlinearity;
   higher weights for higher orders (1e-40 needs weight ~2·(40/3) at nonlinearity 1e-3), and jets compose along chains,
   so the shape fits into the operator's state.
+- **Obstacles to 1e-40, status (2026-10-09/10 overnight)**:
+  1. Deep tails without enumeration (counts grow like C^-0.22, the mass below a cutoff like cutoff^0.78): (a) the
+     parameter/dynamics gap is exactly the holomorphic motion of fiber chains, its δ-series converging with ratio ~ε
+     (tested to 2nd order); (b) the exact operator by fiber patches with δ-jets as state (proposed, not built); (c) the
+     infinitely many branches of H^{-1} are poles at preimages of α with tails k^{-4(q+1)/q} Σ c_j k^{-j/q} (confirmed
+     at q = 2, 3 to k = 300).  Open: building and validating the patch operator.
+  2. Precision: done (expansion elementary functions, the templated core, 47 digits for S1 in 3 s).
+  3. Finite k: open; the S1 model constant differs from the M-side 1/k extrapolation by 1.0e-19 (6e-17 relative),
+     5x that extrapolation's subset agreement — the finite-k expansion's structure (log terms?) has to be derived,
+     probably from near-parabolic (ε ≠ 0) Fatou coordinates.
+  4. Combinatorial exactness: open (tunings: the heaviest-candidate rule; limbs: the 0.15 gate radius).
+  5. Assembly over the Stern-Brocot tree and the tuning hierarchy: open.
+  6. Shape factors: solved in principle (weight-4 jets: 1e-3 → 3e-8; higher weights for higher orders).
+  Also found and fixed on the way: children inherit normal-form constants (bulb-target children were 2/3 low).
