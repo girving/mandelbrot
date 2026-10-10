@@ -34,6 +34,8 @@ def main():
     ap.add_argument('--loose', type=float, default=2.5)
     ap.add_argument('--dump-pairs', default='')   # every tested pair: "W U ratio C_W sat_W"
     ap.add_argument('--dump', default='')   # every component's best ratio: "name U ratio C sat"
+    ap.add_argument('--rule', default='ratio', choices=['ratio', 'block'])   # block: the exact kneading block test
+    ap.add_argument('--theta', type=float, default=None)   # the gate's kneading angle (block rule; default gl_common)
     a = ap.parse_args()
     env = dict(os.environ, GL_SIDE=str(a.gate))
     head = subprocess.run([BIN, str(a.p), str(a.q), 'consist'], capture_output=True, text=True, env=env).stderr
@@ -102,6 +104,32 @@ def main():
     print('tuned: %d components (primitive mass %.6e)' % (len(tuned), tot))
     for k, (u, ratio) in sorted(tuned.items(), key=lambda kv: -Cof[kv[0]][0])[:15]:
         print('  %s C %.4e sat %d  by %s (C %.3e)  ratio %.3f' % (k, Cof[k][0], Cof[k][1], u, Cof[u][0], ratio))
+    if a.rule == 'block':
+        # exact: W = U*X iff W's kneading word is U's repeated p times off the multiples of P_U (glavaurs blocktune);
+        # the ratio rule's choices are kept only for the comparison printed here
+        from gl_common import gate_theta
+        theta = a.theta if a.theta is not None else float(gate_theta(a.p, a.q, a.gate))
+        bout = subprocess.run([BIN, str(a.p), str(a.q), 'blocktune', '%.17g' % theta, str(a.threads)],
+                              input='\n'.join(lines) + '\n', capture_output=True, text=True, env=env).stdout
+        ratio_of = {}
+        for l in out.splitlines():
+            f = l.split(); ratio_of[(f[0], f[1])] = float(f[2])
+        block, margins = {}, []
+        for l in bout.splitlines():
+            f = l.split()
+            if int(f[2]) == 0 and int(f[3]) > 0:
+                w, u = f[0], f[1]
+                # the innermost tuner (the largest period) labels W; ties keep the first
+                if w not in block or rU[u] > rU[block[w][0]]: block[w] = (u, ratio_of.get((w, u), float('nan')))
+                margins.append(float(f[4]))
+        only_r = sorted(set(tuned) - set(block), key=lambda k: -Cof[k][0])
+        only_b = sorted(set(block) - set(tuned), key=lambda k: -Cof[k][0])
+        print('block rule: %d tuned (primitive mass %.6e); smallest margin %.3g; ratio rule only %d (mass %.3e), block only %d (mass %.3e)' % (
+            len(block), sum(Cof[k][0] for k in block if not Cof[k][1]), min(margins) if margins else float('nan'),
+            len(only_r), sum(Cof[k][0] for k in only_r), len(only_b), sum(Cof[k][0] for k in only_b)))
+        for k in only_r[:8]: print('  ratio only: %s C %.4e sat %d by %s ratio %.3f' % (k, Cof[k][0], Cof[k][1], tuned[k][0], tuned[k][1]))
+        for k in only_b[:8]: print('  block only: %s C %.4e sat %d by %s ratio %.3f' % (k, Cof[k][0], Cof[k][1], block[k][0], block[k][1]))
+        tuned = block
     with open('%s_tuned_r%d.txt' % (a.prefix, r), 'w') as fo:
         for k, (u, ratio) in tuned.items(): fo.write('%s %s %.4g\n' % (k, u, ratio))
 

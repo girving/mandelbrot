@@ -1426,3 +1426,16 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   ratios 0.142, 0.231, 0.311, 0.490, 0.388.  Bulb-limb κ through level 6 = 1.0849e-2 (reference 1.0844e-2, 5e-4
   relative).  The remaining level-5/6 differences (+1.9e-6, -0.5e-6) are where the heuristic slot rule is still unsure;
   exact (combinatorial) tuning labels remain the item to replace it.
+- **The 1/3 and 1/4 strips retuned** with the gl_tune fix (levels 3-4; `results/strip_1_3_1_4_retune.log`): only the
+  level-4 bulb limb changes (the bulb*P4a analogues): 1/3 4.290e-6 → 2.575e-6, 1/4 8.725e-7 → 5.140e-7.  Bulb-limb
+  level ratio 4/3 is now 0.311, 0.324, 0.329 at 1/2, 1/3, 1/4 (was 0.50, 0.54, 0.56): root-independent as the lower
+  levels.  κ_bulb (levels 1-4) = 1.0841e-2, 8.975e-3, 8.327e-3.
+- **Exact tunings: the kneading block test (`glavaurs blocktune`, `gl_tune.py --rule block`).**  Every transit of a
+  component takes the same Λ steps (x_T = f^{1 + TΛ}(crit), period P = rΛ + n + 1; this is what makes n + 1 = p (n_U + 1)
+  the period condition), and the gate interiors are all 1s, so the kneading word at any large Λ is exact from the
+  explicit orbit points at absolute positions (no drifting run counts: the obstacle of the collapsed words).  W = U*X iff
+  ν_W(i) = ν_U(i mod P_U) for all i ≢ 0 mod P_U.  Test (q = 2, the bulb as U, 32 components from random seeds at the
+  tuning periods): mismatches are 0 exactly for bulb*A (1.6457e-4, the only period-3 primitive), bulb*P4a/b/c
+  (1.156e-5, 1.404e-5, 3.513e-5: the three period-4 primitives) and the satellite tunings; every other component has
+  ≥ 1 mismatch (of ~700 compared), including five with little-Julia ratio ≤ 1 (e.g. 9.6e-7 at 0.50) that the ratio rule
+  accepted.  Boundary margins of accepted pairs ~0.012 in z.  ~1 ms per pair-thread.

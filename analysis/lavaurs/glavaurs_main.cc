@@ -17,6 +17,7 @@
 //   glavaurs p q orbit J < "name r n re im"                   # explicit critical-orbit points, for kneading
 //   glavaurs p q tuned threads < "W r n re im U rU nU ure uim"   # little-Julia-set tuning test of W by U
 //   glavaurs p q classify theta threads < "name r n re im"    # limbs by kneading: "name m offset" | "name bulb r"
+//   glavaurs p q blocktune theta threads < (as tuned)         # exact tuning test: "W U mismatches compared margin"
 // C = (4π² sin²(πp/q)/q⁴) area_σ is the family constant lim k⁴ area_M (limbs [CF(p/q), k]).
 #include "glavaurs.h"
 #include "expansion_arith.h"
@@ -27,7 +28,9 @@
 #include <functional>
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -888,7 +891,7 @@ int main(int argc, char** argv) {
     for (const auto& l : out) printf("%s\n", l.c_str());
     return 0;
   }
-  if (mode == "classify") {
+  if (mode == "classify" || mode == "blocktune") {
     // The limb of each component (gl_limb.py's kneading classifier in C++): partition R_{θ/2} ∪ A ∪ R_{(θ+1)/2} with
     // θ the root's parameter angle on the gate's side (gate +1: the lower angle, gate -1: the upper) and A the arc
     // Φ_a = Φ_a(crit) + i gate t; ν = 1 on the side of the angles (θ/2, (θ+1)/2) and within 0.15 of α.  Prints
@@ -977,6 +980,122 @@ int main(int argc, char** argv) {
       }
       return in;
     };
+    if (mode == "blocktune") {
+      // Exact tuning test by the block form of the kneading sequence.  Every transit of a component takes the same Λ
+      // steps (x_T = f^{1 + TΛ}(crit)), the gate interiors are all 1s, and the period is P = rΛ + n + 1; so the word is
+      // exact at any large Λ, with the explicit symbols at absolute positions.  W (r = p r_U, n + 1 = p (n_U + 1), σ_W
+      // in U's representative) is U*X iff ν_W(i) = ν_U(i mod P_U) for every i not divisible by P_U (the symbols at
+      // the multiples spell X's kneading).  Prints "W U mismatches compared margin" (margin, for matches only: the
+      // smallest distance of a compared explicit point to the partition boundary, in z; mismatches = -1 if an orbit
+      // fails).
+      const int64_t Lam = int64_t(q) * 1000000;
+      // the polygon's edges bucketed by height, for the crossing test
+      const int NB = 512;
+      const double Y0 = -210, Y1 = 210;
+      std::vector<std::vector<int>> bucket(NB);
+      const auto yb = [&](const double y) { return std::max(0, std::min(NB - 1, int((y - Y0) / (Y1 - Y0) * NB))); };
+      for (size_t e = 0; e < poly.size(); e++) {
+        const SCd a = poly[e], b = poly[(e + 1) % poly.size()];
+        for (int k = yb(std::min(a.imag(), b.imag())); k <= yb(std::max(a.imag(), b.imag())); k++) bucket[k].push_back(int(e));
+      }
+      const auto inside_fast = [&](const SCd z) {
+        bool in = false;
+        for (const int e : bucket[yb(z.imag())]) {
+          const SCd a = poly[e], b = poly[(e + 1) % poly.size()];
+          if ((a.imag() > z.imag()) != (b.imag() > z.imag())) {
+            const double x = a.real() + (z.imag() - a.imag()) * (b.real() - a.real()) / (b.imag() - a.imag());
+            if (x > z.real()) in = !in;
+          }
+        }
+        return in;
+      };
+      const auto bdist = [&](const SCd z) {
+        double d = INFINITY;
+        for (size_t i = 0; i < poly.size(); i++) {
+          const SCd a = poly[i], b = poly[(i + 1) % poly.size()], ab = b - a;
+          const double t = std::max(0.0, std::min(1.0, std::real((z - a) * std::conj(ab)) / std::max(std::norm(ab), 1e-300)));
+          d = std::min(d, std::abs(z - (a + t * ab)));
+        }
+        return d;
+      };
+      // explicit symbols: position → (symbol, z; z = 0 marks a point near α, always 1)
+      typedef std::map<int64_t, std::pair<char, SCd>> Word;
+      const auto word = [&](const int r, const int n, const Cd s, Word& w) {
+        std::vector<OrbitPoint> pts;
+        if (!orbit_points(L, r, n, s, J, pts)) return false;
+        for (const auto& o : pts) {
+          const int64_t pos = o.kind == 'e' && o.T == 0 ? int64_t(o.s) : 1 + o.T * Lam + o.s;
+          const SCd z = SCd(o.w.r, o.w.i) + alpha;
+          if (std::hypot(o.w.r, o.w.i) < 0.15) w[pos] = {'1', SCd(0)};
+          else w[pos] = {inside_fast(z) ? '1' : '0', z};
+        }
+        return true;
+      };
+      struct Pair { std::string w, u; int r, n, ru, nu; Cd sw, su; };
+      std::vector<Pair> jobs;
+      char wn[256], un[256];
+      int r, n, ru, nu;
+      double a, b, c, d;
+      while (scanf("%255s %d %d %lf %lf %255s %d %d %lf %lf", wn, &r, &n, &a, &b, un, &ru, &nu, &c, &d) == 10)
+        jobs.push_back({wn, un, r, n, ru, nu, Cd(a, b), Cd(c, d)});
+      // each tuner's word once
+      std::map<std::string, int> uix;
+      std::vector<const Pair*> us;
+      for (const auto& jb : jobs) if (uix.emplace(jb.u, int(us.size())).second) us.push_back(&jb);
+      std::vector<Word> uw(us.size());
+      std::vector<char> uok(us.size());
+      {
+        std::atomic<int64_t> next(0);
+        std::vector<std::thread> pool;
+        for (int t = 0; t < threads; t++)
+          pool.emplace_back([&]() {
+            for (int64_t i; (i = next++) < int64_t(us.size());) uok[i] = word(us[i]->ru, us[i]->nu, us[i]->su, uw[i]);
+          });
+        for (auto& t : pool) t.join();
+      }
+      std::vector<std::string> out(jobs.size());
+      std::atomic<int64_t> next(0);
+      std::vector<std::thread> pool;
+      for (int t = 0; t < threads; t++)
+        pool.emplace_back([&]() {
+          for (int64_t i; (i = next++) < int64_t(jobs.size());) {
+            const auto& jb = jobs[i];
+            const int ui = uix[jb.u];
+            const Word& wu = uw[ui];
+            char line[600];
+            Word ww;
+            if (jb.r % jb.ru || jb.n + 1 != (jb.r / jb.ru) * (jb.nu + 1) || !uok[ui] || !word(jb.r, jb.n, jb.sw, ww)) {
+              snprintf(line, sizeof(line), "%s %s -1 0 0", jb.w.c_str(), jb.u.c_str());
+              out[i] = line;
+              continue;
+            }
+            const int64_t PU = jb.ru * Lam + jb.nu + 1, PW = (jb.r / jb.ru) * PU;
+            std::set<int64_t> at;
+            for (const auto& e : ww) if (e.first > 0 && e.first < PW) at.insert(e.first);
+            for (const auto& e : wu)
+              if (e.first > 0 && e.first < PU) for (int64_t j = 0; j < PW; j += PU) at.insert(e.first + j);
+            int mism = 0, cmp = 0;
+            for (const int64_t x : at) {
+              if (x % PU == 0) continue;
+              const auto iw = ww.find(x);
+              const auto iu = wu.find(x % PU);
+              const char sw = iw == ww.end() ? '1' : iw->second.first, su = iu == wu.end() ? '1' : iu->second.first;
+              cmp++;
+              mism += sw != su;
+            }
+            double margin = INFINITY;
+            if (!mism) {
+              for (const auto& e : ww) if (e.second.second != SCd(0) && e.first % PU) margin = std::min(margin, bdist(e.second.second));
+              for (const auto& e : wu) if (e.second.second != SCd(0) && e.first % PU) margin = std::min(margin, bdist(e.second.second));
+            }
+            snprintf(line, sizeof(line), "%s %s %d %d %.3g", jb.w.c_str(), jb.u.c_str(), mism, cmp, margin);
+            out[i] = line;
+          }
+        });
+      for (auto& t : pool) t.join();
+      for (const auto& l : out) printf("%s\n", l.c_str());
+      return 0;
+    }
     struct Job { std::string name; int r, n; Cd s; };
     std::vector<Job> jobs;
     char name[256];
