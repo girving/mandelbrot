@@ -5,6 +5,7 @@
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
 //   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
+//   glavaurs p q walk r n count < "re im" seeds               # a family σ_k ≈ σ_0 + k (n fixed): centers and C_nf
 //   glavaurs p q dchildren threads < (as children)            # children by the one-step map (linearized source)
 //   glavaurs p q fchildren threads < (as children)            # children by the frozen-σ horn-map dynamics
 //   glavaurs p q frefine threads < "name r y_re y_im sX_re sX_im sW_re sW_im"   # frozen-σ child from the exact one
@@ -244,6 +245,43 @@ int main(int argc, char** argv) {
     };
     dfs(L.crit, 0, 0, 0.0);
     fprintf(stderr, "tree: %lld centers, %lld paths cut at depth %d\n", (long long)found, (long long)pruned, dmax);
+    return 0;
+  }
+  if (mode == "walk") {
+    // Continue a family of r-transit components with excursion n whose members sit at σ_k + k (long excursions: the
+    // representative (σ - k, n + q r k)): from two members, predict by polynomial extrapolation, Newton for the center,
+    // print "k re im C_nf" (the normal-form constant: the family's exact masses to the shape factor)
+    const int r = atoi(argv[4]), n = atoi(argv[5]), count = atoi(argv[6]);
+    std::vector<Cd> sig;
+    double sr, si;
+    while (scanf("%lf %lf", &sr, &si) == 2) { Cd c(sr, si); if (L.center(r, n, c)) sig.push_back(c); else break; }
+    if (sig.size() < 2) { fprintf(stderr, "walk: need two seeds\n"); return 1; }
+    double lastA = NAN, lastD = NAN;
+    const auto cnf_at = [&](const Cd c) {
+      GLJet x;
+      if (!L.core.return_map(r, n, L.crit, c, x)) return double(NAN);
+      lastA = std::abs(SCd(x.ww.r / 2, x.ww.i / 2)); lastD = std::abs(SCd(x.s.r, x.s.i));
+      return K * (3 * M_PI / 8) / std::norm(SCd(x.ww.r / 2, x.ww.i / 2) * SCd(x.s.r, x.s.i));
+    };
+    for (int k = 0; k < int(sig.size()); k++) { const double cn = cnf_at(sig[k]); printf("%d %.17g %.17g %.10e %.6e %.6e\n", k, sig[k].r, sig[k].i, cn, lastA, lastD); }
+    for (int k = int(sig.size()); k < count; k++) {
+      // extrapolate the drift d_k = σ_k - k from up to 4 previous members (Lagrange in k)
+      const int m = std::min(4, k);
+      SCd pred = 0;
+      for (int a = 0; a < m; a++) {
+        const int ka = k - 1 - a;
+        SCd l = 1;
+        for (int b = 0; b < m; b++) if (b != a) { const int kb = k - 1 - b; l *= double(k - kb) / double(ka - kb); }
+        pred += l * SCd(sig[ka].r - ka, sig[ka].i);
+      }
+      Cd c(pred.real() + k, pred.imag());
+      if (!L.center(r, n, c)) { fprintf(stderr, "walk: no center at k = %d\n", k); break; }
+      if (std::hypot((c - sig[k - 1]).r - 1, (c - sig[k - 1]).i) > 0.5) { fprintf(stderr, "walk: jumped at k = %d\n", k); break; }
+      sig.push_back(c);
+      const double cn = cnf_at(c);
+      printf("%d %.17g %.17g %.10e %.6e %.6e\n", k, c.r, c.i, cn, lastA, lastD);
+      fflush(stdout);
+    }
     return 0;
   }
   if (mode == "locate") {

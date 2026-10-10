@@ -1259,3 +1259,17 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   state (they transform affinely under pullback).  Open: H^{-1} has infinitely many branches accumulating at the
   cylinder's ends with algebraically decaying weights (the long-digit families), to be summed by the horn map's end
   asymptotics; the shape factor S as a jet function.
+- **Long-digit families are poles of the horn map; their tails are exactly structured** (`glavaurs walk`: a family
+  σ_k ≈ σ_∞ + k continued by 4-point extrapolation and Newton, 300 members in a minute).  Mechanism: an orbit lingering
+  ~N steps near α starts at |w - α| ~ N^{-1/q}; at a point p0 with Ψ(p0) a preimage of α the horn map has a pole-like
+  singularity H ≈ c (p - p0)^{-q} + β log(p - p0) + analytic (the Fatou series composed with an analytic map), so
+  members accumulate at σ_∞ like k^{-1/q} and the passage derivative grows like N^{(q+1)/q}: A and D each ∝
+  k^{(q+1)/q}, C_nf ∝ k^{-4(q+1)/q}.  Checks (single-transit families, k to 300, C down to 4e-24):
+  q = 2: local slopes of |A|, |D| 1.626, 1.576, 1.546, 1.527, 1.520 (k = 20..290) → 3/2; C k^6 = Σ_j c_j k^{-j/2}
+  fits to rel rms 2.9e-7 (7 terms; integer powers 1.2e-5), free exponent 5.978; positions σ_k - k = σ_∞ + Σ a_j
+  k^{-j/2} to rms 3e-10 (integer powers 1e-6).  q = 3: positions in k^{-j/3} to rms 4e-10 (integer powers 6e-6);
+  slopes of |A|, |D| 1.373, 1.335, 1.320, 1.313, 1.311 cross 4/3 and return from below, matching 4/3 + b k^{-1/3} + c
+  k^{-2/3} (b = -0.338, c = 1.27 from k = 100, 290 predict +0.002 at k = 50 and +0.048 at k = 20; measured +0.0018,
+  +0.040): exponent 16/3.  So the infinite branch tail is a Hurwitz-zeta sum Σ_k k^{-4(q+1)/q} Σ_j c_j k^{-j/q} (plus
+  β log terms at high order), with coefficients from the local pole expansion; numerically: walk to K, fit or derive
+  the expansion, sum exactly.
