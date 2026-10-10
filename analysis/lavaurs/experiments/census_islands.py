@@ -62,7 +62,7 @@ def main():
             r, n, s, C, sat = comps[nm]
             if r != R or sat: continue
             if pieces[-1][0] == 'N': orph += C
-            elif tuple(pieces) in island: found += C
+            elif tuple(pieces[:-1]) + (('C', pieces[-1][1]),) in island: found += C
             else: unm += C
         tot = found + orph + unm
         print('level %d: mass %.6e: parent island found %.4f%%, orphan (non-critical piece) %.4f%%, parent not in census %.4f%%' % (
@@ -76,6 +76,14 @@ def main():
         for rr in range(1, r):
             k = tuple(pieces[:rr - 1]) + (('C', pieces[rr - 1][1]),) if pieces[rr - 1][0].startswith('C') else None
             if k is not None and k in island: desc[island[k]].append(nm)
+    sat_y = {rkey(it[nm][1][-1]) for nm in it if comps[nm][0] == 1 and comps[nm][4]}
+    sat_isl = {k for k, nm in island.items() if comps[nm][4]}
+    def in_sat(nm):   # some ancestor island (or itself) is a satellite
+        pieces = it[nm][0]
+        for rr in range(1, comps[nm][0] + 1):
+            if rr <= len(pieces) and pieces[rr - 1][0].startswith('C'):
+                if tuple(pieces[:rr - 1]) + (('C', pieces[rr - 1][1]),) in sat_isl: return True
+        return comps[nm][4] == 1
     cand = sorted([nm for nm in island.values() if comps[nm][0] <= a.levels - 2], key=lambda nm: -comps[nm][3])[:a.islands]
     loc = subprocess.run([B, '1', '2', 'locate'], input=''.join('%s %d %.17g %.17g\n' % (nm, comps[nm][0], comps[nm][2].real, comps[nm][2].imag) for nm in cand),
                          capture_output=True, text=True, env=env).stdout
@@ -84,6 +92,7 @@ def main():
         f = l.split()
         if len(f) > 5: eps[f[0]] = 1 / abs(complex(float(f[4]), float(f[5])))
     rows = []
+    agg = defaultdict(lambda: [0.0, 0.0])
     for nm in cand:
         r, n, sU, CU, satU = comps[nm]
         vU = Z0 + sU
@@ -98,6 +107,9 @@ def main():
             D = min(lat(z - vU) for z in zs[r + 1:])
             dd = sW - sU; dd = complex((dd.real + 0.5) % 1 - 0.5, dd.imag)
             rho = abs(dd) / D if D > 0 else float('inf')
+            tsat = rkey(zs[-1]) in sat_y
+            agg[(in_sat(nm), tsat)][0] += CW
+            if rho > 0.5: agg[(in_sat(nm), tsat)][1] += CW
             tot[mm] += CW
             if rho > 0.5:
                 bad[mm] += CW; badby[pieces[r]] += CW
@@ -120,6 +132,10 @@ def main():
         s2 = [x for x in sel if x[7] > 0]; t2 = sum(x[7] for x in s2); b2 = sum(x[3] * x[7] for x in s2)
         print('  ε %.2f-%.2f: %3d islands  bad m=1 %.2e  m=2 %s  B90 %.1f B99 %.1f' % (lo, hi, len(sel), b1 / t1,
               '%.2e' % (b2 / t2) if t2 else '-', sum(x[4] for x in sel) / len(sel), sum(x[5] for x in sel) / len(sel)))
+    print('atoms (m = 1, 2) by island ancestry and target type: mass, bad share')
+    for (isat, tsat), (m, b) in sorted(agg.items()):
+        print('  island %-22s target %-9s mass %.4e  bad %.3e' % ('inside a satellite' if isat else 'not inside a satellite',
+              'satellite' if tsat else 'primitive', m, b / m if m else 0))
     print('done, %.0f s' % (time.time() - t0))
 if __name__ == '__main__':
     main()
