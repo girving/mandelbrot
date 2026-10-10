@@ -49,6 +49,10 @@ struct LavaursResult {
   Complex<double> a1;      // σ'(0): near the center σ ≈ center + 2 a_1 c in the copy's own c (c ≈ μ/2 on the cardioid)
 };
 
+// The point σ(μ) of a component's multiplier map (μ = multiplier of its attracting cycle), by radial continuation
+bool lavaurs_multiplier_point(const int r, const int n, const Complex<double> center, const Complex<double> mu,
+                              Complex<double>& sigma);
+
 // The center alone (double precision): Newton on the return map's fixed point at the critical point
 bool lavaurs_center(const int r, const int n, const Complex<double> guess, Complex<double>& center);
 
