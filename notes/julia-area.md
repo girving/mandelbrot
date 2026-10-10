@@ -1357,3 +1357,13 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   transit the bulb-limb residue is -1 at q = 2, 3, 4 anyway (the "2" at q = 4 was the transit bug); b = 0 at m > 1 is now
   reported, not counted.  q = 2 level 2 (20 x 20): bulb limb 2.6951e-4, mediant 2.2999e-5 (reference 2.711e-4,
   2.30e-5); 1/4 level 2 (40 x 20): bulb limb 5.929e-6, mediant 5.854e-7.
+- **The 1/3 strip, levels 1-4, all fixes** (one H200, 337 s for levels 2-4 with 301/217/252 sources x 101 targets, 26
+  starts; classification above 1e-12; tunings by the little-Julia rule + primitive counts): k/(3k+1) side (gate +1),
+  bulbs 3.052913e-2 (limb), 2.2211e-3 (mediant), 4.5219e-4 / 4.5267e-4 (1/3, 2/3), 1.4263e-4 / 1.4305e-4 (1/4, 3/4).
+  | level | bulb limb | mediant | 1/3 | 2/3 |
+  | 1 | 2.302335e-4 | | | |
+  | 2 | 3.3246e-5 | 2.9543e-6 | | |
+  | 3 | 7.9378e-6 | 1.16398e-5 | 2.072e-7 | 5.3e-9 |
+  | 4 | 4.2900e-6 | 5.382e-7 | 1.0779e-6 | 2.2561e-6 |
+  Level 4 removed 7.9e-6 of tunings (999 components) by the heuristic rule, so its split is the least certain.  The
+  q = 2 pattern (mediant entering at level 2 and dominating at 3, each Farey denominator at r ≈ m + 1) recurs.
