@@ -1344,3 +1344,10 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   two-transit labels) all 228 common and all 24 new-only children are centers, and 168 of the 185 old-only ones are
   not: the new model is right, the old one had spurious children (~0.9% of level 2 in a 20 x 20 census; the old q = 2
   agreement with the reference was partly compensation).  The q = 2 and 1/3 multi-transit numbers above must be redone.
+- **And the target condition's τ-term** (found right after: with the equivariant transit the census missed real
+  children): in consistent coordinates the r-transit condition is Θ_r(σ) = σ_t + j/q + (e_r - e_v)τ with e_r =
+  (e_v + jp) mod q (e_v the critical value's exit petal; Θ_2(σ_U) - σ_U + (n_U + 1)/q is exactly 0 or ±τ at the 1/3
+  sources, by n_U).  With it (`GLCore::target_shift`, in the CPU and GPU children and dchildren/fchildren): q = 2,
+  3 x 3 census: 445 children, all 445 centers of the reference model (lavaurs_area); the old (non-equivariant) model's
+  413 had 185 spurious and missed 217 real ones, nearly cancelling in mass — which is why its q = 2 totals agreed with
+  the reference.  20 x 20 census: primitive mass 2.926225e-4 (old 2.925596e-4; the difference is the C_nf fix).
