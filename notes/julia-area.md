@@ -1486,3 +1486,23 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   level-2 mass within 0.1 of σ_p, census-style source children find all but 1.3e-9 (1.29e-9 with the other half's
   bulb as target, outside the census targets anyway; 3.3e-11 genuinely missed, 1e-7 of level 2): the source search
   is not systematically blind there, but it is not complete by construction either.
+- **Exact route, not tail estimation.**  A frozen renewal is O(ε) by construction (a sanity check at best).  The exact
+  formulation: U's children are the crossings of U's island curve δ ↦ z_{r+1}(σ_U + δ) (exact, analytic away from
+  poles of H) with the centre lamination, the holomorphic graphs z^(c)(s) of backward chains from targets as the
+  dynamics parameter s varies.  Direct children need no expansion (targets do not move); deeper descendants are atoms
+  of the frozen centre measure μ_s of F_{σ_U}, which is postcritically finite (v lies on U's superattracting cycle), moved
+  by s - σ_U.  An atom's motion branches where its chain passes through v_s, so its δ-series has radius D = the chain's
+  closest approach to v, and NRP atoms avoid the immediate basin of v (that basin is U's copy: tunings).
+- **Test of the branch-point radius** (`experiments/branch_test.py`, `frefine` now prints D; q = 2, 20.7k level-3
+  children of 8 heavy level-2 sources, δ-series of the root-diagonal formulation): with ρ = |σ_W - σ_X| / D, each order
+  gains ≈ ρ when ρ < 1 (ρ 0.03-0.1: errors 0.34, 0.011, 4.9e-4 at orders 0, 1, 2; ρ 0.1-0.3: 0.077, 0.0074, 7.7e-4)
+  and the series diverges for ρ > 3.  But 90% of the mass has ρ > 1 (D set by the target in 9%): the census's
+  source-child pairs are not small displacements (level-2 islands are O(0.1-1) wide, ε = 1/Θ').
+- **The scale-invariant obstacle.**  In the island formulation the ratio for an atom is ε_U / D, and D ≥ R_B, the
+  immediate basin of v.  But R_B ≈ R_c / |Π H'| and ε_U ≈ 1 / |Π H' T| scale together, so atoms near the basin (the
+  decorations of U's copy) converge with an O(1) ratio at every depth and carry an O(ε_U) share of the island's mass
+  (the island pushforward density ~ 1/|z - v| weights the neighbourhood of v linearly).  A single expansion per
+  island therefore stalls at O(ε); exactness needs recursive refinement near v (the copy's decorations as sub-islands
+  with their own bases), each refinement level gaining a factor ε: a multi-scale tree, finite work if (branching) ×
+  ε < 1 per level.  Next: measure, in the island formulation, the mass share of atoms with ε_U / D > 1 per island
+  against ε_U (predicted ∝ ε_U), and the refinement's branching.
