@@ -1607,3 +1607,22 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   island expansions (last step exact) for non-satellite islands, which converge; and the CF recursion for the
   satellites (Farey bulbs) and their limbs.  To test next: κ_{1/q} (or the limb's c-area) as q grows, which needs
   each sub-limb's own strip (the general p/q model at the bulb's root) rather than the 1/2 strip census.
+
+**CF recursion, first steps: the Farey edge of the q = 2 strip (2026-10-10).**
+- The strip's fractional limbs t (rotation x/(2x+1), x = k + t) make limb t = 1/m the limb with CF [0; 2, k, m], k → ∞.
+  Its bulb B_m (`experiments/farey_edge2.py`, Newton from the pattern Re σ = (1 - 1/m) - 5, n = 8m + 1; the size-based
+  recursion `farey_edge.py` strays onto other Farey bulbs past m = 8): Re σ ≡ 1 - 1/m to ~1e-5, Im σ m² → -0.1615,
+  m⁴ C = 0.241, 0.248, 0.247, 0.2435, 0.2397, 0.2360, 0.2328, ..., 0.2275 (m = 10), 0.2153 (20), 0.2088 (40):
+  a smooth family in m, limit ~0.202 (`results/farey_edge_q2.txt`).
+- Limb content around B_m (`experiments/farey_limbs.py`: depth 0 = level-m children of B_{m-1}, depth 1 = level-(m+1)
+  children of B_m and of the heaviest depth-0 components; satellites and tunings by the bulb removed; kneading
+  classifier) reproduces the strip census exactly where both exist: limb 1/2 depth 0, 1 = 1.53e-3, 5.56e-3 of C(B_2),
+  limb 1/3 5.2e-4, 3.84e-3 of C(B_3) (census 1.53e-3, 5.56e-3; 5.2e-4, 3.84e-3).  Depth 0 is smooth in m:
+  1.53e-3, 5.16e-4, 2.81e-4, 1.99e-4, 1.62e-4, 1.43e-4, 1.32e-4, 1.26e-4 (m = 2..9).  (Depths ≥ 2 carry ~15-30% more:
+  limb 1/2 depth 2, 3 = 2.8e-4, 1.07e-3; limb 1/3 depth 2 = 2.7e-3.)
+- Depth 1 dropped tenfold at m = 6 (4.97e-3 → 4.8e-4): the heavy component exists and continues the family (at the
+  same renormalized position c = (AD)_{B_m} (σ - σ_{B_m}) ≈ -1.257 + 0.739i, 2.9-3.0 bulb radii out, C/C(B_m) = 3.92e-3,
+  4.35e-3, 4.61e-3, 4.78e-3 for m = 5..8, increments ~1/m², limit ~5.3e-3), but the kneading classifier puts it in
+  limb 1/(m-1) for m ≥ 6 (first 0 at transit m - 1).  So the classifier (fixed arc A, 0.15 gate radius) fails for deep
+  Farey limbs: a robust, combinatorial limb classifier is now the blocking item for the CF recursion's
+  measurements (candidates: the component's own partition, or limb membership from the piece itinerary / wake).
