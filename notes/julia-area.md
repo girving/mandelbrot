@@ -1393,3 +1393,19 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   marker makes U's word trivial: the comparison needs the block form of the q = 2 tail() code (1-runs counted
   relative to gate passages), not done yet.  Until then level ≥ 4 tunings use the heuristic rule (the q = 2 level-4
   bulb limb keeps ~1.1e-5 of bulb*P4a).
+- **The 1/4 strip** (k/(4k+1) side, gate +1; one H200, 356 s for levels 2-4; `results/strip_1_4_gpu.log`): bulbs
+  6.4046e-3 (limb), 4.6728e-4 (mediant), 9.5232e-5 / 9.5330e-5 (thirds), 3.0056e-5 / 3.0141e-5 (quarters); bulb
+  limb 4.4813e-5, 6.4418e-6, 1.5599e-6, 8.725e-7; mediant -, 5.859e-7, 2.3816e-6, 1.069e-7; 1/3 at levels 3-4
+  4.14e-8, 2.278e-7; 2/3 1.1e-9, 4.675e-7.
+- **κ at three roots (levels 1-4, the large-k limit of limbs [CF(1/q), k] and their Farey descendants)**:
+  | limb | 1/2 | 1/3 | 1/4 |
+  | bulb limb | 1.0841e-2 | 9.031e-3 | 8.383e-3 |
+  | mediant | 7.368e-3 | 6.813e-3 | 6.579e-3 |
+  | 1/3 (entering) | 2.876e-3 | 2.842e-3 | 2.827e-3 |
+  | 2/3 (entering) | 5.177e-3 | 4.996e-3 | 4.915e-3 |
+  Bulb-limb level ratios 0.142, 0.231, 0.50 / 0.144, 0.239, 0.54 / 0.144, 0.242, 0.56: nearly root-independent.
+  κ_bulb ≈ a + b/q² with a = 7.58e-3, b = 1.303e-2 from q = 2, 3 predicts 8.39e-3 at q = 4 (measured 8.38e-3); the
+  mediant likewise (predicted 6.62e-3, measured 6.58e-3).  So in the large last-digit limit κ depends smoothly on the
+  root, with the Farey structure of the strip shared: the automaton over CF digits is the natural next step (with the
+  caveats: levels ≥ 5 not computed — the bulb limb's level ratios rise (0.5-0.56 at level 4), so the tail matters at
+  the 1e-2 relative level; level-4 tunings by the heuristic rule).
