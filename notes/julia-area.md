@@ -1644,3 +1644,14 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   An exact own partition needs those gate-winding rays.  Also possible: the classification is right (margins grow with
   m: 0.0045, 0.010, 0.015) and the family really changes limb at m = 6.  Ground truth from M (angle words:
   limb_families wake) decides which.
+- **M-side ground truth: the classifier is wrong for a6** (exact wake enumeration by angle words, `limb_families wake`
+  + `size` + `bulb_batch`; `experiments/m_limb_kappa.py`).  At k = 3 the strip's limb 1/6 is M's limb 19/44, limb 1/5
+  is 16/37.  Heaviest NRP of 19/44: period 51 = 7·7 + 2 (a6's period), area 5.31e-9 = 5.5e-3 of the bulb (9.70e-7); of
+  16/37: period 44 = 6·7 + 2 (a5's), 1.01e-8 = 5.1e-3 of the bulb (1.97e-6): the model's a6 (4.35e-3, a5 3.92e-3) is in
+  limb 1/6.  The two limbs' NRP lists have the same index pattern with periods shifted by 2k + 1 = 7: the family in m is
+  visible in M directly.
+- κ([0; 2, 3, m]) over extra periods ≤ 12 (4095 NRPs per wake, top 200 exact, the rest < 5e-9 of the bulb): m = 2..6:
+  5.97e-3, 4.86e-3, 5.32e-3, 5.71e-3, 5.95e-3; heaviest/bulb 2.72e-3, 3.45e-3, 4.51e-3, 5.13e-3, 5.48e-3.  Limits: the
+  angle code (`lavaurs`, 64-bit words) stops at period 62 (m = 7 at k = 3, J = 12 is out), and full enumeration costs
+  2^J, so M gives ground truth at small depth only: validation data for an exact model classifier (the gate-winding
+  ray partition), which is what reaches deep limbs.
