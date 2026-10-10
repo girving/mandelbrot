@@ -1633,3 +1633,14 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   above Φ_a(crit), lifted) is off by ~0.01 there for these components: their own partition is needed.  The piece
   itineraries of B_m and a_m pass through the big bulb's critical piece at every transit (only the sheet bits differ),
   e.g. B8 + + + - - + +, a8 + + + - - + + -; the relation of the sheet sequence to the limb is not yet worked out.
+- **Own partition, first version** (`CLASSIFY_OWN=1`): the root of crit's Fatou component at W's centre = the landing
+  point of internal ray 0 of R (walked out by inverse iteration from crit + ε/A, Böttcher φ ≈ A u, then Newton on
+  R(z) = z; centres polished first; plain/damped Newton from crit + 1/A finds other repelling fixed points, |R'| ~ 60,
+  outside the basin), the arc lifted from the vertical half-line above Φ_a(crit) + δ_W, δ_W = Φ_a(ρ) - Φ_a(crit).  For the
+  family a5..a8 (n = 49, 57, 65, 73): |δ_W| ≈ 0.002, the classification and margins unchanged (a6 0.0045).  So the root
+  shift is not the error.  The deciding point is next to the arc (edge 950 of 3158, inside arc 1), and the arc itself is
+  a heuristic: in Fatou coordinates the root's external rays are near-horizontal (R_{2/3} at Im ζ ≈ 2.16 in the repelling
+  coordinate), and a component's ray to its critical value winds through the gate repeatedly in the Lavaurs limit.
+  An exact own partition needs those gate-winding rays.  Also possible: the classification is right (margins grow with
+  m: 0.0045, 0.010, 0.015) and the family really changes limb at m = 6.  Ground truth from M (angle words:
+  limb_families wake) decides which.
