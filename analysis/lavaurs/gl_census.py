@@ -35,6 +35,8 @@ def main():
     ap.add_argument('--starts', type=int, default=8)
     ap.add_argument('--small-targets', type=int, default=30)
     ap.add_argument('--out', default='')
+    ap.add_argument('--resume', type=int, default=0)   # start at this level from --out's previous level file (and its
+                                                       # _tuned file, whose components are not sources)
     a = ap.parse_args()
     q = a.q
     env = dict(os.environ, GL_SIDE=str(a.side))
@@ -64,7 +66,19 @@ def main():
     level = [(nm, 1, n, c, C, False) for nm, n, c, C in fams[:a.sources]] + [(nm, 1, n, c, C, True) for nm, n, c, C in sats]
     totals = {}
     jd, ju = int(round(a.jd * q)), int(round(a.ju * q))
-    for r in range(2, a.levels + 1):
+    r0 = 2
+    if a.resume:
+        r0 = a.resume
+        tuned = set()
+        tf = '%s_tuned_r%d.txt' % (a.out, r0 - 1)
+        if os.path.exists(tf): tuned = {l.split()[0] for l in open(tf)}
+        level = []
+        for l in open('%s_r%d.txt' % (a.out, r0 - 1)):
+            f = l.split(); C = float(f[5])
+            if f[0] in tuned or (f[6] == '0' and C <= a.src_min): continue
+            level.append((f[0], r0 - 1, int(f[2]), complex(float(f[3]), float(f[4])), C, f[6] == '1'))
+        print('resuming at level %d: %d sources (%d tuned dropped)' % (r0, len(level), len(tuned)), file=sys.stderr)
+    for r in range(r0, a.levels + 1):
         srcs = [s for s in level if s[1] == r - 1]
         big, small = [], []
         for nm, rs, n, c, C, sat in srcs:

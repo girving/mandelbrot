@@ -13,6 +13,7 @@
 #pragma once
 
 #include "complex.h"
+#include "glavaurs_core.h"
 #include <vector>
 namespace mandelbrot {
 
@@ -35,6 +36,7 @@ struct GeneralLavaurs {
   // exit_petal(k), normalized to 0 on the critical value's petal kv
   int kv;
   C transit_shift(const int k) const;
+  GLCore core;                // the evaluation core (glavaurs_core.h), shared with the GPU
 
   // Φ, Φ', Φ'' by the series with L(w) = log|w| + i (θ + wrap(arg w - θ)), continuous within π of the axis angle θ
   void series(const C w, const double axis, C& s, C& d, C& dd) const;
@@ -49,12 +51,17 @@ struct GeneralLavaurs {
   // Center of the r-transit component with excursion n, from a guess; area_σ by multiplier boundary tracing, conv,
   // cusp = |σ'(1)|/|a_1| (≈ 0 primitive, O(1) satellite)
   bool center(const int r, const int n, C& sigma) const;
+  // R_σ(w) = f^n g_σ^r f(w) with its first two w-derivatives
+  bool return_map(const int r, const int n, const C w, const C sigma, C& v, C& dw, C& dww) const;
   bool area(const int r, const int n, const C guess, C& center, double& area, double& conv, double& cusp,
             C& a1, const int Nb = 64) const;
   // Multiplier-map point σ(μ) of a component
   bool multiplier_point(const int r, const int n, const C center, const C mu, C& sigma) const;
   // Θ_r(σ) = p_r - ζ0 (p_1 = ζ0 + σ, p_{i+1} = H(p_i) + σ + transit_shift), its σ-derivative and Π_{i<r} H'(p_i)
-  bool theta(const C sigma, const int r, C& th, C& dth, C& d2th, C& hprod) const;
+  bool theta(const C sigma, const int r, C& th, C& dth, C& d2th, C& hprod, int* pet_out = nullptr) const;
+  // The horn map in the consistent coordinate, at transit state (p, pet): H(p) = Φ_a(Ψ_e(p)) + transit_shift(pet2),
+  // e = exit_petal(pet), pet2 the petal Ψ_e(p) enters (so p_{i+1} = H(p_i) + σ), with H', H''
+  bool horn(const C p, const int pet, C& h, C& dh, C& ddh, int& pet2) const;
   C zeta0() const;
 };
 

@@ -5,9 +5,11 @@
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
 //   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
+//   glavaurs p q dchildren threads < (as children)            # the same children at frozen σ (the horn map's dynamics)
 //   glavaurs p q consist                                      # cross-petal branch conventions
 //   glavaurs p q arc sgn                                      # the critical arc: Φ_a(w) = Φ_a(crit) + i sgn t
 //   glavaurs p q orbit J < "name r n re im"                   # explicit critical-orbit points, for kneading
+//   glavaurs p q tuned threads < "W r n re im U rU nU ure uim"   # little-Julia-set tuning test of W by U
 //   glavaurs p q classify theta threads < "name r n re im"    # limbs by kneading: "name m offset" | "name bulb r"
 // C = (4π² sin²(πp/q)/q⁴) area_σ is the family constant lim k⁴ area_M (limbs [CF(p/q), k]).
 #include "glavaurs.h"
@@ -244,6 +246,93 @@ int main(int argc, char** argv) {
     }
     return 0;
   }
+  if (mode == "dchildren") {
+    // The one-step (dynamical) version of children: at the source X, p* = p_{r-1}(σ_X) is a critical point of the horn
+    // map and to first order p_{r-1}(σ) = p* + Θ'_{r-1}(σ - σ_X), so the children solve F(p) = H(p) + ε (p - p*) + σ_X -
+    // ζ0 = σ_c + j/q with ε = 1/Θ'_{r-1}(σ_X) (exact at r = 2, where ε = 1: the ζ formulation), and Θ_r' = Θ'_{r-1}
+    // (H'(p) + ε), Π H'_r = Π H'_{r-1} H'(p): one transfer-operator step of p ↦ F(p) with the extra state ε, which
+    // evolves as ε ↦ ε/(H' + ε).  DCH_EPS=0: ε = 0 (frozen σ, the purely multiplicative weight).  Solutions are kept
+    // when the next landing point reaches the critical point in n_c - j steps.  Prints "name|±|j sw_re sw_im w eps' sat"
+    // with σ_W = σ_X + ε (p - p*), w = |Θ_r' Π H'_r|^-2, eps' the child's ε, sat within 4 radii.
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    const int m = getenv("CHILDREN_STARTS") ? atoi(getenv("CHILDREN_STARTS")) : 0;
+    const Cd z0 = L.zeta0();
+    const bool use_eps = !getenv("DCH_EPS") || atoi(getenv("DCH_EPS"));
+    struct Q { std::string name; int r, nu, nc, jlo, jhi; Cd u, c; double rad; };
+    std::vector<Q> qs;
+    char name[256];
+    int r, nu, nc, jlo, jhi;
+    double ur, ui, rad, cr, ci;
+    while (scanf("%255s %d %d %lf %lf %lf %d %lf %lf %d %d", name, &r, &nu, &ur, &ui, &rad, &nc, &cr, &ci, &jlo, &jhi) == 11)
+      qs.push_back({name, r, nu, nc, jlo, jhi, Cd(ur, ui), Cd(cr, ci), rad});
+    std::vector<std::string> out(qs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int th = 0; th < threads; th++)
+      pool.emplace_back([&]() {
+        for (int64_t qi; (qi = next++) < int64_t(qs.size());) {
+          const auto& Q = qs[qi];
+          std::string text;
+          Cd t0, d0, dd0, hp0;
+          int pet;
+          if (!L.theta(Q.u, Q.r - 1, t0, d0, dd0, hp0, &pet)) continue;
+          const SCd eps = use_eps ? 1.0 / SCd(d0.r, d0.i) : SCd(0);
+          const SCd ps = SCd(t0.r + z0.r, t0.i + z0.i), Tp(d0.r, d0.i), Hp(hp0.r, hp0.i), u(Q.u.r, Q.u.i);
+          Cd h0, dh0, ddh0;
+          int pet2;
+          if (!L.horn(Cd(ps.real(), ps.imag()), pet, h0, dh0, ddh0, pet2)) continue;
+          for (int j = Q.jlo; j <= Q.jhi; j++) {
+            if (Q.nc - j < 0) continue;
+            const SCd target = SCd(Q.c.r + double(j) / q, Q.c.i) + SCd(z0.r, z0.i) - u;
+            // local quadratic H(p*) + ε u + a u² = target (H'(p*) = 0)
+            const SCd a = 0.5 * SCd(ddh0.r, ddh0.i), cc = SCd(h0.r, h0.i) - target;
+            const SCd sq = std::sqrt(eps * eps - 4.0 * a * cc);
+            std::vector<SCd> starts = {ps + (-eps + sq) / (2.0 * a), ps + (-eps - sq) / (2.0 * a)};
+            const double rho = std::abs(starts[0] - ps);
+            for (const double f : {0.5, 1.0, 2.0})
+              for (int k = 0; k < m; k++) starts.push_back(ps + std::polar(f * rho, 2 * M_PI * (k + 0.5) / m));
+            std::vector<SCd> found;
+            for (size_t si = 0; si < starts.size(); si++) {
+              SCd pp = starts[si];
+              bool ok = false;
+              Cd h, dh, ddh;
+              int pe2 = -1;
+              for (int it = 0; it < 60; it++) {
+                if (!L.horn(Cd(pp.real(), pp.imag()), pet, h, dh, ddh, pe2)) break;
+                const SCd step = (SCd(h.r, h.i) + eps * (pp - ps) - target) / (SCd(dh.r, dh.i) + eps);
+                pp -= step;
+                if (!(std::abs(step) < 10)) break;
+                if (std::abs(step) < 1e-11 * (1 + std::abs(pp))) { ok = true; break; }
+              }
+              if (!ok) continue;
+              bool dup = false;
+              for (const auto& fk : found) dup |= std::abs(fk - pp) < 1e-9;
+              if (dup) continue;
+              found.push_back(pp);
+              L.horn(Cd(pp.real(), pp.imag()), pet, h, dh, ddh, pe2);
+              // the next landing point must reach the critical point in n_c - j steps (the petal combinatorics)
+              Cd x, d1, d2;
+              const SCd sm = u + eps * (pp - ps), sw = u + (pp - ps) / Tp;   // the model's σ; the predicted child
+              if (!L.psi(Cd(h.r + sm.real(), h.i + sm.imag()), L.exit_petal(pe2), x, d1, d2)) continue;
+              for (int i = 0; i < Q.nc - j; i++) x = L.lam * x + x * x;
+              if (!(std::hypot((x - L.crit).r, (x - L.crit).i) < 1e-6)) continue;
+              const SCd H1(dh.r, dh.i);
+              const double w = 1 / std::norm(Tp * (H1 + eps) * Hp * H1);
+              const SCd eps2 = eps / (H1 + eps);
+              const int sat = std::abs(sw - u) < 4 * Q.rad;
+              char line[512];
+              snprintf(line, sizeof(line), "%s|%c|%d %.17g %.17g %.6e %.6e %d\n", Q.name.c_str(), si == 0 ? '+' : '-',
+                       j, sw.real(), sw.imag(), w, std::abs(eps2), sat);
+              text += line;
+            }
+          }
+          out[qi] = text;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& t : out) fputs(t.c_str(), stdout);
+    return 0;
+  }
   if (mode == "children") {
     // The r-transit children of the (r-1)-transit source U (center, excursion, radius) over the single-transit target
     // c (n_c < q, σ_c mod 1): Newton on Θ_r(σ) = σ_c + j/q from both roots of U's local quadratic (plus CHILDREN_STARTS
@@ -259,6 +348,18 @@ int main(int argc, char** argv) {
     double ur, ui, rad, cr, ci;
     while (scanf("%255s %d %d %lf %lf %lf %d %lf %lf %d %d", name, &r, &nu, &ur, &ui, &rad, &nc, &cr, &ci, &jlo, &jhi) == 11)
       qs.push_back({name, r, nu, nc, jlo, jhi, Cd(ur, ui), Cd(cr, ci), rad});
+    // On the GPU when there is one (GL_GPU=0: CPU threads); same algorithm and output
+    if (!getenv("GL_GPU") || atoi(getenv("GL_GPU"))) {
+      std::vector<GLChildJob> jobs;
+      for (const auto& Q : qs) jobs.push_back(GLChildJob{Q.r, Q.nc, Q.jlo, Q.jhi, Q.u, Q.c, Q.rad});
+      std::vector<GLChild> kids;
+      if (glavaurs_gpu_children(L.core, jobs, m, kids)) {
+        for (const auto& k : kids)
+          printf("%s|%c|%d %.17g %.17g %.6e %d\n", qs[k.job].name.c_str(), k.start == 0 ? '+' : '-', k.j, k.s.r, k.s.i,
+                 k.w, k.sat);
+        return 0;
+      }
+    }
     std::vector<std::string> out(qs.size());
     std::atomic<int64_t> next(0);
     std::atomic<int64_t> done(0);
@@ -359,6 +460,54 @@ int main(int argc, char** argv) {
       if (!orbit_points(L, r, n, Cd(sr, si), J, pts)) { printf("%s failed\n", name); continue; }
       for (const auto& o : pts) printf("%s %c %d %d %.17g %.17g\n", name, o.kind, o.T, o.s, o.w.r, o.w.i);
     }
+    return 0;
+  }
+  if (mode == "tuned") {
+    // W ∈ U*M iff at σ_W the critical orbit of U's return map R_U (r_U transits, excursion n_U) stays in U's little
+    // filled Julia set through all p = r/r_U returns (the p-th return is W's own and closes the cycle; requires
+    // n + 1 = p (n_U + 1) with σ_W in U's representative).  In the normal form R_U(w) ≈ crit + D + a (w - crit)² the
+    // little K lies in |w - crit| ≤ 2/|a|; prints "W U ratio" with ratio = max_{j<p} |R_U^j(crit) - crit| |a|/2
+    // (≤ 1 for tunings; ∞ if the orbit fails).
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    struct Job { std::string w, u; int r, n, ru, nu; Cd sw, su; };
+    std::vector<Job> jobs;
+    char wn[256], un[256];
+    int r, n, ru, nu;
+    double a, b, c, d;
+    while (scanf("%255s %d %d %lf %lf %255s %d %d %lf %lf", wn, &r, &n, &a, &b, un, &ru, &nu, &c, &d) == 10)
+      jobs.push_back({wn, un, r, n, ru, nu, Cd(a, b), Cd(c, d)});
+    std::vector<std::string> out(jobs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int t = 0; t < threads; t++)
+      pool.emplace_back([&]() {
+        for (int64_t i; (i = next++) < int64_t(jobs.size());) {
+          const auto& jb = jobs[i];
+          char line[600];
+          double ratio = INFINITY;
+          if (jb.r % jb.ru == 0 && jb.n + 1 == (jb.r / jb.ru) * (jb.nu + 1)) {
+            const int pp = jb.r / jb.ru;
+            Cd v, dw, dww;
+            if (L.return_map(jb.ru, jb.nu, L.crit, jb.sw, v, dw, dww)) {
+              const double R = 2 / std::hypot(dww.r / 2, dww.i / 2);
+              double mx = std::hypot((v - L.crit).r, (v - L.crit).i);
+              Cd x = v;
+              bool ok = true;
+              for (int j = 2; j < pp && ok; j++) {
+                ok = L.return_map(jb.ru, jb.nu, x, jb.sw, v, dw, dww);
+                x = v;
+                mx = std::max(mx, std::hypot((x - L.crit).r, (x - L.crit).i));
+                if (!(mx < 100 * R)) ok = false;
+              }
+              if (ok) ratio = mx / R;
+            }
+          }
+          snprintf(line, sizeof(line), "%s %s %.4g", jb.w.c_str(), jb.u.c_str(), ratio);
+          out[i] = line;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& l : out) printf("%s\n", l.c_str());
     return 0;
   }
   if (mode == "classify") {

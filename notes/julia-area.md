@@ -1187,3 +1187,23 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   (gate -1, upper half) gives S_1 ≈ 3.47e-5 (0.156).  So the 1/3 root's strip is q = 2's with the masses scaled down
   by ~8 and nearly the same ratios.
 - Next: the limb classifier at a general root (kneading partition by the q rays at α), then κ near 1/3.
+- **Limb classifier at a general root** (`glavaurs arc|orbit|classify`, `gl_limb.py`, `gl_limbsum.py`): the q = 2
+  construction carries over unchanged.  The partition is R_{θ/2} ∪ A ∪ R_{(θ+1)/2}, θ the root's parameter angle on the
+  gate's side (gate +1: the lower root angle, gate -1: the upper; 1/2: 1/3 and 2/3, 1/3: 1/7 and 2/7); one ray lands at
+  α, the other at -α.  A is the Φ_a-lift of the half-line Φ_a(crit) + i·gate·t, whose branches end at α and -α (the
+  critical basin component is symmetric under z → -z).  ν = 1 on the critical value's side and within 0.15 of α.
+  Offsets of the first 0 are ≡ -1 mod q: the limb is t = b/m with b = (offset + 1)/q mod m, and a bulb's own limb is
+  b = (n + 1)/q mod m.  Checks: q = 2 (gate -1 = lavaurs.cc's plane conjugated, same n) reproduces all 18 of
+  limb_class.py's cases; at q = 3 (gate +1, θ = 1/7) the bulb, the mediant bulb (r = 2) and the singles (offsets -1,
+  -4, -7) come out right.  The attracting-series radius is now per root (|a_{-q}| r0^{-q} = 625: 0.02 at q = 2,
+  0.049 at q = 3), so q = 3 runs 8x faster and is more accurate (S_0 unchanged to 5e-13).
+- Two transits by limb: q = 2: bulb limb 2.6961e-4 (the reference census: 2.711e-4), mediant 2.3008e-5 (2.30e-5).
+  1/3, k/(3k+1) side: bulb limb 3.0932e-5, mediant 2.954e-6.  Mediant layer / mediant bulb: q = 2 1.527e-3, q = 3
+  1.330e-3; bulb limb (S_0 + S_1)/C_bulb: q = 2 1.040e-2, q = 3 8.55e-3.
+- **Tunings by the little Julia set** (`glavaurs tuned`, `gl_tune.py`): W ∈ U*M iff at σ_W the critical orbit of U's
+  return map (r_U transits, n_U) stays in U's little filled Julia set, |w - crit| ≤ 2/|a| in the normal form crit + D +
+  a(w - crit)², through all r/r_U returns (only the last one is automatic, which is why the old "R_U^p(crit) = crit"
+  check was not a test).  Candidates: lower-level components within 12 radii, with n + 1 = (r/r_U)(n_U + 1) in U's
+  representative.  Level 2 checks it: every doubling U*(1/2-bulb) comes out at ratio ≈ 0.5 (exactly the 1/2 bulb's
+  little orbit, crit → c' = -1, scaled), the bulb's own doubling included (q = 2: 1.3662e-2, q = 3: 1.9947e-3);
+  everything else has ratio ≥ 1.
