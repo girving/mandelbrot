@@ -4,7 +4,7 @@
 # single transits (gl_single.py), then per level r = 2..levels: children (gl_census.py; on the GPU when there is one),
 # tunings (gl_tune.py), limbs (gl_limbsum.py; CLASSIFY_MIN: classify only components above it), with timings.  With
 # "check": first a small census on CPU and GPU, compared.  GL_START: resume at that level from $out's files.  GL_SOURCES, GL_TARGETS: census sizes (default 300, 100;
-# not TARGETS, which bench.sh uses for build targets).  GL_NO_CENSUS=1: redo only tunings and limbs from $out's census files.
+# not TARGETS, which bench.sh uses for build targets).  GL_NO_CENSUS=1: redo only tunings and limbs from $out's census files.  GL_TUNE_RULE=block: exact tunings (gl_tune.py --rule).
 set -euo pipefail
 p=$1 q=$2 gate=$3 theta=$4 levels=$5 out=$6 check=${7:-}
 T=${MANDELBROT_THREADS:-8}
@@ -12,7 +12,7 @@ D=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$out"
 t0=$(date +%s); stamp() { echo "[$(( $(date +%s) - t0 )) s] $*"; }
 start=${GL_START:-2}   # resume at this level from $out (its earlier levels' files must be there)
-if [ $start = 2 ]; then
+if [ $start = 2 ] && [ -z "${GL_NO_CENSUS:-}" ]; then
   stamp "single transits"
   python3 "$D/gl_single.py" $p $q $gate --cmin 1e-13 --exact 1e-11 --threads $T --out "$out/single.txt" | head -4
 fi
@@ -37,7 +37,7 @@ for ((r = start; r <= levels; r++)); do
       --src-min ${GL_SRC_MIN:-1e-10} --out "$out/c" --targets ${GL_TARGETS:-100}
   fi
   stamp "level $r tunings"
-  python3 "$D/gl_tune.py" $p $q $gate "$out/single.txt" "$out/c" --level $r --threads $T | head -12
+  python3 "$D/gl_tune.py" $p $q $gate "$out/single.txt" "$out/c" --level $r --threads $T --rule ${GL_TUNE_RULE:-ratio} | grep -v "^  L"
   stamp "level $r limbs (tunings removed)"
   grep -v -F -f <(awk '{print $1" "}' "$out/c_tuned_r$r.txt") "$out/c_r$r.txt" > "$out/c_untuned_r$r.txt" || true
   python3 "$D/gl_limbsum.py" $p $q $gate $theta "$out/c_untuned_r$r.txt" --threads $T --cmin ${CLASSIFY_MIN:-0}
