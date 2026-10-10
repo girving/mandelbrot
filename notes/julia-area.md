@@ -1416,3 +1416,13 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   The mediant reproduces the reference; the level-5 bulb limb is 1.6x the reference, presumably tunings the heuristic
   rule misses (period 5 has 11 primitives), as bulb*P4a at level 4.  Bulb-limb κ through level 6: 1.0920e-2 as
   computed, 1.0864e-2 without the known bulb*P4a (reference 1.0844e-2).  Exact tuning labels are the limiting item.
+- **bulb*P4a found: a duplicate-pair bug in gl_tune.**  A tuner whose reach exceeds the σ period (the 1/2 bulb B3511,
+  C = 0.21) scanned each grid column twice, so every (W, U) pair appeared twice and the duplicates took the per-U
+  primitive slots (period 4: L4_118579 twice, then L4_145736; bulb*P4a = L4_28153, ratio 2.25, was the third distinct
+  candidate).  Fixed (each cell once); tunings and limbs redone for levels 3-6 (`GL_NO_CENSUS=1`, 4 min;
+  `results/strip_1_2_retune.log`).  Only the bulb limb changes:
+  | level | 1 | 2 | 3 | 4 | 5 | 6 |
+  | bulb limb | 1.893e-3 | 2.695e-4 | 6.2350e-5 | 1.9413e-5 (was 3.097e-5) | 9.504e-6 (was 1.2249e-5; ref 7.6e-6) | 3.686e-6 (ref 4.2e-6) |
+  ratios 0.142, 0.231, 0.311, 0.490, 0.388.  Bulb-limb κ through level 6 = 1.0849e-2 (reference 1.0844e-2, 5e-4
+  relative).  The remaining level-5/6 differences (+1.9e-6, -0.5e-6) are where the heuristic slot rule is still unsure;
+  exact (combinatorial) tuning labels remain the item to replace it.
