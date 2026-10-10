@@ -111,8 +111,10 @@ def main():
             tsat = rkey(zs[-1]) in sat_y
             agg[(in_sat(nm), tsat)][0] += CW
             if rho > 0.5: agg[(in_sat(nm), tsat)][1] += CW
+            # D' without the target point (the last step to the target done exactly): m = 1 atoms have no other point
+            Dp = min([lat(z - vU) for z in zs[r + 1:-1]], default=float('inf'))
             atoms.append((in_sat(nm), tsat, eps.get(nm, float('nan')), D, abs(dd), CW, rho > 0.5, r, mm, sW, nm, w,
-                          min(range(r + 1, len(zs)), key=lambda i: lat(zs[i] - vU)) + 1))
+                          min(range(r + 1, len(zs)), key=lambda i: lat(zs[i] - vU)) + 1, abs(dd) / Dp > 0.5))
             tot[mm] += CW
             if rho > 0.5:
                 bad[mm] += CW; badby[pieces[r]] += CW
@@ -179,6 +181,16 @@ def main():
             for x in near:
                 if x[2]: h[int(((math.atan2(x[0].imag, x[0].real) / (2 * math.pi)) % 1) * 24)] += x[1]
             print('     ' + ' '.join('%d:%.1e' % (k, h[k]) for k in range(24) if h[k] > 0))
+    print("bad share with the target's branch point removed (D' over the intermediate chain points), by class and island level:")
+    for cls, name in (((True, True), 'inside, satellite target'), ((False, True), 'outside, satellite target'),
+                      ((True, False), 'inside, primitive target'), ((False, False), 'outside, primitive target')):
+        for lev in (1, 2, 3, 4):
+            for mm in (1, 2):
+                sel = [x for x in atoms if (x[0], x[1]) == cls and x[7] == lev and x[8] == mm]
+                if not sel: continue
+                M = sum(x[5] for x in sel)
+                print('  %-26s L%d m=%d mass %.3e  bad %.3f  bad\' %.3f' % (name, lev, mm, M, sum(x[5] for x in sel if x[6]) / M,
+                      sum(x[5] for x in sel if x[13]) / M))
     # dissection: the heaviest bad atoms of islands at levels 2-3 inside a satellite's island
     y2name = {rkey(it[nm][1][-1]): nm for nm in it if comps[nm][0] == 1}
     tname = lambda nm: y2name.get(rkey(it[nm][1][-1]), '?')
