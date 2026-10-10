@@ -1535,3 +1535,30 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   feasible if the per-island solve is cheap.  Caveats: one lineage at q = 2; only one post-island transit
   (deeper atoms not measured); tunings by components outside the sampled lineage are not excluded (children/C up
   to 3 for some islands); the islands overlap at the 1.5% level and miss 0.13%.
+- **The exact island partition** (`glavaurs hcrit|parent|itinerary`, `experiments/partition.py`).  At q = 2 the horn
+  map has two critical values mod 1 in the consistent coordinate, c_a = 0.27579 + 4.31969i (into petal 1) and
+  c_b = 0.77579 (petal 0), c_b - c_a = 1/2 - τ.  Pieces = components of H^-1(Voronoi cell of c + Z), named by the
+  preimage of c reached by continuing H(z) = w + λ(c - w) from z (σ-independent); a critical piece (2:1 around a target)
+  carries a sheet bit (z - y ≈ ±√((1-λ)(w-c)·2/H''(y)), principal roots: the piece's two tiles), a non-critical piece
+  maps 1:1.  A component's itinerary = its pieces at transits 1..R-1; island(U) = the components whose itinerary
+  starts with U's pieces and then U's critical piece: disjoint by construction.  (Without the sheet bit the two
+  sibling islands on one 2:1 piece merged.)  An island maps 2:1 onto one Voronoi cell only, so its children are the
+  targets in that cell; the rest pass through non-critical pieces, which are just more atoms of the enclosing
+  island (`ichildren`'s cell-crossing segments overlapped by 1.5% for this reason).  Level 2 (census children of all
+  434 level-1 sources): 95.28% of the mass in islands of listed level-1 components, 4.72% through non-critical pieces
+  (one component of 1.37e-5), 7e-10 unassigned.
+- **Island statistics on the full census** (`experiments/census_islands.py` on /data/results/gl2e, 19,991
+  components > 1e-12, tunings removed; `results/census_islands_q2.log`).  Parent island found for 95.3, 87.6, 95.8,
+  89.9, 88.8% of the level 2-6 mass; non-critical pieces 4.7, 9.6, 1.8, 0.9, 0.7%; the rest have parents below the
+  cutoff or tuned.  Atoms one and two transits past their island, by where the island lies and what the atom lands on:
+  | island | target | mass | bad (ρ > 1/2) |
+  | not inside a satellite | satellite | 6.95e-5 | 0.6% |
+  | not inside a satellite | primitive | 2.8e-6 | 74% |
+  | inside a satellite's island | primitive | 1.0e-5 | 56% |
+  | inside a satellite's island | satellite | 2.26e-4 | 88% |
+  The clean lineage result (S1's islands: bad share falling ~2ε³) is the first row.  Most atom mass is in the
+  satellites' islands returning to satellite targets, where the expansion fails: the radius |σ_U - σ_t| is set by
+  the distance to the satellite, and islands inside the bulb's island sit near it at every depth.  This is the bulb's
+  own parabolic structure (its limbs accumulate at its root like the strip at the main root): it needs the
+  strip/family machinery recursively (the κ of the bulb's own limbs), not island expansions.  The primitive-target
+  rows (small mass, high bad share) are not yet understood.
