@@ -1313,3 +1313,12 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   5. Assembly over the Stern-Brocot tree and the tuning hierarchy: open.
   6. Shape factors: solved in principle (weight-4 jets: 1e-3 → 3e-8; higher weights for higher orders).
   Also found and fixed on the way: children inherit normal-form constants (bulb-target children were 2/3 low).
+- **The S1 constant vs M, resolved**: S1's family recomputed on the M side (`limb_families custom` + `bulb_batch --N 128`,
+  double-double areas, 25 members k = 32..2048 in 0.06 s) and fitted as G(k) = k^4 area = C + Σ_j b_j k^-j (with or
+  without (log k)/k^j terms, C free or fixed at the model's 47-digit value): every fit stalls at the same residual floor
+  ~5e-20 (3e-17 relative) for k ≥ 32, 64, 128: the M-side areas' own accuracy (the double-double boundary points are
+  good to ~1e-17, whatever the Fourier convergence says).  The free-C estimates scatter around the model value
+  (-1.2e-19, -1.5e-19, +1.9e-19, -5.7e-19) and the fixed-C fits reach the same floor without log terms: the model
+  constant C(S1) = 1.72497406349896486443936883749556e-3 is consistent with M at the 1e-19 level, and the earlier
+  "1e-20 subset agreement" was within the data's noise.  b1 = 9.12807166722e-4.  For 1e-40, finite k needs M-side
+  areas at ~1e-45 (quad-double boundary points) and the structure of the 1/k expansion (no log terms visible at 3e-17).
