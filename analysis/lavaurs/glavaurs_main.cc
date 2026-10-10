@@ -1,7 +1,7 @@
 // The general p/q-root Lavaurs model (glavaurs.h): components, areas, and children.
 //
 //   glavaurs p q single nmax re0 re1 im0 im1 grid threads   # single-transit centers by grid Newton, with areas
-//   glavaurs p q area threads < "name r n re im"              # areas: "name r n cre cim area_σ C conv cusp"
+//   glavaurs p q area threads < "name r n re im"              # areas: "name r n cre cim area_σ C conv cusp C_nf"
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
 //   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
@@ -29,6 +29,7 @@ using namespace mandelbrot;
 typedef Complex<double> Cd;
 typedef std::complex<double> SCd;
 static Cd cd_mul(const Cd a, const Cd b) { const SCd c = SCd(a.r, a.i) * SCd(b.r, b.i); return Cd(c.real(), c.imag()); }
+static Cd cd_div(const Cd a, const Cd b) { const SCd c = SCd(a.r, a.i) / SCd(b.r, b.i); return Cd(c.real(), c.imag()); }
 
 // Explicit critical-orbit points of an r-transit component (gate interiors omitted): per transit T = 1..r the steps
 // until the attracting petal ('e', T - 1, s: T = 1 from the critical value, s = 1 being v; T > 1 after the landing point
@@ -147,8 +148,16 @@ int main(int argc, char** argv) {
           Cd cen, a1;
           double ar, conv, cusp;
           char line[512];
-          if (L.area(j.r, j.n, j.g, cen, ar, conv, cusp, a1))
-            snprintf(line, sizeof(line), "%s %d %d %.17g %.17g %.10e %.10e %.1e %.3e", j.name.c_str(), j.r, j.n, cen.r, cen.i, ar, K * ar, conv, cusp);
+          if (L.area(j.r, j.n, j.g, cen, ar, conv, cusp, a1)) {
+            // the normal-form constant at the center: R(w) ≈ crit + D δσ + A (w - crit)², a cardioid of area 3π/8 in
+            // c = A D δσ, so C_nf = K (3π/8)/|A D|²: what the component's children inherit (not its exact area)
+            GLJet x;
+            double cnf = NAN;
+            if (L.core.return_map(j.r, j.n, L.crit, cen, x))
+              cnf = K * (3 * M_PI / 8) / std::norm(SCd(x.ww.r / 2, x.ww.i / 2) * SCd(x.s.r, x.s.i));
+            snprintf(line, sizeof(line), "%s %d %d %.17g %.17g %.10e %.10e %.1e %.3e %.10e", j.name.c_str(), j.r, j.n,
+                     cen.r, cen.i, ar, K * ar, conv, cusp, cnf);
+          }
           else
             snprintf(line, sizeof(line), "%s %d %d failed", j.name.c_str(), j.r, j.n);
           out[i] = line;
@@ -253,6 +262,8 @@ int main(int argc, char** argv) {
     // transit) from σ_W.  Prints "name sf_re sf_im w_exact wT wmult" (w = |Θ' Π H'|^-2 exact at σ_W; the frozen child's
     // weight with the parameter derivative along the frozen orbit, and |Π H'|^-4), or "name failed".
     const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    // FR_T=1: the slice crosses the fiber at the source's transversality T_{r-1}(σ_X) = Θ'_{r-1}/Π H'_{r-1}
+    const bool useT = getenv("FR_T") && atoi(getenv("FR_T"));
     struct Q { std::string name; int r; Cd y, sx, sw; };
     std::vector<Q> qs;
     char name[256];
@@ -272,19 +283,24 @@ int main(int argc, char** argv) {
           snprintf(line, sizeof(line), "%s failed", Q.name.c_str());
           if (L.theta(Q.sw, Q.r, t, d, dd, hp)) {
             const double we = 1 / std::norm(SCd(d.r, d.i) * SCd(hp.r, hp.i));
+            Cd speed(1);
+            if (useT) {
+              Cd t1, d1, dd1, h1;
+              if (L.theta(Q.sx, Q.r - 1, t1, d1, dd1, h1)) speed = cd_div(d1, h1);
+            }
             SCd s(Q.sw.r, Q.sw.i);
             bool ok = false;
             Cd tf, dz, dq, hq, pr;
             int pet;
             for (int it = 0; it < 60; it++) {
-              if (!L.core.theta_frozen(Cd(s.real(), s.imag()), Q.sx, Q.r, tf, dz, dq, hq, pr, pet)) break;
+              if (!L.core.theta_frozen(Cd(s.real(), s.imag()), Q.sx, Q.r, tf, dz, dq, hq, pr, pet, speed)) break;
               const SCd step = (SCd(tf.r, tf.i) - SCd(Q.y.r, Q.y.i)) / SCd(dz.r, dz.i);
               s -= step;
               if (!(std::abs(step) < 10)) break;
               if (std::abs(step) < 1e-11 * (1 + std::abs(s))) { ok = true; break; }
             }
             if (ok) {
-              L.core.theta_frozen(Cd(s.real(), s.imag()), Q.sx, Q.r, tf, dz, dq, hq, pr, pet);
+              L.core.theta_frozen(Cd(s.real(), s.imag()), Q.sx, Q.r, tf, dz, dq, hq, pr, pet, speed);
               const SCd H(hq.r, hq.i);
               snprintf(line, sizeof(line), "%s %.17g %.17g %.6e %.6e %.6e", Q.name.c_str(), s.real(), s.imag(), we,
                        1 / std::norm(SCd(dq.r, dq.i) * H), 1 / std::norm(H * H));

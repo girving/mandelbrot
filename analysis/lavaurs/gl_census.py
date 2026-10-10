@@ -49,8 +49,10 @@ def main():
     fams, sats = [], []
     for l in open(a.single):
         f = l.split()
-        if f[0].startswith('sat'): sats.append(('B%d' % len(sats), int(f[0][3:]), complex(float(f[1]), float(f[2])), float(f[3])))
-        else: fams.append(('F%d' % len(fams), int(f[0]), complex(float(f[1]), float(f[2])), float(f[3])))
+        # the 6th column (when present) is the normal-form constant C_nf, which children inherit
+        cnf = float(f[5]) if len(f) > 5 else None
+        if f[0].startswith('sat'): sats.append(('B%d' % len(sats), int(f[0][3:]), complex(float(f[1]), float(f[2])), float(f[3]), cnf))
+        else: fams.append(('F%d' % len(fams), int(f[0]), complex(float(f[1]), float(f[2])), float(f[3]), cnf))
     big2 = sorted(sats, key=lambda x: -x[3])[:2]
     cut = (big2[0][2].imag + big2[1][2].imag) / 2
     own = [b for b in big2 if b[1] == q - 1]
@@ -63,7 +65,7 @@ def main():
     fams.sort(key=lambda x: -x[3])
     targets = sats + fams[:a.targets]
     radius = lambda C: math.sqrt(C / (a_K * math.pi))   # σ radius of a disk of constant C
-    level = [(nm, 1, n, c, C, False) for nm, n, c, C in fams[:a.sources]] + [(nm, 1, n, c, C, True) for nm, n, c, C in sats]
+    level = [(nm, 1, n, c, C, False) for nm, n, c, C, _ in fams[:a.sources]] + [(nm, 1, n, c, C, True) for nm, n, c, C, _ in sats]
     totals = {}
     jd, ju = int(round(a.jd * q)), int(round(a.ju * q))
     r0 = 2
@@ -84,7 +86,7 @@ def main():
         for nm, rs, n, c, C, sat in srcs:
             jc = -(n + 1)
             heavy = sat or C > a.big_src
-            for tn, nt, ct, Ct in (targets if heavy else targets[:len(sats) + a.small_targets]):
+            for tn, nt, ct, Ct, _ in (targets if heavy else targets[:len(sats) + a.small_targets]):
                 (big if heavy else small).append('%s~%s %d %d %.17g %.17g %.6g %d %.17g %.17g %d %d' % (
                     nm, tn, r, n, c.real, c.imag, radius(C), nt, ct.real, ct.imag, jc - jd, jc + ju))
         print('level %d: %d sources (%d heavy or satellite) x %d targets' % (
@@ -95,7 +97,11 @@ def main():
         out += run(['children', str(a.threads)], '\n'.join(small) + '\n')
         if a.out:
             with open('%s_raw_r%d.txt' % (a.out, r), 'w') as fo: fo.write(out)
-        Ct_of = {t[0]: t[3] for t in targets}
+        # Children inherit the target's normal-form constant C_nf = K (3π/8)/|A D|², not its exact area (checked
+        # against exact areas: with the exact area, children of the bulbs come out at 2/3 and of primitive targets
+        # +3-8% high; with C_nf both medians are within 1%).  Without a C_nf column: the exact area, ×3/2 for satellites
+        satn = {t[0] for t in sats}
+        Ct_of = {t[0]: (t[4] if t[4] is not None else t[3] * (1.5 if t[0] in satn else 1.0)) for t in targets}
         nt_of = {t[0]: t[1] for t in targets}
         kids = {}
         for l in out.splitlines():
