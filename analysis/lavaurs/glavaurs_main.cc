@@ -181,7 +181,9 @@ static inline bool gl_phi_a_t4(const GLCore& L, const std::complex<double> w0, G
         GLT4 dlt = g; dlt.c[0] = 0;
         out = t4_compose(P, dlt);
         out.c[0] -= double(n) / L.q;
-        pet = k;
+        const Complex<double> off = L.hit_offset(k);
+        out.c[0] += std::complex<double>(off.r, off.i);
+        pet = L.label(k, n);
         return true;
       }
     }
@@ -1166,6 +1168,24 @@ int main(int argc, char** argv) {
     Complex<Expansion<3>> c3(c2.r.x[0] ? Expansion<3>(c2.r.x[0]) + Expansion<3>(c2.r.x[1]) : Expansion<3>(0.0),
                              c2.i.x[0] ? Expansion<3>(c2.i.x[0]) + Expansion<3>(c2.i.x[1]) : Expansion<3>(0.0));
     run(gl_make_core<Expansion<3>>(p, q, L.side, Nh), 1e-44, "Expansion<3>", c3);
+    return 0;
+  }
+  if (mode == "geq") {
+    // f-equivariance of the transit g_σ(w) = Ψ_e(Φ_a(w) + σ + shift(k)): |g(f(w)) - f(g(w))| along the critical orbit
+    const Cd sigma(atof(argv[4]), atof(argv[5]));
+    const auto g = [&](const Cd w, int& k) {
+      Cd s0, d0, dd0, x, d, dd;
+      if (!L.phi_a(w, s0, d0, dd0, k)) return Cd(NAN, NAN);
+      if (!L.psi(s0 + sigma + L.transit_shift(k), L.exit_petal(k), x, d, dd)) return Cd(NAN, NAN);
+      return x;
+    };
+    Cd w = L.v;
+    for (int i = 0; i < 8; i++) {
+      int k1, k2;
+      const Cd a = g(L.lam * w + w * w, k2), gb = g(w, k1), b = L.lam * gb + gb * gb;
+      printf("w%d: entering petals %d -> %d, |g(f w) - f(g w)| = %.3e  (|g(f w)| %.3g)\n", i, k1, k2, std::hypot((a - b).r, (a - b).i), std::hypot(a.r, a.i));
+      w = L.lam * w + w * w;
+    }
     return 0;
   }
   if (mode == "consist") {

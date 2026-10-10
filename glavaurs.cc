@@ -124,11 +124,14 @@ template<class S> GLCoreT<S> gl_make_core(const int p, const int q, const int si
   // the attracting series is used where |a_{-q}| |w|^{-q} ≥ 625 (0.02 at q = 2), as trustworthy as psi's
   core.r0 = std::pow(std::hypot(double(core.a[0].r), double(core.a[0].i)) / 625, 1.0 / q);
   core.tau = C(S(0.0), twice(gl_pi<S>()) / S(double(q))) * core.beta;
+  // the critical value's hit petal (raw, kvh < 0 while building), then its label
   core.kv = 0;
+  core.kvh = -1;
   C s, d, dd;
-  int kv;
-  slow_assert(core.phi_a(core.v, s, d, dd, kv), "the critical value does not enter a petal");
-  core.kv = kv;
+  int kh, nh;
+  slow_assert(core.phi_a(core.v, s, d, dd, kh, 1 << 20, &nh), "the critical value does not enter a petal");
+  core.kvh = kh;
+  core.kv = core.label(kh, nh);
   return core;
 }
 template GLCoreT<double> gl_make_core(int, int, int, int);

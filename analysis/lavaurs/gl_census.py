@@ -36,6 +36,7 @@ def main():
     ap.add_argument('--starts', type=int, default=8)
     ap.add_argument('--small-targets', type=int, default=30)
     ap.add_argument('--out', default='')
+    ap.add_argument('--force-half', choices=['upper', 'lower'], default=None)   # override the classifier's choice
     ap.add_argument('--resume', type=int, default=0)   # start at this level from --out's previous level file (and its
                                                        # _tuned file, whose components are not sources)
     a = ap.parse_args()
@@ -55,7 +56,10 @@ def main():
         if f[0].startswith('sat'): sats.append(('B%d' % len(sats), int(f[0][3:]), complex(float(f[1]), float(f[2])), float(f[3]), cnf))
         else: fams.append(('F%d' % len(fams), int(f[0]), complex(float(f[1]), float(f[2])), float(f[3]), cnf))
     big2 = sorted(sats, key=lambda x: -x[3])[:2]
-    cut, upper = gl_common.own_half(a.p, q, a.side, [(b[0], b[1], b[2]) for b in big2], a.threads)
+    if a.force_half:
+        cut, upper = (big2[0][2].imag + big2[1][2].imag) / 2, a.force_half == 'upper'
+    else:
+        cut, upper = gl_common.own_half(a.p, q, a.side, [(b[0], b[1], b[2]) for b in big2], a.threads)
     inh = lambda c: (c.imag >= cut) == upper
     fams = [f for f in fams if inh(f[2])]; sats = [f for f in sats if inh(f[2])]
     print('%s half (cut Im σ = %.4f): %d single-transit families, S_0 = %.6e; satellites %s' % (
