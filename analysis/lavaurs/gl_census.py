@@ -8,12 +8,13 @@ children get exact areas and cusps (`glavaurs area`), satellites (cusp ≥ 0.01)
 One gate's σ-plane holds the single-transit components of both sides of the root (the two bulbs, one per side), but
 only one half is the gate's own: its multi-transit children are the physical ones (at q = 2, 3 checked by S_1/S_0 =
 0.155 and the bulb doubling's ratio 0.072; the other half is the other gate's single transits, whose children here are
-spurious).  The halves are split at the mean Im σ of the two bulbs; the gate's half is the one whose bulb has excursion
-n = q - 1 (σ ≈ -1).  Sources and targets come from that half only, and children are counted only there.
+spurious).  The halves are split at the mean Im σ of the two bulbs; the gate's half is the one whose bulb the gate's
+kneading classifier labels a bulb (gl_common.own_half; at q = 2, 3 the bulb with excursion q - 1, not at q = 4).  Sources and targets come from that half only, and children are counted only there.
 
   python3 gl_census.py p q side single.txt --levels 3 [--sources N] [--targets N] [--out prefix]
 single.txt: gl_single.py --out ("n re im C exact|est" rows, "sat<n> re im C cusp" rows)."""
 import argparse, math, os, re, subprocess, sys
+import gl_common
 
 BIN = os.path.join(os.path.dirname(__file__), '../../build/release/glavaurs')
 
@@ -54,10 +55,7 @@ def main():
         if f[0].startswith('sat'): sats.append(('B%d' % len(sats), int(f[0][3:]), complex(float(f[1]), float(f[2])), float(f[3]), cnf))
         else: fams.append(('F%d' % len(fams), int(f[0]), complex(float(f[1]), float(f[2])), float(f[3]), cnf))
     big2 = sorted(sats, key=lambda x: -x[3])[:2]
-    cut = (big2[0][2].imag + big2[1][2].imag) / 2
-    own = [b for b in big2 if b[1] == q - 1]
-    assert len(own) == 1, big2
-    upper = own[0][2].imag > cut
+    cut, upper = gl_common.own_half(a.p, q, a.side, [(b[0], b[1], b[2]) for b in big2], a.threads)
     inh = lambda c: (c.imag >= cut) == upper
     fams = [f for f in fams if inh(f[2])]; sats = [f for f in sats if inh(f[2])]
     print('%s half (cut Im σ = %.4f): %d single-transit families, S_0 = %.6e; satellites %s' % (
