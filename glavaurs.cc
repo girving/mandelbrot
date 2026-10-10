@@ -20,7 +20,6 @@ inline double cabs(const Cd z) { return std::hypot(z.r, z.i); }
 inline Cd cdiv(const Cd a, const Cd b) { return cd(sc(a) / sc(b)); }
 inline double wrap(const double t) { return std::remainder(t, 2 * M_PI); }   // to [-π, π]
 
-constexpr double kR0 = 0.02;      // |w| below which the attracting series is used
 constexpr double kRepel = 400;    // Re ζ' ≤ -max(kRepel, 2|Im ζ'|) for the repelling local inverse
 
 struct Jet {
@@ -98,6 +97,8 @@ GeneralLavaurs::GeneralLavaurs(const int p_, const int q_, const int side_, cons
   acb_mat_clear(B);
   A = -cdiv(Cd(1), Cd(q) * a[0]);
   if (std::fabs(A.i) < 1e-12 * cabs(A)) A.i = 0;   // a canonical arg for the petal axes
+  // the attracting series is used where |a_{-q}| |w|^{-q} ≥ 625 (0.02 at q = 2), as trustworthy as psi's
+  r0 = std::pow(cabs(a[0]) / 625, 1.0 / q);
   Cd s, d, dd;
   slow_assert(phi_a(v, s, d, dd, kv), "the critical value does not enter a petal");
 }
@@ -146,7 +147,7 @@ double GeneralLavaurs::axis(const int kind, const int k) const {
 bool GeneralLavaurs::phi_a(Cd w, Cd& s, Cd& d, Cd& dd, int& pet, const int max_steps) const {
   Cd d1(1), d2(0);
   for (int n = 0; n < max_steps; n++) {
-    if (cabs(w) < kR0) {
+    if (cabs(w) < r0) {
       const int k = petal(w, -1);
       if (k >= 0) {
         Cd ss, sd, sdd;

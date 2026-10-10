@@ -6,6 +6,9 @@
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
 //   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
 //   glavaurs p q consist                                      # cross-petal branch conventions
+//   glavaurs p q arc sgn                                      # the critical arc: Φ_a(w) = Φ_a(crit) + i sgn t
+//   glavaurs p q orbit J < "name r n re im"                   # explicit critical-orbit points, for kneading
+//   glavaurs p q classify theta threads < "name r n re im"    # limbs by kneading: "name m offset" | "name bulb r"
 // C = (4π² sin²(πp/q)/q⁴) area_σ is the family constant lim k⁴ area_M (limbs [CF(p/q), k]).
 #include "glavaurs.h"
 #include <atomic>
@@ -21,6 +24,62 @@
 using namespace mandelbrot;
 typedef Complex<double> Cd;
 typedef std::complex<double> SCd;
+static Cd cd_mul(const Cd a, const Cd b) { const SCd c = SCd(a.r, a.i) * SCd(b.r, b.i); return Cd(c.real(), c.imag()); }
+
+// Explicit critical-orbit points of an r-transit component (gate interiors omitted): per transit T = 1..r the steps
+// until the attracting petal ('e', T - 1, s: T = 1 from the critical value, s = 1 being v; T > 1 after the landing point
+// x_{T-1}), then the J exit steps before the landing point x_T and x_T itself ('x', T, -J..0), then the final
+// excursion up to (not including) the critical point ('f', r, s).
+struct OrbitPoint { char kind; int T, s; Cd w; };
+static bool orbit_points(const GeneralLavaurs& L, const int r, const int n, const Cd sigma, const int J,
+                         std::vector<OrbitPoint>& pts) {
+  const int q = L.q;
+  int dp;
+  {
+    // f maps repelling petal k to petal k + dp
+    Cd w, d, dd;
+    L.psi(Cd(-60, 0), 0, w, d, dd);
+    dp = L.petal(L.lam * w + w * w, 1);
+  }
+  const Cd tau = cd_mul(Cd(0, 2 * M_PI / q), L.beta);
+  Cd x = L.v;
+  for (int T = 1; T <= r; T++) {
+    Cd w = T == 1 ? x : L.lam * x + x * x;
+    for (int s = 1; s < 1000000; s++) {
+      if (std::hypot(w.r, w.i) < 0.05 && L.petal(w, -1) >= 0) break;
+      pts.push_back({'e', T - 1, s, w});
+      w = L.lam * w + w * w;
+      if (std::hypot(w.r, w.i) > 10) return false;
+    }
+    Cd p0, d0, dd0;
+    int pet;
+    if (!L.phi_a(x, p0, d0, dd0, pet)) return false;
+    const Cd zeta = p0 + sigma + L.transit_shift(pet);
+    const int e = L.exit_petal(pet);
+    // the predecessor in petal b = a - dp of Ψ_a(ζ) is Ψ_b(ζ - 1/q - (a - b) τ)
+    std::vector<Cd> ex;
+    Cd z = zeta;
+    int a = e;
+    for (int j = 1; j <= J; j++) {
+      const int b = ((a - dp) % q + q) % q;
+      z = z - Cd(1.0 / q) - cd_mul(Cd(double(a - b)), tau);
+      Cd y, d, dd;
+      if (!L.psi(z, b, y, d, dd)) return false;
+      ex.push_back(y);
+      a = b;
+    }
+    for (int j = J; j >= 1; j--) pts.push_back({'x', T, -j, ex[j - 1]});
+    Cd d, dd;
+    if (!L.psi(zeta, e, x, d, dd)) return false;
+    pts.push_back({'x', T, 0, x});
+  }
+  Cd w = x;
+  for (int s = 1; s < n; s++) {
+    w = L.lam * w + w * w;
+    pts.push_back({'f', r, s, w});
+  }
+  return true;
+}
 
 int main(int argc, char** argv) {
   if (argc < 4) { fprintf(stderr, "usage: glavaurs p q mode ...\n"); return 1; }
@@ -257,6 +316,169 @@ int main(int argc, char** argv) {
       });
     for (auto& t : pool) t.join();
     for (const auto& t : out) fputs(t.c_str(), stdout);
+    return 0;
+  }
+  if (mode == "arc") {
+    // The lift under Φ_a (2:1 at the critical point) of the vertical half-line {Φ_a(crit) + i sgn t, t > 0}: two
+    // branches from the critical point, ending at α (w = 0) and -α (w = -λ).  Prints "A branch re im".
+    const double sgn = atof(argv[4]);
+    Cd p0, d0, dd0;
+    int k;
+    if (!L.phi_a(L.crit, p0, d0, dd0, k)) return 1;
+    for (const int br : {1, -1}) {
+      double t = 1e-4;
+      const SCd w0 = SCd(L.crit.r, L.crit.i) + double(br) * std::sqrt(2.0 * SCd(0, sgn * t) / SCd(dd0.r, dd0.i));
+      Cd w(w0.real(), w0.imag());
+      for (int it = 0; it < 4000 && t < 1e4; it++) {
+        bool ok = false;
+        for (int nt = 0; nt < 60; nt++) {
+          Cd s, d, dd;
+          int kk;
+          if (!L.phi_a(w, s, d, dd, kk)) break;
+          const SCd step = (SCd(s.r, s.i) - SCd(p0.r, p0.i + sgn * t)) / SCd(d.r, d.i);
+          w = w - Cd(step.real(), step.imag());
+          // phi_a runs ~1/kR0^q iterations: residuals bottom out near 1e-12
+          if (std::abs(step) < 1e-9 && std::abs(step * SCd(d.r, d.i)) < 1e-10) { ok = true; break; }
+        }
+        if (!ok) break;
+        printf("A %d %.17g %.17g\n", br, w.r, w.i);
+        if (std::hypot(w.r, w.i) < 0.01 || std::hypot(w.r + L.lam.r, w.i + L.lam.i) < 0.01) break;
+        t *= 1.03;
+      }
+    }
+    return 0;
+  }
+  if (mode == "orbit") {
+    // The critical orbit of an r-transit component as explicit points (orbit_points); prints "name kind T s re im"
+    const int J = atoi(argv[4]);
+    char name[256];
+    int r, n;
+    double sr, si;
+    while (scanf("%255s %d %d %lf %lf", name, &r, &n, &sr, &si) == 5) {
+      std::vector<OrbitPoint> pts;
+      if (!orbit_points(L, r, n, Cd(sr, si), J, pts)) { printf("%s failed\n", name); continue; }
+      for (const auto& o : pts) printf("%s %c %d %d %.17g %.17g\n", name, o.kind, o.T, o.s, o.w.r, o.w.i);
+    }
+    return 0;
+  }
+  if (mode == "classify") {
+    // The limb of each component (gl_limb.py's kneading classifier in C++): partition R_{θ/2} ∪ A ∪ R_{(θ+1)/2} with
+    // θ the root's parameter angle on the gate's side (gate +1: the lower angle, gate -1: the upper) and A the arc
+    // Φ_a = Φ_a(crit) + i gate t; ν = 1 on the side of the angles (θ/2, (θ+1)/2) and within 0.15 of α.  Prints
+    // "name m offset" at the first 0 (offset from the landing point x_m; ≡ -1 mod q, b = (offset + 1)/q mod m), or
+    // "name bulb r" (no 0 before the critical point), or "name failed".
+    const double theta = atof(argv[4]);
+    const int threads = argc > 5 ? atoi(argv[5]) : 2;
+    const int J = 40;
+    const SCd lam(L.lam.r, L.lam.i), c0 = lam / 2.0 - lam * lam / 4.0, alpha = lam / 2.0;
+    const auto ray = [&](const double t) {
+      std::vector<SCd> pts;
+      const double ER = 1e4;
+      SCd z = std::polar(std::sqrt(ER), 2 * M_PI * t);
+      for (int n = 1; n <= 40; n++) {
+        const double ang = 2 * M_PI * std::fmod(std::ldexp(t, n), 1.0);
+        for (int j = 1; j <= 16; j++) {
+          const SCd target = std::polar(std::pow(ER, std::pow(2.0, -j / 16.0)), ang);
+          for (int it = 0; it < 60; it++) {
+            SCd w = z, dw = 1;
+            for (int m = 0; m < n; m++) { dw = 2.0 * w * dw; w = w * w + c0; }
+            const SCd step = (w - target) / dw;
+            z -= step;
+            if (std::abs(step) < 1e-15 * (1 + std::abs(z))) break;
+          }
+          pts.push_back(z);
+        }
+      }
+      return pts;
+    };
+    // the arc's branches, in z coordinates
+    std::vector<SCd> br[2];
+    {
+      const double sgn = L.side;
+      Cd p0, d0, dd0;
+      int k;
+      if (!L.phi_a(L.crit, p0, d0, dd0, k)) return 1;
+      for (int b = 0; b < 2; b++) {
+        double t = 1e-4;
+        const SCd w0 = SCd(L.crit.r, L.crit.i) + (b ? -1.0 : 1.0) * std::sqrt(2.0 * SCd(0, sgn * t) / SCd(dd0.r, dd0.i));
+        Cd w(w0.real(), w0.imag());
+        for (int it = 0; it < 4000 && t < 1e4; it++) {
+          bool ok = false;
+          for (int nt = 0; nt < 60; nt++) {
+            Cd s, d, dd;
+            int kk;
+            if (!L.phi_a(w, s, d, dd, kk)) break;
+            const SCd step = (SCd(s.r, s.i) - SCd(p0.r, p0.i + sgn * t)) / SCd(d.r, d.i);
+            w = w - Cd(step.real(), step.imag());
+            if (std::abs(step) < 1e-9 && std::abs(step * SCd(d.r, d.i)) < 1e-10) { ok = true; break; }
+          }
+          if (!ok) break;
+          br[b].push_back(SCd(w.r, w.i) + alpha);
+          if (std::abs(br[b].back() - alpha) < 0.01 || std::abs(br[b].back() + alpha) < 0.01) break;
+          t *= 1.03;
+        }
+      }
+    }
+    const int ba = std::abs(br[0].back() - alpha) < std::abs(br[1].back() - alpha) ? 0 : 1;
+    if (!(std::abs(br[ba].back() - alpha) < 0.05 && std::abs(br[1 - ba].back() + alpha) < 0.05)) {
+      fprintf(stderr, "classify: the arc does not reach ±α\n");
+      return 1;
+    }
+    const double a1 = theta / 2, a2 = (theta + 1) / 2;
+    const auto r1 = ray(a1), r2 = ray(a2);
+    const bool r1a = std::abs(r1.back() - alpha) < std::abs(r2.back() - alpha);
+    const auto& arc1 = r1a ? br[ba] : br[1 - ba];
+    const auto& arc2 = r1a ? br[1 - ba] : br[ba];
+    std::vector<SCd> poly;
+    const double far = 200;
+    poly.push_back(std::polar(far, 2 * M_PI * a1));
+    poly.insert(poly.end(), r1.begin(), r1.end());
+    poly.insert(poly.end(), arc1.rbegin(), arc1.rend());
+    poly.push_back(SCd(L.crit.r, L.crit.i) + alpha);
+    poly.insert(poly.end(), arc2.begin(), arc2.end());
+    poly.insert(poly.end(), r2.rbegin(), r2.rend());
+    for (int d = 0; d < 720; d++) poly.push_back(std::polar(far, 2 * M_PI * (a2 - (a2 - a1) * d / 720)));
+    const auto inside = [&](const SCd z) {
+      bool in = false;
+      for (size_t i = 0; i < poly.size(); i++) {
+        const SCd a = poly[i], b = poly[(i + 1) % poly.size()];
+        if ((a.imag() > z.imag()) != (b.imag() > z.imag())) {
+          const double x = a.real() + (z.imag() - a.imag()) * (b.real() - a.real()) / (b.imag() - a.imag());
+          if (x > z.real()) in = !in;
+        }
+      }
+      return in;
+    };
+    struct Job { std::string name; int r, n; Cd s; };
+    std::vector<Job> jobs;
+    char name[256];
+    int r, n;
+    double sr, si;
+    while (scanf("%255s %d %d %lf %lf", name, &r, &n, &sr, &si) == 5) jobs.push_back({name, r, n, Cd(sr, si)});
+    std::vector<std::string> out(jobs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int t = 0; t < threads; t++)
+      pool.emplace_back([&]() {
+        for (int64_t i; (i = next++) < int64_t(jobs.size());) {
+          const auto& jb = jobs[i];
+          std::vector<OrbitPoint> pts;
+          char line[512];
+          if (!orbit_points(L, jb.r, jb.n, jb.s, J, pts)) { snprintf(line, sizeof(line), "%s failed", jb.name.c_str()); out[i] = line; continue; }
+          snprintf(line, sizeof(line), "%s bulb %d", jb.name.c_str(), jb.r);
+          for (const auto& o : pts) {
+            if (std::hypot(o.w.r, o.w.i) < 0.15) continue;
+            if (!inside(SCd(o.w.r, o.w.i) + alpha)) {
+              if (o.kind == 'e' && o.T == 0) snprintf(line, sizeof(line), "%s pre %d", jb.name.c_str(), o.s);
+              else snprintf(line, sizeof(line), "%s %d %d", jb.name.c_str(), o.T, o.s);
+              break;
+            }
+          }
+          out[i] = line;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& l : out) printf("%s\n", l.c_str());
     return 0;
   }
   if (mode == "debug") {
