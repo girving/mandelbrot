@@ -1,0 +1,151 @@
+
+=== Machine [0 s]
+name, memory.total [MiB], driver_version, clocks.max.sm [MHz]
+NVIDIA H200, 143771 MiB, 570.133.20, 1980 MHz
+CPUs: 176 visible, using 2 threads
+clang version 22.1.8 (https://github.com/conda-forge/clangdev-feedstock 4376d67fb227e616ccc5717854d9d41ab142e4fa)
+
+=== Cloning hybrid-area [1 s]
+commit 5e4aab28d45007744df86226355c4ff6608af31b
+
+=== Configuring and building [3 s]
+Run-time dependency OpenMP found: YES 5.1
+Run-time dependency CUDA (modules: cudart_static) for cpp found: YES 12.8 (/usr/local/cuda)
+ninja: Entering directory `/tmp/mandelbrot/build/release'
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100  36215 100  36215   0      0 113.4k      0                              0100  36215 100  36215   0      0 113.4k      0                              0100  36215 100  36215   0      0 113.4k      0                              0
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100  49197 100  49197   0      0 118.1k      0                              0100  49197 100  49197   0      0 118.0k      0                              0100  49197 100  49197   0      0 117.9k      0                              0
+INFO: autodetecting backend as ninja
+INFO: calculating backend command to run: /data/env-v3/bin/ninja -C /tmp/mandelbrot/build/release glavaurs
+
+=== env GL_START=3 GL_NO_CENSUS=1 CLASSIFY_MIN=1e-12 bash analysis/lavaurs/gl_pipeline.sh 1 2 -1 0.6666666666666666 6 /data/results/gl2e [40 s]
+[0 s] level 3 census
+[0 s] level 3 tunings
+level 3: 1092285 components, 206 tuner candidates, 16667 pairs
+ratio histogram (log10 floor): {1: 7489, 0: 9037, -1: 131, 'inf': 10}
+tuned: 132 components (primitive mass 1.662040e-04)
+  L3_27111 C 3.2348e-03 sat 1  by B3511 (C 2.081e-01)  ratio 0.470
+  L3_27114 C 2.0163e-03 sat 1  by B3511 (C 2.081e-01)  ratio 0.419
+  L3_27165 C 1.6457e-04 sat 0  by B3511 (C 2.081e-01)  ratio 1.563
+  L3_141180 C 6.6454e-05 sat 1  by F0 (C 1.725e-03)  ratio 0.404
+  L3_141181 C 2.5952e-05 sat 1  by F0 (C 1.725e-03)  ratio 0.458
+  L3_141263 C 1.6845e-06 sat 1  by F2 (C 5.902e-05)  ratio 0.427
+  L3_295018 C 1.2304e-06 sat 1  by F2 (C 5.902e-05)  ratio 0.445
+  L3_231539 C 1.0974e-06 sat 1  by F5 (C 4.117e-05)  ratio 0.425
+  L3_14740 C 9.5682e-07 sat 0  by B3511 (C 2.081e-01)  ratio 0.501
+  L3_255707 C 8.2999e-07 sat 1  by F5 (C 4.117e-05)  ratio 0.441
+[11 s] level 3 limbs (tunings removed)
+  below cmin 1e-12 (not classified): 1089091 components, mass 1.542e-09
+  limb 0       2394 components  6.234994e-05
+  limb 1/2      328 components  8.382502e-05
+  limb 1/3       49 components  1.578541e-06
+  limb 2/3       54 components  4.409456e-08
+  total 1.477976e-04
+  unclassified (b = 0 at m > 1): 3.458e-06
+  unclassified (offset %% q): 2.074e-08
+  sat 3.0644e-03 bulb of 2/3
+  sat 3.0610e-03 bulb of 1/3
+[18 s] level 4 census
+[18 s] level 4 tunings
+level 4: 1623974 components, 427 tuner candidates, 118786 pairs
+ratio histogram (log10 floor): {1: 27524, 0: 48007, -1: 1675, 3: 164, 2: 3669, 4: 3}
+tuned: 1679 components (primitive mass 6.680052e-05)
+  L4_28065 C 1.3447e-03 sat 1  by L2_8 (C 1.506e-02)  ratio 0.656
+  L4_68488 C 1.0041e-03 sat 1  by B3511 (C 2.081e-01)  ratio 0.362
+  L4_86092 C 7.7322e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.512
+  L4_28131 C 6.1290e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.351
+  L4_118579 C 3.5126e-05 sat 0  by B3511 (C 2.081e-01)  ratio 0.962
+  L4_218453 C 3.4125e-05 sat 1  by L2_41 (C 1.858e-04)  ratio 0.490
+  L4_205227 C 1.5479e-05 sat 1  by L2_147 (C 2.779e-04)  ratio 0.535
+  L4_218543 C 1.4930e-05 sat 1  by F0 (C 1.725e-03)  ratio 0.417
+  L4_145736 C 1.4038e-05 sat 0  by B3511 (C 2.081e-01)  ratio 0.743
+  L4_28153 C 1.1560e-05 sat 0  by B3511 (C 2.081e-01)  ratio 2.250
+[55 s] level 4 limbs (tunings removed)
+  below cmin 1e-12 (not classified): 1618480 components, mass 1.887e-09
+  limb 0       2610 components  1.941274e-05
+  limb 1/2      507 components  4.165798e-06
+  limb 1/3      109 components  7.225217e-06
+  limb 2/3       97 components  1.582049e-05
+  limb 1/4       28 components  9.212459e-09
+  limb 3/4       26 components  4.178200e-09
+  total 4.663764e-05
+  unclassified (b = 0 at m > 1): 1.680e-06
+  unclassified (offset %% q): 4.917e-09
+  sat 9.6752e-04 bulb of 3/4
+  sat 9.6451e-04 bulb of 1/4
+  sat 1.5005e-07 satellite in 0
+  sat 2.4211e-08 satellite in 0
+[66 s] level 5 census
+[66 s] level 5 tunings
+level 5: 1654055 components, 206 tuner candidates, 75226 pairs
+ratio histogram (log10 floor): {1: 14890, 0: 58574, -1: 1762}
+tuned: 1772 components (primitive mass 2.893507e-05)
+  L5_114509 C 4.1122e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.505
+  L5_100248 C 3.8798e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.337
+  L5_210886 C 3.1321e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.456
+  L5_42959 C 2.5270e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.350
+  L5_114488 C 1.0075e-05 sat 0  by B3511 (C 2.081e-01)  ratio 0.643
+  L5_843035 C 9.4273e-06 sat 1  by F0 (C 1.725e-03)  ratio 0.410
+  L5_699947 C 4.9788e-06 sat 1  by F0 (C 1.725e-03)  ratio 0.457
+  L5_273246 C 3.9846e-06 sat 1  by F0 (C 1.725e-03)  ratio 0.438
+  L5_129072 C 3.7200e-06 sat 0  by B3511 (C 2.081e-01)  ratio 1.270
+  L5_100249 C 3.4224e-06 sat 0  by B3511 (C 2.081e-01)  ratio 0.564
+[104 s] level 5 limbs (tunings removed)
+  below cmin 1e-12 (not classified): 1648301 components, mass 1.879e-09
+  limb 0       2424 components  9.503959e-06
+  limb 1/2      563 components  1.614461e-05
+  limb 1/3      167 components  8.381789e-06
+  limb 2/3      126 components  3.975126e-06
+  limb 1/4       51 components  4.255962e-06
+  limb 3/4       46 components  5.552169e-06
+  limb 1/5       15 components  7.750371e-08
+  limb 2/5       13 components  1.814054e-08
+  limb 3/5       12 components  2.121812e-08
+  limb 4/5       18 components  1.002025e-09
+  total 4.793148e-05
+  unclassified (b = 0 at m > 1): 1.079e-06
+  unclassified (offset %% q): 1.349e-09
+  sat 4.0995e-04 bulb of 3/5
+  sat 4.0910e-04 bulb of 2/5
+  sat 3.9171e-04 bulb of 4/5
+  sat 3.8961e-04 bulb of 1/5
+[116 s] level 6 census
+[116 s] level 6 tunings
+level 6: 1869787 components, 698 tuner candidates, 247039 pairs
+ratio histogram (log10 floor): {1: 30720, 0: 106959, -1: 11922, 'inf': 829, 2: 782, 3: 75, 4: 8, 5: 1}
+tuned: 11956 components (primitive mass 3.407519e-05)
+  L6_44535 C 2.9043e-04 sat 1  by L3_27134 (C 3.061e-03)  ratio 0.670
+  L6_44515 C 2.8608e-04 sat 1  by L3_27121 (C 3.064e-03)  ratio 0.666
+  L6_44523 C 2.2718e-04 sat 1  by L2_8 (C 1.506e-02)  ratio 0.449
+  L6_233585 C 1.8690e-04 sat 1  by L3_27111 (C 3.235e-03)  ratio 0.554
+  L6_44507 C 1.7864e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.255
+  L6_44524 C 1.7594e-04 sat 1  by L2_8 (C 1.506e-02)  ratio 0.423
+  L6_385833 C 1.7559e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.446
+  L6_338921 C 1.4263e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.447
+  L6_121993 C 1.2397e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.278
+  L6_115342 C 1.0245e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.523
+[191 s] level 6 limbs (tunings removed)
+  below cmin 1e-12 (not classified): 1854199 components, mass 1.768e-09
+  limb 0       2136 components  3.686211e-06
+  limb 1/2      536 components  1.188112e-06
+  limb 1/3      150 components  5.856831e-08
+  limb 2/3      123 components  3.647936e-07
+  limb 1/4       54 components  1.182244e-07
+  limb 3/4       50 components  3.505512e-07
+  limb 1/5       23 components  1.706455e-06
+  limb 2/5       24 components  1.519694e-09
+  limb 3/5       14 components  3.730659e-08
+  limb 4/5       26 components  2.295118e-06
+  limb 1/6        7 components  8.341343e-11
+  limb 5/6       11 components  3.366896e-10
+  total 9.807280e-06
+  unclassified (b = 0 at m > 1): 8.370e-07
+  unclassified (offset %% q): 4.367e-10
+  sat 1.8630e-04 bulb of 5/6
+  sat 1.8492e-04 bulb of 1/6
+[210 s] done
+
+=== Done; results in /data/results/bench-20261010-091141.txt [250 s]
