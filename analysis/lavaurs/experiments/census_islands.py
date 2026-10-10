@@ -21,7 +21,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('dir'); ap.add_argument('--levels', type=int, default=6); ap.add_argument('--cmin', type=float, default=1e-12)
     ap.add_argument('--islands', type=int, default=300); ap.add_argument('--threads', type=int, default=8)
-    ap.add_argument('--decor', type=int, default=8)   # satellites whose descendants to map into the c-plane
+    ap.add_argument('--decor', type=int, default=8); ap.add_argument('--decor-top', type=int, default=10)   # satellites whose descendants to map into the c-plane
     a = ap.parse_args()
     t0 = time.time()
     comps = {}   # name -> (r, n, σ, C, sat)
@@ -226,7 +226,7 @@ def main():
         for lo, hi in ((0, 0.5), (0.5, 1), (1, 2), (2, 4), (4, 8), (8, 16), (16, 1e18)):
             line += ' [%g,%g) %.3e' % (lo, hi, sum(p[1] for p in pts if lo <= abs(p[0]) < hi))
         print(line)
-        for p in sorted(pts, key=lambda p: -p[1])[:10]:
+        for p in sorted(pts, key=lambda p: -p[1])[:a.decor_top]:
             print('    c %+8.4f%+8.4fi  area %.4e  depth %d' % (p[0].real, p[0].imag, p[1], p[2]))
     print('done, %.0f s' % (time.time() - t0))
 if __name__ == '__main__':
