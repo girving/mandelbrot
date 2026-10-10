@@ -1143,3 +1143,15 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   form areas).  The model has a second, near-conjugate group of components (Im σ ≈ -0.7 vs -3): presumably the other
   side of 1/3 ([2, 1, k]).  Next: exact areas (boundary tracing) in the general model, the C normalization K_q, then
   the strip machinery (children by Newton, area formula, limb classifier, tunings) for q = 3 and beyond.
+- **General-root model in C++** (`glavaurs.h/.cc`, driver `glavaurs p q single|area|debug`, double precision; Fatou
+  coefficients from the linear system in acb at 512 bits): q = 2 reproduces a_{-2} = a_{-1} = 1/4, β = 11/8 exactly,
+  ζ0 = 1.27578623595, and S1's constant 1.7249740635e-3 (exact: 1.724974063498965e-3) with the general constant
+  K_q = 4π² sin²(πp/q)/q⁴ (derived: σ = (1/ε + q²k)/q², dε/dc = 2/(2πi λ(1 - λ)); K_2 = π²/4, K_3 = 3π²/81 = 0.3655,
+  matching the measured 0.35–0.37).  The gate is a choice of side (exit through the repelling petal at the entering
+  petal's axis ± π/q): q = 2's limbs k/(2k+1) are side +1, q = 3's limbs k/(3k+1) side -1.  q = 3: the top
+  single-transit NRP has C = 2.0920049e-4 vs M's extrapolated 2.08985e-4 (± 0.6%); the bulb (cusp 0.98) area_σ =
+  0.0835, C = 0.0305 (M's k⁴ × bulb area for [3, k], k = 2..4: 0.0141, 0.0192, 0.0224, rising).  Boundary points need
+  a 1e-8 acceptance at q = 3 (Ψ runs ~1200 iterations of f).
+- Next: the single-transit census at q = 3 as a backward tree (preimages of the critical point pulled into the
+  repelling petal: each branch sequence gives a center, with C ≈ K A_card/|D² Φ_a'(v)|², a Ruelle-type sum with exact
+  areas for the heavy ones), then children (multi-transit), limb classification and tunings at the 1/3 root.
