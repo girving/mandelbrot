@@ -1694,3 +1694,13 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   equations in the actual family), not from the straightening (only quasiconformal).  Next: residuals vs copy depth
   (smaller copies: errors should fall with the nonlinearity), then the first-order jet correction (errors to second
   order).
+- **Correction: the position agreement was misleading.**  Position residuals do fall with the copy's depth (j = 1:
+  7.7%, 4.3%, 3.0% for p = 4, 5, 6, |AD| = 1e3, 1.7e4, 2.8e5; j = 2: 2.9%, 2.1%, 1.4%), but an identity check (a true
+  j-partner's orbit after (j + 1) p steps sits at the base's atom, its orbit after p steps) passes for only 4-12 of
+  69-152 found partners, also after enforcing the tower condition f^((j+1)p)(0) = x_atom before the centre Newton;
+  near an atom the target region is far smaller than a few % of |c'|, so Newton lands on neighbouring components of
+  the same period.  Size ratios of the confirmed ones are off by factors 1.7-5 at every depth.  Likely causes: base
+  "j = 0" decorations that do not leave the quadratic-like domain after one pass (deeper members of other towers),
+  and the degenerate real-tip copies.  Status: the tower structure is what the theory forces, but the zeroth-order
+  quantitative test is not yet clean.  Next: exit-verified base decorations (|A f^p(0)| beyond the domain), a
+  non-real primitive copy, then the jet corrections.
