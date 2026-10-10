@@ -1118,3 +1118,21 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   4.40e-5 (+5e-6), m = 4 1.10e-5 (+2e-6), m = 5 6.5e-6 (entry level × 1.3), m ≥ 6 1.1e-5 (κ = 0.005 × their bulb
   areas): **S_strip ≈ 2.4725e-3, uncertain at ~1e-5** (Farey extrapolation, per-limb tails).  At K = 64 that is
   ~3e-11 in μ(M) (before R); 1e-12 needs S_strip to ~3e-7.
+
+**Toward a κ(p/q) automaton: per-limb NRP layers and a Lavaurs model at every root (2026-10-09, evening).**
+- Direct limb censuses in M (`limb_families wake J p q` + bulb_batch: 485k NRPs for the 29 limbs p/q ≤ 1/2 with q ≤
+  13 at extra period J ≤ 14 in 70 s): κ(p/q) = Σ NRP area / bulb area is 0.0023 (1/2), 0.0039 (1/3), 0.0058, 0.0077,
+  0.0095, 0.0110, 0.0122, 0.0133, 0.0141, 0.0148, 0.0153, 0.0156 (1/4 .. 1/13), and along [2, k] (k/(2k+1)) 0.0045,
+  0.0058, 0.0070, 0.0079, 0.0079 → 0.0108 (the σ-strip limit); [a, 2], [a, 3] smooth in a.  So κ depends on both ends of
+  the CF, smoothly.  But each pass through a limb's own gate costs ~q in period (1/13 jumps 0.0142 → 0.0156 at
+  j = q + 1, the second-pass family): direct enumeration (2^J) cannot reach J ≫ q, so large-q limbs need the pass
+  (transit) structure at their own root.
+- General-root Lavaurs model (`general_fatou.py`, `general_lavaurs.py`, prototype): at the p/q root f(w) = λw + w²,
+  λ = e^{2πip/q}; the formal Fatou series Φ(f(w)) = Φ(w) + 1/q with the resonant log term β log(w^q)/q (per-petal
+  branch), solved as a linear system (only a_0 is a gauge; the resonant a_m are fixed one order up); reproduces q = 2
+  exactly (1/4, 1/4, 11/8) and gives for 1/3: a_{-3} = -0.071429 + 0.013746i, a_{-1} = 0.047619 - 0.137464i, β =
+  1.773243 + 0.031420i (double precision is ill-conditioned past N ~ 12; C++ needs acb).  Φ_a by iteration into the q
+  attracting petals, Ψ_k for the q repelling ones; single-transit centers f^n(Ψ_s(ζ0 + σ)) = -λ/2.  q = 2 reproduces
+  S1 and the bulb (shifted by the branch constant (11/8)π); q = 3 gives a bulb-like component (area_σ ≈ 0.125) and
+  NRPs 5.33e-4, 5.24e-4, 1.76e-5, 1.63e-5, … — top/second ratio 30 vs M's 29 in limb 10/31.  Next: calibrate σ
+  against M near 1/3 (centers' 1/ε + q²k phases at k = 10..18), then port the pipeline.
