@@ -4,6 +4,8 @@
 //   glavaurs p q area threads < "name r n re im"              # areas: "name r n cre cim area_σ C conv cusp C_nf"
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
+//   glavaurs p q itinerary threads < "name R re im"             # piece itinerary of a component (island partition)
+//   glavaurs p q parent threads < "name R re im"                # canonical parent (island partition) or orphan
 //   glavaurs p q ichildren threads < "name r u_re u_im n_c c_re c_im jlo jhi"   # island children by continuation
 //   glavaurs p q tsolve < "name r n_c c_re c_im j s_re s_im"  # Newton on Θ_r = target (shift j) from a start
 //   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
@@ -463,6 +465,250 @@ int main(int argc, char** argv) {
       printf("%d %.17g %.17g %.10e %.6e %.6e\n", k, c.r, c.i, cn, lastA, lastD);
       fflush(stdout);
     }
+    return 0;
+  }
+  if (mode == "hcrit") {
+    // The horn map's critical values in the consistent coordinate: for level-1 components "name r n re im" (r = 1),
+    // H at the transit point y = ζ0 + σ (= its critical point), "name h_re h_im |H'| petal_in petal_out"
+    char name[256];
+    int r, n;
+    double sr, si;
+    Cd z0, d0, dd0;
+    int s0;
+    L.phi_a(L.v, z0, d0, dd0, s0);
+    while (scanf("%255s %d %d %lf %lf", name, &r, &n, &sr, &si) == 5) {
+      const Cd y = z0 + Cd(sr, si) + L.core.transit_shift(s0);
+      Cd h, dh, ddh;
+      int pet2;
+      if (!L.horn(y, s0, h, dh, ddh, pet2)) { printf("%s failed\n", name); continue; }
+      printf("%s %.15g %.15g %.3g %d %d\n", name, h.r, h.i, std::hypot(dh.r, dh.i), s0, pet2);
+    }
+    return 0;
+  }
+  if (mode == "parent") {
+    // The canonical parent of a level-R component W (the island partition): the horn map's critical values are c + Z
+    // for a finite set c (consistent coordinate; PARENT_CRIT="re im,re im,...", default the q = 2 pair), and the pieces
+    // of the cylinder are the components of H^-1(Voronoi cell of a critical value).  With F(σ) = H(z_{R-1}(σ)), continue
+    // F(σ) = w + λ (c - w) from σ_W (w = F(σ_W), c the nearest critical value) to λ = 1: the end is a centre of level
+    // R-1 (z_{R-1} a critical point of H: the parent, polished by Newton on H'(z_{R-1}(σ)) = 0) or a non-critical
+    // preimage (an orphan: W's island is a Misiurewicz sheet).  Prints "name kind re im" with kind parent|orphan|failed.
+    std::vector<SCd> crit;
+    {
+      const char* e = getenv("PARENT_CRIT");
+      std::string t = e ? e : "0.275786235953 4.319689898686,0.775786235953 0";
+      size_t i = 0;
+      while (i < t.size()) {
+        size_t j = t.find(',', i);
+        if (j == std::string::npos) j = t.size();
+        double a, b;
+        if (sscanf(t.substr(i, j - i).c_str(), "%lf %lf", &a, &b) == 2) crit.push_back(SCd(a, b));
+        i = j + 1;
+      }
+    }
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    struct Q { std::string name; int R; SCd s; };
+    std::vector<Q> qs;
+    char name[256];
+    int R;
+    double sr, si;
+    while (scanf("%255s %d %lf %lf", name, &R, &sr, &si) == 4) qs.push_back({name, R, SCd(sr, si)});
+    Cd z0, d0, dd0;
+    int s0;
+    L.phi_a(L.v, z0, d0, dd0, s0);
+    std::vector<std::string> out(qs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int th = 0; th < threads; th++)
+      pool.emplace_back([&]() {
+        for (int64_t qi; (qi = next++) < int64_t(qs.size());) {
+          const auto& Q = qs[qi];
+          // F(σ) = H(z_{R-1}(σ)), F' = H' Θ'_{R-1}, and H' and its σ-derivative H'' Θ'
+          const auto F = [&](const SCd sg, SCd& f, SCd& df, SCd& h1, SCd& dh1) {
+            Cd t, d, dd, hp;
+            int pet;
+            if (Q.R - 1 == 0) return false;
+            if (!L.theta(Cd(sg.real(), sg.imag()), Q.R - 1, t, d, dd, hp, &pet)) return false;
+            Cd h, dh, ddh;
+            int pet2;
+            if (!L.horn(t + z0, pet, h, dh, ddh, pet2)) return false;
+            const SCd D(d.r, d.i);
+            f = SCd(h.r, h.i); h1 = SCd(dh.r, dh.i); df = h1 * D; dh1 = SCd(ddh.r, ddh.i) * D;
+            return true;
+          };
+          char line[512];
+          snprintf(line, sizeof(line), "%s failed 0 0", Q.name.c_str());
+          SCd f, df, h1, dh1;
+          if (F(Q.s, f, df, h1, dh1)) {
+            SCd c = crit[0];
+            double best = INFINITY;
+            for (const auto& c0 : crit) {
+              const SCd cc = c0 + std::round((f - c0).real());
+              if (std::abs(cc - f) < best) { best = std::abs(cc - f); c = cc; }
+            }
+            const SCd w = f;
+            SCd sg = Q.s;
+            double lam = 0, h = 0.02;
+            bool good = true;
+            const double lend = 1 - 1e-8;
+            while (lam < lend && good) {
+              const double lt = std::min(lend, lam + h);
+              SCd s1 = sg, q0, q1, r1, r2;
+              if (!F(s1, q0, q1, r1, r2)) { good = false; break; }
+              s1 += (lt - lam) * (c - w) / q1;
+              bool conv = false;
+              for (int it = 0; it < 12; it++) {
+                if (!F(s1, q0, q1, r1, r2)) break;
+                const SCd res = q0 - (w + lt * (c - w)), step = res / q1;
+                s1 -= step;
+                if (!(std::abs(step) < 0.5 * std::abs(s1 - sg) + 1e-9)) break;
+                if (std::abs(res) < 1e-11 * (1 + std::abs(q0))) { conv = true; break; }
+              }
+              if (conv) { sg = s1; lam = lt; h = std::min(2 * h, 0.1 * (1 - lam) + 1e-9); }
+              else { h *= 0.25; if (h < 1e-13) good = false; }
+            }
+            if (good && F(sg, f, df, h1, dh1)) {
+              // critical piece iff H' -> 0 at the end (|H'| ~ sqrt(1 - λ) there); polish the zero of H'(z_{R-1}(σ))
+              SCd sp = sg;
+              bool cv = false;
+              for (int it = 0; it < 40; it++) {
+                SCd a0, a1, b1, b2;
+                if (!F(sp, a0, a1, b1, b2)) break;
+                const SCd step = b1 / b2;
+                sp -= step;
+                if (!(std::abs(step) < 10 * std::abs(sg - Q.s) + 1e-6)) break;
+                if (std::abs(step) < 1e-13 * (1 + std::abs(sp))) { cv = true; break; }
+              }
+              SCd e0, e1, e2, e3;
+              const bool crit_end = cv && F(sp, e0, e1, e2, e3) && std::abs(e0 - c) < 1e-6 * (1 + std::abs(c));
+              if (crit_end) snprintf(line, sizeof(line), "%s parent %.17g %.17g", Q.name.c_str(), sp.real(), sp.imag());
+              else snprintf(line, sizeof(line), "%s orphan %.17g %.17g", Q.name.c_str(), sg.real(), sg.imag());
+            }
+          }
+          out[qi] = line;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& l : out) printf("%s\n", l.c_str());
+    return 0;
+  }
+  if (mode == "itinerary") {
+    // A component's piece itinerary (the island partition: pieces = components of H^-1(Voronoi cell of a critical value),
+    // critical values PARENT_CRIT as in parent): for each transit i = 1..R-1 (and i = R with ITIN_LAST=1), the piece of
+    // z_i is named by its preimage of the cell's critical value c, found by continuing H(z) = w + λ (c - w) from z_i
+    // (w = H(z_i)); the end is a critical point of H ('C', a target: the piece is that target's island) or not ('N').
+    // σ-independent (H only).  Prints "name i kind re im ..." per transit.
+    std::vector<SCd> crit;
+    {
+      const char* e = getenv("PARENT_CRIT");
+      std::string t = e ? e : "0.275786235953 4.319689898686,0.775786235953 0";
+      size_t i = 0;
+      while (i < t.size()) {
+        size_t j = t.find(',', i);
+        if (j == std::string::npos) j = t.size();
+        double a, b;
+        if (sscanf(t.substr(i, j - i).c_str(), "%lf %lf", &a, &b) == 2) crit.push_back(SCd(a, b));
+        i = j + 1;
+      }
+    }
+    const bool last = getenv("ITIN_LAST") && atoi(getenv("ITIN_LAST"));
+    const bool with_z = getenv("ITIN_Z") && atoi(getenv("ITIN_Z"));
+    const int threads = argc > 4 ? atoi(argv[4]) : 2;
+    struct Q { std::string name; int R; Cd s; };
+    std::vector<Q> qs;
+    char name[256];
+    int R;
+    double sr, si;
+    while (scanf("%255s %d %lf %lf", name, &R, &sr, &si) == 4) qs.push_back({name, R, Cd(sr, si)});
+    Cd z0, d0, dd0;
+    int s0;
+    L.phi_a(L.v, z0, d0, dd0, s0);
+    std::vector<std::string> out(qs.size());
+    std::atomic<int64_t> next(0);
+    std::vector<std::thread> pool;
+    for (int th = 0; th < threads; th++)
+      pool.emplace_back([&]() {
+        for (int64_t qi; (qi = next++) < int64_t(qs.size());) {
+          const auto& Q = qs[qi];
+          std::string text = Q.name;
+          Cd pp = z0 + Q.s + L.core.transit_shift(s0);
+          int pet = s0;
+          const int I = last ? Q.R : Q.R - 1;
+          for (int i = 1; i <= I; i++) {
+            Cd h, dh, ddh;
+            int pet2;
+            if (!L.horn(pp, pet, h, dh, ddh, pet2)) { text += " fail"; break; }
+            const auto Hf = [&](const SCd z, SCd& f, SCd& f1, SCd& f2) {
+              Cd a, b, c;
+              int pe;
+              if (!L.horn(Cd(z.real(), z.imag()), pet, a, b, c, pe)) return false;
+              f = SCd(a.r, a.i); f1 = SCd(b.r, b.i); f2 = SCd(c.r, c.i);
+              return true;
+            };
+            const SCd w(h.r, h.i);
+            SCd c = crit[0];
+            double best = INFINITY;
+            for (const auto& c0 : crit) {
+              const SCd cc = c0 + std::round((w - c0).real());
+              if (std::abs(cc - w) < best) { best = std::abs(cc - w); c = cc; }
+            }
+            SCd z(pp.r, pp.i);
+            double lam = 0, hs = 0.02;
+            bool good = true;
+            const double lend = 1 - 1e-8;
+            while (lam < lend && good) {
+              const double lt = std::min(lend, lam + hs);
+              SCd z1 = z, q0, q1, q2;
+              if (!Hf(z1, q0, q1, q2)) { good = false; break; }
+              z1 += (lt - lam) * (c - w) / q1;
+              bool conv = false;
+              for (int it = 0; it < 12; it++) {
+                if (!Hf(z1, q0, q1, q2)) break;
+                const SCd res = q0 - (w + lt * (c - w)), step = res / q1;
+                z1 -= step;
+                if (!(std::abs(step) < 0.5 * std::abs(z1 - z) + 1e-9)) break;
+                if (std::abs(res) < 1e-11 * (1 + std::abs(q0))) { conv = true; break; }
+              }
+              if (conv) { z = z1; lam = lt; hs = std::min(2 * hs, 0.1 * (1 - lam) + 1e-9); }
+              else { hs *= 0.25; if (hs < 1e-13) good = false; }
+            }
+            char buf[160];
+            if (!good) { text += " fail"; break; }
+            // critical end: Newton on H'(z) = 0 lands on a point with H = c
+            SCd zc = z;
+            bool cv = false;
+            for (int it = 0; it < 40; it++) {
+              SCd f, f1, f2;
+              if (!Hf(zc, f, f1, f2)) break;
+              const SCd step = f1 / f2;
+              zc -= step;
+              if (!(std::abs(step) < 0.1)) break;
+              if (std::abs(step) < 1e-13 * (1 + std::abs(zc))) { cv = true; break; }
+            }
+            SCd f, f1, f2;
+            if (cv && Hf(zc, f, f1, f2) && std::abs(f - c) < 1e-6 * (1 + std::abs(c))) snprintf(buf, sizeof(buf), " %d C %.12f %.12f", i, zc.real(), zc.imag());
+            else {
+              SCd zn = z;   // non-critical end: Newton on H = c
+              for (int it = 0; it < 30; it++) { if (!Hf(zn, f, f1, f2)) break; zn -= (f - c) / f1; }
+              snprintf(buf, sizeof(buf), " %d N %.12f %.12f", i, zn.real(), zn.imag());
+            }
+            text += buf;
+            if (with_z) {   // ITIN_Z=1: the transit point z_i itself (and, after the last, z_R)
+              snprintf(buf, sizeof(buf), " %.12f %.12f", pp.r, pp.i);
+              text += buf;
+            }
+            pp = h + Q.s;
+            pet = pet2;
+          }
+          if (with_z) {
+            char buf[80];
+            snprintf(buf, sizeof(buf), " z %.12f %.12f", pp.r, pp.i);
+            text += buf;
+          }
+          out[qi] = text;
+        }
+      });
+    for (auto& t : pool) t.join();
+    for (const auto& l : out) printf("%s\n", l.c_str());
     return 0;
   }
   if (mode == "ichildren") {
