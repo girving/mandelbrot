@@ -4,6 +4,7 @@
 //   glavaurs p q area threads < "name r n re im"              # areas: "name r n cre cim area_σ C conv cusp C_nf"
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
+//   glavaurs p q tsolve < "name r n_c c_re c_im j s_re s_im"  # Newton on Θ_r = target (shift j) from a start
 //   glavaurs p q locate < "name r re im"                      # Θ_r(σ), Θ_r', Π H'
 //   glavaurs p q walk r n count < "re im" seeds               # a family σ_k ≈ σ_0 + k (n fixed): centers and C_nf
 //   glavaurs p q dchildren threads < (as children)            # children by the one-step map (linearized source)
@@ -418,7 +419,11 @@ int main(int argc, char** argv) {
         dfs(yc, depth + 1, bdepth + 1, logP + std::log(fp));
       }
     };
-    dfs(L.crit, 0, 0, 0.0);
+    // GL_TREE_ROOT=cocrit: backward paths of the co-critical point v' = -λ - v (f(v') = f(v), v' not critical): the
+    // non-critical preimages p of ζ0 under the horn map, σ = p - ζ0 the level-1 Misiurewicz points (the critical value's
+    // cylinder orbit returns to itself through v' instead of the critical point); C is then only a size scale
+    if (getenv("GL_TREE_ROOT") && !strcmp(getenv("GL_TREE_ROOT"), "cocrit")) dfs(-(L.lam + L.v), 0, 0, 0.0);
+    else dfs(L.crit, 0, 0, 0.0);
     fprintf(stderr, "tree: %lld centers, %lld paths cut at depth %d\n", (long long)found, (long long)pruned, dmax);
     return 0;
   }
@@ -456,6 +461,42 @@ int main(int argc, char** argv) {
       const double cn = cnf_at(c);
       printf("%d %.17g %.17g %.10e %.6e %.6e\n", k, c.r, c.i, cn, lastA, lastD);
       fflush(stdout);
+    }
+    return 0;
+  }
+  if (mode == "tsolve") {
+    // Newton on Θ_r(σ) = σ_c + j/q + target shift from a given start (any start, e.g. near a Misiurewicz point, where
+    // children's source quadratic does not apply); kept when the landing point reaches the critical point in n_c - j
+    // steps.  Prints "name re im w" (w = |Θ_r' Π H'|^-2: C = C_target w) or "name failed"
+    char name[256];
+    int r, nc, j;
+    double cr, ci, sr, si;
+    while (scanf("%255s %d %d %lf %lf %d %lf %lf", name, &r, &nc, &cr, &ci, &j, &sr, &si) == 8) {
+      const Cd ts = L.core.target_shift(j);
+      const SCd y = SCd(cr + double(j) / q + ts.r, ci + ts.i);
+      SCd sg(sr, si);
+      bool ok = false;
+      Cd t, d, dd, hp;
+      int pet = -1;
+      for (int it = 0; it < 60; it++) {
+        if (!L.theta(Cd(sg.real(), sg.imag()), r, t, d, dd, hp, &pet)) break;
+        const SCd step = (SCd(t.r, t.i) - y) / SCd(d.r, d.i);
+        sg -= step;
+        if (!(std::abs(step) < 1)) break;
+        if (std::abs(step) < 1e-12 * (1 + std::abs(sg))) { ok = true; break; }
+      }
+      if (ok) {
+        L.theta(Cd(sg.real(), sg.imag()), r, t, d, dd, hp, &pet);
+        Cd z0, d0, dd0;
+        int s0;
+        L.phi_a(L.v, z0, d0, dd0, s0);
+        Cd x, d1, d2;
+        ok = L.psi(t + z0, L.exit_petal(pet), x, d1, d2);
+        for (int i = 0; ok && i < nc - j; i++) x = L.lam * x + x * x;
+        ok = ok && std::hypot((x - L.crit).r, (x - L.crit).i) < 1e-6;
+      }
+      if (ok) printf("%s %.17g %.17g %.6e\n", name, sg.real(), sg.imag(), 1 / std::norm(SCd(d.r, d.i) * SCd(hp.r, hp.i)));
+      else printf("%s failed\n", name);
     }
     return 0;
   }
