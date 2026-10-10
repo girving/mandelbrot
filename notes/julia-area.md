@@ -1439,3 +1439,24 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   (1.156e-5, 1.404e-5, 3.513e-5: the three period-4 primitives) and the satellite tunings; every other component has
   ≥ 1 mismatch (of ~700 compared), including five with little-Julia ratio ≤ 1 (e.g. 9.6e-7 at 0.50) that the ratio rule
   accepted.  Boundary margins of accepted pairs ~0.012 in z.  ~1 ms per pair-thread.
+- **Exact tunings across the strips** (block rule, levels 2-6 at 1/2, 2-4 at 1/3, 1/4, census unchanged; 9 min on one
+  pod, `results/strips_block_rule.log`).  The ratio rule's "ratio ≤ 1 is a tuning" was the main error, not just its
+  slots: it called 64 level-3 and 1553 level-4 components at q = 2 tunings that are not (e.g. L4_28115, 4.5e-6, by L2_8),
+  while the block rule finds tunings with ratio up to 3.1 (L5_189662 1.80e-6 at 2.75, L6_321135 4.27e-7 at 3.13).
+  q = 2 by limb now against the reference: level 4 1/3 1.1747e-5 (levels 3-4 1.333e-5, ref 1.33e-5), 1/4 2.713e-7
+  (ref ≥ 2.7e-7, was 9e-9), 3/4 1.181e-7 (ref 1.2e-7, was 4e-9); level-5 bulb limb 7.707e-6 (ref 7.6e-6, was 9.5e-6);
+  level 6 bulb limb 3.237e-6 (ref 4.2e-6: the two new tunings; the reference's level 6 is the least certain).
+  κ_bulb = 1.0838e-2 (1/2, levels 1-6), 8.975e-3 (1/3), 8.327e-3 (1/4) (levels 1-4).  Smallest boundary margin of an
+  accepted pair: 1.85e-5 (q = 2, level 6), otherwise ≥ 1e-3: the partition approximation (fixed arc A, 0.15 gate
+  radius) is the remaining non-combinatorial input.
+- **Finite k, resolved for S1: the model is the exact limit to 34 digits, and the finite-k expansion is a pure power
+  series in 1/k.**  The old 3e-17 floor was printing, twice: bulb_batch wrote the leading double of each area with %.17g
+  (up to 5e-18 relative off its value, unrepairable by the lower parts; %.25g still leaves 5e-26), and `glavaurs hp`
+  printed the Expansion<3> constant through safe()'s round-trip fallback "[x0, x1, x2]", each part to 17 digits, so the
+  "47-digit" C(S1) in these notes was wrong at 2.2e-17.  Both now print 60 exact digits.  With bulb_batch3 (bulb.cc at
+  Expansion<3>, `-DBULB_E=3`; cardioid and period-2 disc exact to 2e-48, E2 to 5e-32) on 81 members k = 32..2048
+  (`results/s1_family_m_e3.txt`, every k in 100..160 to check for oscillation: none), pure power fits C + Σ_{j≤22} b_j k^-j
+  reach residuals 1e-38 and C_M - C_model = +1.8e-37 (1e-34 relative; log terms change nothing):
+  **C(S1) = 1.72497406349896482647335138261525654566e-3** (model, Expansion<3>, N = 48, Nb = 256; E2 agrees to 1e-30).
+  So for 1e-40 the finite-k corrections need no new structure here, only M-side areas at Expansion<4> (the next step
+  for checks beyond 1e-34; E2 S1 members are good to ~5e-25, the deep orbits' conditioning).

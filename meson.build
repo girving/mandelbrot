@@ -144,6 +144,7 @@ executable('parabolic_tail', ['analysis/parabolic_tail.cc', 'julia_tail.cc', 'en
 executable('root_escape', ['analysis/root_escape.cc'])
 executable('multiplier_profile', ['analysis/multiplier_profile.cc'])
 executable('bulb_batch', ['analysis/bulb_batch.cc', 'bulb.cc', 'engine.cc'], dependencies: [area])
+executable('bulb_batch3', ['analysis/bulb_batch.cc', 'bulb.cc', 'engine.cc'], dependencies: [area], cpp_args: ['-DBULB_E=3'])
 executable('bulb_areas', ['analysis/bulb_areas.cc'], dependencies: [area])
 executable('satellite_tree', ['analysis/satellite_tree.cc'])
 executable('family_owner', ['analysis/family_owner.cc', 'engine.cc'], dependencies: [base])

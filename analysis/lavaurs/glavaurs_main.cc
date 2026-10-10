@@ -20,6 +20,7 @@
 //   glavaurs p q blocktune theta threads < (as tuned)         # exact tuning test: "W U mismatches compared margin"
 // C = (4π² sin²(πp/q)/q⁴) area_σ is the family constant lim k⁴ area_M (limbs [CF(p/q), k]).
 #include "glavaurs.h"
+#include "arf_cc.h"
 #include "expansion_arith.h"
 #include <atomic>
 #include <iostream>
@@ -1391,14 +1392,16 @@ int main(int argc, char** argv) {
       gl_sincos(gl_pi<S>() * S(double(p)) / S(double(q)), sn, cs);
       const S pi = gl_pi<S>(), KS = S(4.0) * pi * pi * sn * sn / (S(double(q)) * S(double(q)) * S(double(q)) * S(double(q)));
       const S cnf = KS * S(3.0) * pi / S(8.0) / (ad.r * ad.r + ad.i * ad.i);
-      std::cout << name << ": last step " << last << "\n  center " << safe(sg.r) << " " << safe(sg.i) << "\n  C_nf " << safe(cnf) << "\n";
+      // exact decimals (safe() may fall back to the parts' round-trip form "[x0, x1, ...]", each only to 17 digits)
+      const auto dec = [](const S x) { return tfm::format("%.60g", exact_arf(x)); };
+      std::cout << name << ": last step " << last << "\n  center " << dec(sg.r) << " " << dec(sg.i) << "\n  C_nf " << dec(cnf) << "\n";
       center = sg;
       if (Nb > 0) {
         C cen;
         S ar;
         double conv, cusp;
         if (gl_area(core, r, n, sg, cen, ar, conv, cusp, Nb, tol, 1e3 * tol))
-          std::cout << "  area_σ " << safe(ar) << "\n  C = K area_σ " << safe(KS * ar) << "  (conv " << conv << ", cusp " << cusp << ")\n";
+          std::cout << "  area_σ " << dec(ar) << "\n  C = K area_σ " << dec(KS * ar) << "  (conv " << conv << ", cusp " << cusp << ")\n";
         else std::cout << "  area failed\n";
       }
     };

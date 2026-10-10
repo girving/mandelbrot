@@ -20,7 +20,12 @@
 namespace mandelbrot {
 
 using std::vector;
-typedef Expansion<2> E2;
+// The extended type: Expansion<2> by default; bulb_batch3 builds everything at BULB_E = 3 (CPU only) to check the
+// default's precision (E2 is then Expansion<3>)
+#ifndef BULB_E
+#define BULB_E 2
+#endif
+typedef Expansion<BULB_E> E2;
 
 struct BulbJob {
   int P;                   // Parent period
