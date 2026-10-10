@@ -1591,3 +1591,19 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   route is: census near the top, island expansions (last step exact) for non-satellite islands, and a separate
   treatment of satellite islands' copy decorations, presumably by renormalization (F_σU is quadratic-like near its
   superattracting cycle, so the decorations near the copy should be the image of a universal structure); untested.
+- **Satellites' decorations in the renormalization coordinate** (`glavaurs ad`: R ≈ crit + D δ + A u² straightens to
+  w ↦ w² + c, c = A D (σ - σ_U); AD reproduces C_nf, e.g. S1 1.6017e-3, the bulb 0.3105; descendants mapped to
+  (c, c-area m = C_W |AD|²/K)).  The 1/3, 2/3, 1/4, 3/4 Farey bulbs have nearly the same decorations: dominant
+  component at c ≈ -1.22..-1.29 ± 0.70..0.76i with m ≈ 2-4.5e-3, a far cluster at |c| ≈ 9-15, total m 5.6, 4.7, 5.1,
+  6.8e-3; the 1/2 bulb (2.0e-3) and the bulb B (1.0e-3) differ.  The total m is κ of that Farey limb rescaled,
+  m = (3π/8)/1.5 κ_t ≈ 0.785 κ_t (limb 1/3: 0.785 × 7.2e-3 = 5.6e-3), so "universal decorations" = slowly varying κ_t.
+- **The satellites are the Farey bulbs, p/q satellites of the strip's edge.**  The census satellites L2_8, L3_27121/
+  27134, L4_28107/28075 are not B's p/q satellites (those are tunings by B, excluded) but the bulbs of the strip's Farey
+  limbs: C q⁴ = 0.241, 0.248, 0.247, 0.2435, 0.2397 for q = 2..6 (C ∝ q^-4 like M's p/q bulbs), at Re σ ≈ p/q,
+  Im σ ≈ -0.167/q² (0.4991 - 0.0418i, 0.3329 - 0.0187i, 0.6666 - 0.0187i): the line Im σ = 0 acts as a cardioid
+  boundary and limb p/q's bulb is its p/q satellite.  So the satellite part of the exact route is the per-limb κ,
+  recursively over Farey sub-limbs: the automaton over CF digits, with each digit's q → ∞ tail summed by its
+  asymptotics (a family in q, as for long digits).  The exact route therefore assembles: census at the top levels;
+  island expansions (last step exact) for non-satellite islands, which converge; and the CF recursion for the
+  satellites (Farey bulbs) and their limbs.  To test next: κ_{1/q} (or the limb's c-area) as q grows, which needs
+  each sub-limb's own strip (the general p/q model at the bulb's root) rather than the 1/2 strip census.
