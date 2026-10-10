@@ -1729,3 +1729,32 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   structure near ∂M (where these roots equidistribute), i.e. the same boundary data the Böttcher-series route needs
   many terms for.  Layer 3's poly(n) therefore rests on a self-consistent (renormalization fixed-point) formulation in
   which the near-∂M part of K is itself expressed through the total structure, not on K being "computed once".
+- **Quantitative tower test, now clean** (`experiments/tower_size.py`).  For each j = 0 decoration (outer atom continued
+  to the copy's centre: W_U, W'), the members j = 1..3 are the roots of P_j(c') = W_U + W' c', mapped back by Newton on the
+  exact c'(c), polished to centres of period (j+1)p + e and membership-checked (orbit on the continued atom branch).
+  Prediction |A_W D_W| ≈ |(f^e)'(x_0)|² |dc'/dc| |(g^j)'(c')| |P_j'(c') - W'| against the exact sizes:
+
+      copy                 |dc'/dc|   found (j=1,2,3)        median |log pred/act| (j=1,2,3)   mass pred/act (j=1,2,3)
+      P4 -1.9408           1008       22/24 44/48 86/96      0.053 0.064 0.059                 1.032 1.067 1.081
+      P5 -1.98542          1.7e4      30/32 60/64 120/128    0.077 0.080 0.088                 1.030 1.034 1.038
+      P6 -1.99638          2.8e5      32/32 64/64 128/128    0.068 0.074 0.081                 1.018 1.019 1.020
+      P4 -0.1565+1.0322i   118        8/20 16/40 39/80       0.18 0.11 0.16                    0.40 1.06 0.74
+
+  So the zeroth-order kernel plus the atom motion is right to ~2-8% in mass, uniformly in j (no error growth up the
+  tower), and the members are found reliably.  For the tip copies the error does not shrink with p: their return maps
+  keep a bounded modulus, so g's nonlinearity (and W'') stays O(5%); deep in the sense of large modulus would shrink it.
+  These are the first-order jet terms, analytic in the copy's g, as planned.
+- **The kernel's depth profile is a power law** (`experiments/kernel_decay.py`: all 2^j roots of P_j(c') = W by
+  parameter-ray tracing + Newton, j ≤ 16).  m_j(W) = Σ |(g^j)'|^-2 |P_j'|^-2 relative to j = 0:
+
+      W = 3      1.5e-2 7.9e-4 9.6e-5 1.8e-5 ... m_8 2.7e-7 ... m_16 4.4e-9     m_8/m_16 = 62  (j^-5.96)
+      W = 5      ...                                m_8 1.75e-8 ... m_16 2.2e-10  78  (j^-6.3)
+      W = 10     ...                                m_8 5.8e-10 ... m_16 5.9e-12  98  (j^-6.6)
+      W = 2+3i   ...                                m_8 8.5e-8 ... m_16 1.2e-9    70  (j^-6.1)
+
+  Consecutive ratios climb 0.05 → 0.5 → 0.67 instead of settling below 1: the deep tower members sit at the parabolic
+  points of M' (escape time j ↔ distance ~ 1/j² from a cusp/root), so K's j-tail is a parabolic-implosion tail, not
+  geometric.  Direct summation to n bits needs j ~ 2^(n/6) levels.  Consequence for the complexity plan: layer 3 does
+  not close on its own; its tail is layers 1-2 (Lavaurs-model asymptotics at each parabolic point of M') applied to M'
+  itself, i.e. the algorithm is a recursion of M's structure onto itself through renormalization.  Its poly(n) status
+  is the poly(n) status of the whole family/asymptotics scheme at the top level, not a separate question.
