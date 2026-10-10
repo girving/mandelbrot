@@ -21,6 +21,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('dir'); ap.add_argument('--levels', type=int, default=6); ap.add_argument('--cmin', type=float, default=1e-12)
     ap.add_argument('--islands', type=int, default=300); ap.add_argument('--threads', type=int, default=8)
+    ap.add_argument('--decor', type=int, default=8)   # satellites whose descendants to map into the c-plane
     a = ap.parse_args()
     t0 = time.time()
     comps = {}   # name -> (r, n, σ, C, sat)
@@ -201,6 +202,32 @@ def main():
         print('  U %-12s L%d σ %.4f%+.4fi C %.2e ε %.4f target %-8s | W %-12s L%d σ %.4f%+.4fi C %.2e target %-8s d %.3f D %.3f (at z_%d of %d) pieces %s' % (
             U, comps[U][0], comps[U][2].real, comps[U][2].imag, comps[U][3], x[2], tname(U), W, comps[W][0], comps[W][2].real, comps[W][2].imag,
             comps[W][3], tname(W), x[4], x[3], x[12], comps[W][0], ''.join(p[0] for p in it[W][0])))
+    # renormalization coordinates of the satellites' descendants: c = A D (σ_W - σ_U) (the straightened parameter of
+    # U's copy: U*M is M in c) and the c-plane area m = C_W |AD|^2 / K; universality of the copy's decorations means the
+    # same (c, m) pattern for every satellite
+    sats = [nm for nm in cand if comps[nm][4]][:a.decor]
+    adl = subprocess.run([B, '1', '2', 'ad'], input=''.join('%s %d %d %.17g %.17g\n' % (nm, comps[nm][0], comps[nm][1], comps[nm][2].real, comps[nm][2].imag) for nm in sats),
+                         capture_output=True, text=True, env=env).stdout
+    AD = {f[0]: complex(float(f[1]), float(f[2])) for f in (l.split() for l in adl.splitlines()) if f[1] != 'failed'}
+    for nm in sats:
+        if nm not in AD: continue
+        r, n, sU, CU, _ = comps[nm]
+        ad = AD[nm]
+        pts = []
+        for w in desc[nm]:
+            R, _, sW, CW, satW = comps[w]
+            if satW: continue
+            dd = sW - sU; dd = complex((dd.real + 0.5) % 1 - 0.5, dd.imag)
+            pts.append((ad * dd, CW * abs(ad) ** 2 / 2.4674011, R - r))
+        tot = sum(p[1] for p in pts)
+        print('decorations of satellite %s (L%d, C %.3e, |AD| %.4g, arg AD/2π %.4f): %d descendants, c-plane area %.4e' % (
+            nm, r, CU, abs(ad), (math.atan2(ad.imag, ad.real) / (2 * math.pi)) % 1, len(pts), tot))
+        line = '    area by |c|:'
+        for lo, hi in ((0, 0.5), (0.5, 1), (1, 2), (2, 4), (4, 8), (8, 16), (16, 1e18)):
+            line += ' [%g,%g) %.3e' % (lo, hi, sum(p[1] for p in pts if lo <= abs(p[0]) < hi))
+        print(line)
+        for p in sorted(pts, key=lambda p: -p[1])[:10]:
+            print('    c %+8.4f%+8.4fi  area %.4e  depth %d' % (p[0].real, p[0].imag, p[1], p[2]))
     print('done, %.0f s' % (time.time() - t0))
 if __name__ == '__main__':
     main()

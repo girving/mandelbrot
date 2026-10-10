@@ -5,6 +5,7 @@
 //   glavaurs p q tree cmin dmax [rloc]                        # single-transit centers as backward paths
 //   glavaurs p q children threads < "name r n_u u_re u_im radius n_c c_re c_im jmin jmax"   # r-transit children
 //   glavaurs p q itinerary threads < "name R re im"             # piece itinerary of a component (island partition)
+//   glavaurs p q ad < "name r n re im"                          # renormalization coordinate: c = A D (σ - σ_c)
 //   glavaurs p q parent threads < "name R re im"                # canonical parent (island partition) or orphan
 //   glavaurs p q ichildren threads < "name r u_re u_im n_c c_re c_im jlo jhi"   # island children by continuation
 //   glavaurs p q tsolve < "name r n_c c_re c_im j s_re s_im"  # Newton on Θ_r = target (shift j) from a start
@@ -464,6 +465,21 @@ int main(int argc, char** argv) {
       const double cn = cnf_at(c);
       printf("%d %.17g %.17g %.10e %.6e %.6e\n", k, c.r, c.i, cn, lastA, lastD);
       fflush(stdout);
+    }
+    return 0;
+  }
+  if (mode == "ad") {
+    // The renormalization coordinate of a component: at its centre the return map is R ≈ crit + D δ + A u² (A = R''/2,
+    // D = ∂R/∂σ), straightened to w ↦ w² + c with c = A D (σ - σ_c).  Prints "name AD_re AD_im" (or failed)
+    char name[256];
+    int r, n;
+    double sr, si;
+    while (scanf("%255s %d %d %lf %lf", name, &r, &n, &sr, &si) == 5) {
+      Cd c(sr, si);
+      GLJet x;
+      if (!L.core.return_map(r, n, L.crit, c, x)) { printf("%s failed\n", name); continue; }
+      const SCd ad = 0.5 * SCd(x.ww.r, x.ww.i) * SCd(x.s.r, x.s.i);
+      printf("%s %.12g %.12g\n", name, ad.real(), ad.imag());
     }
     return 0;
   }
