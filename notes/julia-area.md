@@ -1772,7 +1772,7 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   an intrinsic part 1.81, 1.87 (L1), 3.3-4.9 (L2), 3.8-5.3 (L3), 7.7, 10.3, 13.2 (L4-L6 chain): it grows additively,
   ≈ 2.6 per transit along the chain, as a sum of per-transit terms would (a finite-k horn map H + H_1/k + ...).
 - **In-model families are analytic too** (`experiments/farey_m_fit.py`, `results/farey_bulbs_hp_q2.txt`): the Farey
-  bulbs B_m (m = 2..37, model constants at Expansion<3>, ~1e-35) satisfy m^4 C = a_0 + Σ a_j m^-j with residual 4e-30 at
+  bulbs B_m (m = 2..40, model constants at Expansion<3>, ~1e-35) satisfy m^4 C = a_0 + Σ a_j m^-j with residual 4e-30 at
   21 terms over m ≥ 12, a_0 = 0.2025905664947 (stable to 1e-13 across windows), a_1 = 0.23680, a_2 = 0.5239, growth
   |a_j/a_0|^(1/j) ≈ 4-5.  Log terms are not needed (adding them destabilizes the coefficients without a real gain).
   So both nested layers (k in M, m in the model) are convergent-looking power series with radius ~1/5.
