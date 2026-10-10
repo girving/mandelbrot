@@ -1322,3 +1322,11 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   constant C(S1) = 1.72497406349896486443936883749556e-3 is consistent with M at the 1e-19 level, and the earlier
   "1e-20 subset agreement" was within the data's noise.  b1 = 9.12807166722e-4.  For 1e-40, finite k needs M-side
   areas at ~1e-45 (quad-double boundary points) and the structure of the 1/k expansion (no log terms visible at 3e-17).
+  (The M-side floor is not the double-double polish: --polish 8 gives identical areas; it is elsewhere in bulb.h's
+  double continuation / centers — to fix for M-side checks beyond 3e-17.)
+- **q = 4 (the 1/4 root, k/(4k+1) side, gate +1)**: S_0 = 4.481333e-5 (own half), bulb 6.404614e-3, single-transit
+  NRP/bulb 7.00e-3 (1/2: 9.10e-3, 1/3: 7.54e-3).  Two conventions generalized: the own half is the one whose bulb the
+  gate's kneading classifier labels a bulb (at q = 4 the bulbs have n = 1, 2, so "n = q - 1" fails), and the bulb
+  limb's offset residue mod q is calibrated per root (-1 at q = 2, 3, 2 at q = 4); the gate's kneading angle is the
+  lower (gate +1) or upper (gate -1) of the root angles, the adjacent pair 1/(2^q - 1) apart in the rotation-p/q
+  doubling cycle (`gl_common.py`).

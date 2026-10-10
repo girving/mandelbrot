@@ -20,17 +20,26 @@ def main():
     out = subprocess.run([BIN, str(a.p), str(q), 'classify', str(a.theta), str(a.threads)], input=text,
                          capture_output=True, text=True, env=dict(os.environ, GL_SIDE=str(a.gate))).stdout.splitlines()
     mass, cnt, sats, bad = defaultdict(float), defaultdict(int), [], defaultdict(float)
+    # the offset residue of the bulb limb (m = 1) mod q: -1 at q = 2, 3, 2 at q = 4 (the transit bookkeeping); limb
+    # t = b/m with b = ((offset - r0)/q) mod m
+    from collections import Counter
+    res = Counter()
+    for f, l in zip(rows, out):
+        g = l.split()
+        if len(g) == 3 and g[1] == '1' and g[2].lstrip('-').isdigit(): res[int(g[2]) % q] += float(f[5])
+    r0 = res.most_common(1)[0][0] if res else (q - 1)
+    print('  bulb-limb offset residue mod %d: %d' % (q, r0))
     for f, l in zip(rows, out):
         g = l.split(); C = float(f[5]); sat = f[6] == '1'; n = int(f[2])
         if g[1] == 'bulb':
-            m = int(g[2]); b = ((n + 1) // q) % m if (n + 1) % q == 0 else None
+            m = int(g[2]); b = ((n + 1) // q) % m if (n + 1) % q == 0 else None   # q = 2, 3 bookkeeping
             if sat: sats.append((C, 'bulb of %s' % (Fraction(b, m) if b is not None else '?/%d' % m)))
             else: bad['primitive without a 0'] += C
             continue
         if g[1] in ('failed', 'pre'): bad[g[1]] += C; continue
         m, off = int(g[1]), int(g[2])
-        if (off + 1) % q: bad['offset %% q'] += C; continue
-        b = ((off + 1) // q) % m if m > 1 else 0
+        if (off - r0) % q: bad['offset %% q'] += C; continue
+        b = ((off - r0) // q) % m if m > 1 else 0
         t = Fraction(b, m) if m > 1 else Fraction(0)
         if sat: sats.append((C, 'satellite in %s' % t)); continue
         mass[t] += C; cnt[t] += 1
