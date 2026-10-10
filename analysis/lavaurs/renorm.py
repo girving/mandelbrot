@@ -38,3 +38,18 @@ def passages(sigma, n_u, r):
         out.append((dist, steps))
         e = phi_a_entry(x); p = e[0] + sigma; petal = e[2]
     return out
+
+def tuned_by(sigma, r, n_u):
+    """|R_U^r(1/2) - 1/2| with R_U(w) = F^{n_u}(g_σ(F(w))) the return map of the single-transit source U (excursion
+    n_u) at the phase σ.  NOT a tuning test: F commutes with g_σ, so R_U^p = F^{p n_u + p - 1} g^p F is the return map
+    of any p-transit component with that excursion count; this only checks n ≡ -1 (mod p) in the given
+    representative (necessary for tuning, not sufficient)."""
+    from lavaurs import transit
+    w = 0.5 + 0j
+    for _ in range(r):
+        t = transit(F(w), sigma)
+        if t is None: return float('inf')
+        w = t[0]
+        for _ in range(n_u): w = F(w)
+        if abs(w) > 10: return float('inf')
+    return abs(w - 0.5)
