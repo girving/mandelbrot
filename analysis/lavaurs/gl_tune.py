@@ -54,16 +54,18 @@ def main():
         R = a.reach * rad(u[4])
         x0, y0 = int(math.floor((su.real % 1) / G)), int(math.floor(su.imag / G))
         span = int(math.ceil(R / G)) + 1
-        for dx in range(-min(span, NX), min(span, NX) + 1):
-            for dy in range(-span, span + 1):
-                for w in grid.get(((x0 + dx) % NX, y0 + dy), []):
-                    sw = w[3]
-                    j = round(su.real - sw.real)
-                    s2 = sw + j
-                    if abs(s2 - su) > R: continue
-                    n2 = w[2] - j * r * a.q
-                    if n2 + 1 != (r // u[1]) * (u[2] + 1): continue
-                    lines.append('%s %d %d %.17g %.17g %s %d %d %.17g %.17g' % (w[0], r, n2, s2.real, s2.imag, u[0], u[1], u[2], su.real, su.imag))
+        # each cell once: a U whose reach exceeds the period would otherwise see each W several times, and the
+        # duplicates would take its primitive slots below
+        cells = {((x0 + dx) % NX, y0 + dy) for dx in range(-min(span, NX), min(span, NX) + 1) for dy in range(-span, span + 1)}
+        for cell in cells:
+            for w in grid.get(cell, []):
+                sw = w[3]
+                j = round(su.real - sw.real)
+                s2 = sw + j
+                if abs(s2 - su) > R: continue
+                n2 = w[2] - j * r * a.q
+                if n2 + 1 != (r // u[1]) * (u[2] + 1): continue
+                lines.append('%s %d %d %.17g %.17g %s %d %d %.17g %.17g' % (w[0], r, n2, s2.real, s2.imag, u[0], u[1], u[2], su.real, su.imag))
     print('level %d: %d components, %d tuner candidates, %d pairs' % (r, len(W), len(U), len(lines)), file=sys.stderr)
     out = subprocess.run([BIN, str(a.p), str(a.q), 'tuned', str(a.threads)], input='\n'.join(lines) + '\n',
                          capture_output=True, text=True, env=env).stdout

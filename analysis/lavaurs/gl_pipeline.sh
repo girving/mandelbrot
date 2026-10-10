@@ -4,7 +4,7 @@
 # single transits (gl_single.py), then per level r = 2..levels: children (gl_census.py; on the GPU when there is one),
 # tunings (gl_tune.py), limbs (gl_limbsum.py; CLASSIFY_MIN: classify only components above it), with timings.  With
 # "check": first a small census on CPU and GPU, compared.  GL_START: resume at that level from $out's files.  GL_SOURCES, GL_TARGETS: census sizes (default 300, 100;
-# not TARGETS, which bench.sh uses for build targets).
+# not TARGETS, which bench.sh uses for build targets).  GL_NO_CENSUS=1: redo only tunings and limbs from $out's census files.
 set -euo pipefail
 p=$1 q=$2 gate=$3 theta=$4 levels=$5 out=$6 check=${7:-}
 T=${MANDELBROT_THREADS:-8}
@@ -27,7 +27,9 @@ if [ -n "$check" ]; then
 fi
 for ((r = start; r <= levels; r++)); do
   stamp "level $r census"
-  if [ $r = 2 ]; then
+  if [ -n "${GL_NO_CENSUS:-}" ]; then
+    :
+  elif [ $r = 2 ]; then
     python3 "$D/gl_census.py" $p $q $gate "$out/single.txt" --levels 2 --threads $T --starts 26 --big-src 1e-9 --out "$out/c" \
       --sources ${GL_SOURCES:-300} --targets ${GL_TARGETS:-100}
   else
