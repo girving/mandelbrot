@@ -23,6 +23,7 @@ struct GeneralLavaurs {
   std::vector<C> a;           // a_j for j = -q .. N (index j + q); a_0 = 0
   C beta;
   int N;
+  double r0;                  // |w| below which the attracting series is used
   int side;                   // the gate: an orbit entering attracting petal k exits through the repelling petal whose
                               // axis is at k's axis + side π/q (the two sides of the root; q = 2 limbs k/(2k+1): +1)
 
