@@ -1409,3 +1409,10 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   root, with the Farey structure of the strip shared: the automaton over CF digits is the natural next step (with the
   caveats: levels ≥ 5 not computed — the bulb limb's level ratios rise (0.5-0.56 at level 4), so the tail matters at
   the 1e-2 relative level; level-4 tunings by the heuristic rule).
+- **The 1/2 strip, levels 5-6** (resumed on the GPU, 9 min; 612 and 638 sources; `results/strip_1_2_gpu_levels56.log`):
+  | level | bulb limb (ref) | mediant (ref) | thirds | quarters | fifths |
+  | 5 | 1.2249e-5 (7.6e-6) | 1.6145e-5 (1.60e-5) | 8.38e-6 + 3.98e-6 | 4.26e-6 + 5.55e-6 | 1.2e-7 |
+  | 6 | 4.0015e-6 (4.2e-6) | 1.188e-6 (1.3e-6) | 5.9e-8 + 3.6e-7 | 1.2e-7 + 3.5e-7 | 1.71e-6 + 2.30e-6 |
+  The mediant reproduces the reference; the level-5 bulb limb is 1.6x the reference, presumably tunings the heuristic
+  rule misses (period 5 has 11 primitives), as bulb*P4a at level 4.  Bulb-limb κ through level 6: 1.0920e-2 as
+  computed, 1.0864e-2 without the known bulb*P4a (reference 1.0844e-2).  Exact tuning labels are the limiting item.

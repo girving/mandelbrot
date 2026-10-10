@@ -1,0 +1,147 @@
+
+=== Machine [0 s]
+name, memory.total [MiB], driver_version, clocks.max.sm [MHz]
+NVIDIA H200, 143771 MiB, 570.133.20, 1980 MHz
+CPUs: 176 visible, using 2 threads
+clang version 22.1.8 (https://github.com/conda-forge/clangdev-feedstock 4376d67fb227e616ccc5717854d9d41ab142e4fa)
+
+=== Cloning hybrid-area [1 s]
+commit a8dd52841e234937900414ec2a08d65d59579696
+
+=== Configuring and building [3 s]
+Run-time dependency OpenMP found: YES 5.1
+Run-time dependency CUDA (modules: cudart_static) for cpp found: YES 12.8 (/usr/local/cuda)
+ninja: Entering directory `/tmp/mandelbrot/build/release'
+[1/42] Generating argparse with a custom command
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100  36215 100  36215   0      0 105.8k      0                              0100  36215 100  36215   0      0 105.8k      0                              0100  36215 100  36215   0      0 105.8k      0                              0
+[2/42] Generating tinyformat with a custom command
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100  49197 100  49197   0      0 133.9k      0                              0100  49197 100  49197   0      0 133.9k      0                              0100  49197 100  49197   0      0 133.9k      0                              0
+[3/42] Compiling C++ object libbase.so.p/shutdown.cc.o
+[4/42] Compiling C++ object libarbcc.so.p/fmpq_cc.cc.o
+[5/42] Compiling C++ object libarbcc.so.p/arb_cc.cc.o
+[6/42] Compiling C++ object libarbcc.so.p/arf_cc.cc.o
+[7/42] Compiling C++ object libbase.so.p/loops.cc.o
+[8/42] Compiling C++ object libbase.so.p/print.cc.o
+[9/42] Compiling C++ object libbase.so.p/cutil.cc.o
+[10/42] Compiling C++ object libknown.so.p/known.cc.o
+[11/42] Compiling C++ object libarbcc.so.p/acb_cc.cc.o
+[12/42] Compiling C++ object libarbcc.so.p/poly.cc.o
+[13/42] Compiling C++ object libbase.so.p/debug.cc.o
+[14/42] Compiling C++ object libbase.so.p/numpy.cc.o
+[15/42] Compiling C++ object codelets.p/sig.cc.o
+[16/42] Compiling C++ object codelets.p/nearest.cc.o
+[17/42] Compiling C++ object libbase.so.p/angles.cc.o
+[18/42] Linking target libbase.so
+[19/42] Generating symbol file libbase.so.p/libbase.so.symbols
+[20/42] Linking target libknown.so
+[21/42] Linking target libarbcc.so
+[22/42] Generating symbol file libknown.so.p/libknown.so.symbols
+[23/42] Generating symbol file libarbcc.so.p/libarbcc.so.symbols
+[24/42] Compiling C++ object codelets.p/exp.cc.o
+[25/42] Compiling C++ object codelets.p/codelets.cc.o
+[26/42] Linking target codelets
+[27/42] Generating gen_mul_bases with a custom command
+[28/42] Generating gen_expansion with a custom command
+[29/42] Generating gen_series_bases with a custom command
+[30/42] Generating gen_butterflies with a custom command
+[31/42] Compiling C++ object libarea.so.p/octaves.cc.o
+[32/42] Compiling C++ object libarea.so.p/expansion.cc.o
+[33/42] Compiling C++ object libarea.so.p/nearest.cc.o
+[34/42] Compiling C++ object glavaurs.p/glavaurs.cc.o
+[35/42] Compiling C++ object glavaurs.p/glavaurs_gpu.cc.o
+[36/42] Compiling C++ object libarea.so.p/series.cc.o
+[37/42] Compiling C++ object libarea.so.p/area.cc.o
+[38/42] Compiling C++ object glavaurs.p/analysis_lavaurs_glavaurs_main.cc.o
+[39/42] Compiling C++ object libarea.so.p/fft.cc.o
+[40/42] Linking target libarea.so
+[41/42] Generating symbol file libarea.so.p/libarea.so.symbols
+[42/42] Linking target glavaurs
+INFO: autodetecting backend as ninja
+INFO: calculating backend command to run: /data/env-v3/bin/ninja -C /tmp/mandelbrot/build/release glavaurs
+
+=== env GL_START=5 CLASSIFY_MIN=1e-12 bash analysis/lavaurs/gl_pipeline.sh 1 2 -1 0.6666666666666666 6 /data/results/gl2e [39 s]
+[0 s] level 5 census
+resuming at level 5: 612 sources (1678 tuned dropped)
+level 5: 612 sources (219 heavy or satellite) x 101 targets
+upper half (cut Im σ = -2.1598): 1755 single-transit families, S_0 = 1.893453e-03; satellites 2.081210e-01
+level 5: 1654043 children (118 exact), primitive mass 7.794856e-05; satellites 12 (4.1122e-04 4.0995e-04 4.0910e-04 3.9171e-04 3.8961e-04 3.8798e-04); outside the half 5.424e-10
+   heaviest: 1.058e-05 @-6.4752-0.1680i, 1.008e-05 @-5.7874-0.1818i, 8.096e-06 @-6.3058-0.0670i, 5.452e-06 @-6.7351-0.0402i, 3.720e-06 @-3.9876-0.4261i, 3.446e-06 @-5.2656-0.0381i
+[144 s] level 5 tunings
+level 5: 1654055 components, 206 tuner candidates, 132544 pairs
+ratio histogram (log10 floor): {1: 14890, 0: 58574, -1: 1762}
+tuned: 1770 components (primitive mass 2.618990e-05)
+  L5_114509 C 4.1122e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.505
+  L5_100248 C 3.8798e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.337
+  L5_210886 C 3.1321e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.456
+  L5_42959 C 2.5270e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.350
+  L5_114488 C 1.0075e-05 sat 0  by B3511 (C 2.081e-01)  ratio 0.643
+  L5_843035 C 9.4273e-06 sat 1  by F0 (C 1.725e-03)  ratio 0.410
+  L5_699947 C 4.9788e-06 sat 1  by F0 (C 1.725e-03)  ratio 0.457
+  L5_273246 C 3.9846e-06 sat 1  by F0 (C 1.725e-03)  ratio 0.438
+  L5_129072 C 3.7200e-06 sat 0  by B3511 (C 2.081e-01)  ratio 1.270
+  L5_100249 C 3.4224e-06 sat 0  by B3511 (C 2.081e-01)  ratio 0.564
+[186 s] level 5 limbs (tunings removed)
+  below cmin 1e-12 (not classified): 1648301 components, mass 1.879e-09
+  limb 0       2426 components  1.224912e-05
+  limb 1/2      563 components  1.614461e-05
+  limb 1/3      167 components  8.381789e-06
+  limb 2/3      126 components  3.975126e-06
+  limb 1/4       51 components  4.255962e-06
+  limb 3/4       46 components  5.552169e-06
+  limb 1/5       15 components  7.750371e-08
+  limb 2/5       13 components  1.814054e-08
+  limb 3/5       12 components  2.121812e-08
+  limb 4/5       18 components  1.002025e-09
+  total 5.067665e-05
+  unclassified (b = 0 at m > 1): 1.079e-06
+  unclassified (offset %% q): 1.349e-09
+  sat 4.0995e-04 bulb of 3/5
+  sat 4.0910e-04 bulb of 2/5
+  sat 3.9171e-04 bulb of 4/5
+  sat 3.8961e-04 bulb of 1/5
+[201 s] level 6 census
+resuming at level 6: 638 sources (1770 tuned dropped)
+level 6: 638 sources (247 heavy or satellite) x 101 targets
+upper half (cut Im σ = -2.1598): 1755 single-transit families, S_0 = 1.893453e-03; satellites 2.081210e-01
+level 6: 1869718 children (171 exact), primitive mass 4.472168e-05; satellites 69 (2.9043e-04 2.8608e-04 2.2718e-04 1.8690e-04 1.8630e-04 1.8492e-04); outside the half 1.437e-10
+   heaviest: 2.115e-05 @-5.5142-0.1435i, 3.374e-06 @-6.8122-0.1130i, 2.294e-06 @-5.7907-0.0258i, 1.706e-06 @-7.2095-0.0249i, 1.556e-06 @-6.0648-0.4399i, 1.277e-06 @-5.9162-0.3427i
+[393 s] level 6 tunings
+level 6: 1869787 components, 698 tuner candidates, 320859 pairs
+ratio histogram (log10 floor): {1: 30720, 0: 106959, -1: 11922, 'inf': 829, 2: 782, 4: 8, 3: 75, 5: 1}
+tuned: 11952 components (primitive mass 3.375992e-05)
+  L6_44535 C 2.9043e-04 sat 1  by L3_27134 (C 3.061e-03)  ratio 0.670
+  L6_44515 C 2.8608e-04 sat 1  by L3_27121 (C 3.064e-03)  ratio 0.666
+  L6_44523 C 2.2718e-04 sat 1  by L2_8 (C 1.506e-02)  ratio 0.449
+  L6_233585 C 1.8690e-04 sat 1  by L3_27111 (C 3.235e-03)  ratio 0.554
+  L6_44507 C 1.7864e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.255
+  L6_44524 C 1.7594e-04 sat 1  by L2_8 (C 1.506e-02)  ratio 0.423
+  L6_385833 C 1.7559e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.446
+  L6_338921 C 1.4263e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.447
+  L6_121993 C 1.2397e-04 sat 1  by L2_14 (C 1.366e-02)  ratio 0.278
+  L6_115342 C 1.0245e-04 sat 1  by B3511 (C 2.081e-01)  ratio 0.523
+[485 s] level 6 limbs (tunings removed)
+  below cmin 1e-12 (not classified): 1854199 components, mass 1.768e-09
+  limb 0       2140 components  4.001481e-06
+  limb 1/2      536 components  1.188112e-06
+  limb 1/3      150 components  5.856831e-08
+  limb 2/3      123 components  3.647936e-07
+  limb 1/4       54 components  1.182244e-07
+  limb 3/4       50 components  3.505512e-07
+  limb 1/5       23 components  1.706455e-06
+  limb 2/5       24 components  1.519694e-09
+  limb 3/5       14 components  3.730659e-08
+  limb 4/5       26 components  2.295118e-06
+  limb 1/6        7 components  8.341343e-11
+  limb 5/6       11 components  3.366896e-10
+  total 1.012255e-05
+  unclassified (b = 0 at m > 1): 8.370e-07
+  unclassified (offset %% q): 4.367e-10
+  sat 1.8630e-04 bulb of 5/6
+  sat 1.8492e-04 bulb of 1/6
+[501 s] done
+
+=== Done; results in /data/results/bench-20261010-085043.txt [540 s]
