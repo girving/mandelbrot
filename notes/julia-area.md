@@ -1626,3 +1626,10 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   limb 1/(m-1) for m ≥ 6 (first 0 at transit m - 1).  So the classifier (fixed arc A, 0.15 gate radius) fails for deep
   Farey limbs: a robust, combinatorial limb classifier is now the blocking item for the CF recursion's
   measurements (candidates: the component's own partition, or limb membership from the piece itinerary / wake).
+- **Why the classifier fails for deep Farey limbs** (`CLASSIFY_R` = gate radius, `CLASSIFY_MARGIN=1` prints the
+  deciding point and its distance to the partition polygon): the gate radius does not matter (0.05-0.3 identical); for
+  the family members a6, a7, a8 the deciding first-0 point sits at the same place, z ≈ -0.08 + 0.08i, 0.0045, 0.010,
+  0.015 from the fixed partition (a5's decision is elsewhere, margin 0.048).  So the fixed arc A (the vertical half-line
+  above Φ_a(crit), lifted) is off by ~0.01 there for these components: their own partition is needed.  The piece
+  itineraries of B_m and a_m pass through the big bulb's critical piece at every transit (only the sheet bits differ),
+  e.g. B8 + + + - - + +, a8 + + + - - + + -; the relation of the sheet sequence to the limb is not yet worked out.

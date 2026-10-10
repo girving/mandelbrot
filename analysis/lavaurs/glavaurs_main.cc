@@ -1363,6 +1363,8 @@ int main(int argc, char** argv) {
     const int threads = argc > 5 ? atoi(argv[5]) : 2;
     const bool knead = getenv("KNEAD") && atoi(getenv("KNEAD"));   // print the whole kneading word instead
     const int J = 40;
+    // points within gate_r of α count as gate steps (always 1); CLASSIFY_R overrides the default 0.15
+    const double gate_r = getenv("CLASSIFY_R") ? atof(getenv("CLASSIFY_R")) : 0.15;
     const SCd lam(L.lam.r, L.lam.i), c0 = lam / 2.0 - lam * lam / 4.0, alpha = lam / 2.0;
     const auto ray = [&](const double t) {
       std::vector<SCd> pts;
@@ -1488,7 +1490,7 @@ int main(int argc, char** argv) {
         for (const auto& o : pts) {
           const int64_t pos = o.kind == 'e' && o.T == 0 ? int64_t(o.s) : 1 + o.T * Lam + o.s;
           const SCd z = SCd(o.w.r, o.w.i) + alpha;
-          if (std::hypot(o.w.r, o.w.i) < 0.15) w[pos] = {'1', SCd(0)};
+          if (std::hypot(o.w.r, o.w.i) < gate_r) w[pos] = {'1', SCd(0)};
           else w[pos] = {inside_fast(z) ? '1' : '0', z};
         }
         return true;
@@ -1581,7 +1583,7 @@ int main(int argc, char** argv) {
             // the symbols of points away from α remain: a word independent of how many steps a passage takes
             std::string w = jb.name + " ";
             for (const auto& o : pts) {
-              const bool near = std::hypot(o.w.r, o.w.i) < 0.15 || (o.kind == 'x' && o.s < 0);
+              const bool near = std::hypot(o.w.r, o.w.i) < gate_r || (o.kind == 'x' && o.s < 0);
               if (near) { if (w.back() != '|') w += '|'; }
               else w += inside(SCd(o.w.r, o.w.i) + alpha) ? '1' : '0';
             }
@@ -1590,10 +1592,22 @@ int main(int argc, char** argv) {
           }
           snprintf(line, sizeof(line), "%s bulb %d", jb.name.c_str(), jb.r);
           for (const auto& o : pts) {
-            if (std::hypot(o.w.r, o.w.i) < 0.15) continue;
+            if (std::hypot(o.w.r, o.w.i) < gate_r) continue;
             if (!inside(SCd(o.w.r, o.w.i) + alpha)) {
               if (o.kind == 'e' && o.T == 0) snprintf(line, sizeof(line), "%s pre %d", jb.name.c_str(), o.s);
               else snprintf(line, sizeof(line), "%s %d %d", jb.name.c_str(), o.T, o.s);
+              if (getenv("CLASSIFY_MARGIN")) {   // the deciding point and its distance to the partition boundary
+                const SCd z = SCd(o.w.r, o.w.i) + alpha;
+                double dmin = INFINITY;
+                for (size_t e = 0; e < poly.size(); e++) {
+                  const SCd a0 = poly[e], b0 = poly[(e + 1) % poly.size()], ab = b0 - a0;
+                  const double t = std::max(0.0, std::min(1.0, std::real((z - a0) * std::conj(ab)) / std::max(std::norm(ab), 1e-300)));
+                  dmin = std::min(dmin, std::abs(z - (a0 + t * ab)));
+                }
+                char extra[160];
+                snprintf(extra, sizeof(extra), "  kind %c T %d s %d z %.5f%+.5fi margin %.3g", o.kind, o.T, o.s, z.real(), z.imag(), dmin);
+                strncat(line, extra, sizeof(line) - strlen(line) - 1);
+              }
               break;
             }
           }
