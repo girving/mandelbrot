@@ -10,13 +10,16 @@
 //   glavaurs p q fchildren threads < (as children)            # children by the frozen-σ horn-map dynamics
 //   glavaurs p q frefine threads < "name r y_re y_im sX_re sX_im sW_re sW_im"   # frozen-σ child from the exact one
 //   glavaurs p q consist                                      # cross-petal branch conventions
+//   glavaurs p q hp r n re im [N Nb]                          # center, C_nf, area in double, Expansion<2>, Expansion<3>
 //   glavaurs p q arc sgn                                      # the critical arc: Φ_a(w) = Φ_a(crit) + i sgn t
 //   glavaurs p q orbit J < "name r n re im"                   # explicit critical-orbit points, for kneading
 //   glavaurs p q tuned threads < "W r n re im U rU nU ure uim"   # little-Julia-set tuning test of W by U
 //   glavaurs p q classify theta threads < "name r n re im"    # limbs by kneading: "name m offset" | "name bulb r"
 // C = (4π² sin²(πp/q)/q⁴) area_σ is the family constant lim k⁴ area_M (limbs [CF(p/q), k]).
 #include "glavaurs.h"
+#include "expansion_arith.h"
 #include <atomic>
+#include <iostream>
 #include <cmath>
 #include <complex>
 #include <functional>
@@ -849,6 +852,44 @@ int main(int argc, char** argv) {
     }
     Cd sg = sig;
     printf("center(1,1) ok %d -> %.12g%+.12gi\n", L.center(1, 1, sg), sg.r, sg.i);
+    return 0;
+  }
+  if (mode == "hp") {
+    // A component's center and normal-form constant at three precisions, each from the previous one's center (the
+    // Fatou series with N terms beyond double): agreement to each precision's level checks the high-precision core
+    const int r = atoi(argv[4]), n = atoi(argv[5]), Nh = argc > 8 ? atoi(argv[8]) : 40, Nb = argc > 9 ? atoi(argv[9]) : 0;
+    Cd c(atof(argv[6]), atof(argv[7]));
+    if (!L.center(r, n, c)) { printf("double: no center\n"); return 1; }
+    const auto run = [&](auto core, auto tol, const char* name, auto& center) {
+      typedef decltype(core.lam) C;
+      typedef decltype(center.r) S;
+      C w = core.crit, sg = center;
+      const double last = core.newton(r, n, w, sg, C(0), tol, 60);
+      GLJetT<S> x;
+      core.return_map(r, n, core.crit, sg, x);
+      const C ad = C(S(0.5)) * x.ww * x.s;
+      // K = 4π² sin²(πp/q)/q⁴ at precision S
+      S sn, cs;
+      gl_sincos(gl_pi<S>() * S(double(p)) / S(double(q)), sn, cs);
+      const S pi = gl_pi<S>(), KS = S(4.0) * pi * pi * sn * sn / (S(double(q)) * S(double(q)) * S(double(q)) * S(double(q)));
+      const S cnf = KS * S(3.0) * pi / S(8.0) / (ad.r * ad.r + ad.i * ad.i);
+      std::cout << name << ": last step " << last << "\n  center " << safe(sg.r) << " " << safe(sg.i) << "\n  C_nf " << safe(cnf) << "\n";
+      center = sg;
+      if (Nb > 0) {
+        C cen;
+        S ar;
+        double conv, cusp;
+        if (gl_area(core, r, n, sg, cen, ar, conv, cusp, Nb, tol, 1e3 * tol))
+          std::cout << "  area_σ " << safe(ar) << "\n  C = K area_σ " << safe(KS * ar) << "  (conv " << conv << ", cusp " << cusp << ")\n";
+        else std::cout << "  area failed\n";
+      }
+    };
+    printf("double (N = %d): center %.17g %.17g\n", L.N, c.r, c.i);
+    Complex<Expansion<2>> c2(Expansion<2>(c.r), Expansion<2>(c.i));
+    run(gl_make_core<Expansion<2>>(p, q, L.side, Nh), 1e-30, "Expansion<2>", c2);
+    Complex<Expansion<3>> c3(c2.r.x[0] ? Expansion<3>(c2.r.x[0]) + Expansion<3>(c2.r.x[1]) : Expansion<3>(0.0),
+                             c2.i.x[0] ? Expansion<3>(c2.i.x[0]) + Expansion<3>(c2.i.x[1]) : Expansion<3>(0.0));
+    run(gl_make_core<Expansion<3>>(p, q, L.side, Nh), 1e-44, "Expansion<3>", c3);
     return 0;
   }
   if (mode == "consist") {

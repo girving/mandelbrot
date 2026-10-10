@@ -1273,3 +1273,16 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   +0.040): exponent 16/3.  So the infinite branch tail is a Hurwitz-zeta sum Σ_k k^{-4(q+1)/q} Σ_j c_j k^{-j/q} (plus
   β log terms at high order), with coefficients from the local pole expansion; numerically: walk to K, fit or derive
   the expansion, sum exactly.
+- **High-precision core** (`expansion_math.h`, `glavaurs_core.h` templated on the scalar, `gl_make_core<S>`, `gl_area<S>`,
+  `glavaurs hp`): sqrt/exp/log/sin/cos/atan2 for Expansion<n> (range reduction with one extra part of π / ln 2, Taylor
+  carrying exp(u) - 1 and 1 - cos so squaring/double angles keep relative precision, Newton polish; tested against
+  arb within 64 ulps at n = 2, 3, `expansion_math_test`); the model's core is now GLCoreT<S> (double: GLCore, CPU and
+  GPU, unchanged results: S_0 to 10 digits, the classifier identical; λ, A, v, crit are now rounded from the exact
+  acb values), built at any precision from the 512-bit Fatou solve.  S1 at q = 2: Expansion<2> and <3> agree to
+  5e-32 (center), N = 40, 48, 56 Fatou terms agree to all printed digits (N = 32 at 5e-44, N = 24 at 1e-35), Nb = 256
+  Fourier boundary points converge to 4e-44 (2.9 s total): the model constant
+  C(S1) = 1.72497406349896486443936883749556...e-3 (≈ 47 digits; area_σ = 6.9910565546419292496035107544872356e-4,
+  C_nf = 1.601655603051711979180144373174039e-3).  The M-side extrapolation (k ≤ 1024, Neville in 1/k) gave
+  1.724974063498964762e-3: 1.0e-19 apart (6e-17 relative), 5x its claimed 1e-20 subset agreement: either the 1/k
+  extrapolation has a small systematic bias (fractional powers or logs in the finite-k expansion?) or the model is off
+  at 1e-19 — to resolve (it is exactly the finite-k obstacle).
