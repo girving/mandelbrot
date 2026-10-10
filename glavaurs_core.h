@@ -235,12 +235,14 @@ struct GLCore {
   // Θ_r with σ frozen at sadd in the transits after the first (p_1 = ζ0 + σ, p_{i+1} = H(p_i) + sadd): the frozen
   // horn-map dynamics F(p) = H(p) + sadd from p_1.  dfz = dΘ/dσ of that frozen composition (= Π H'), dpar the true
   // parameter derivative recursion along the frozen orbit (dp_{i+1} = H' dp_i + 1), and the last state (p_r, petal)
+  // With speed ≠ 1: the slice crosses the fiber at that speed, p_1 = ζ0 + sadd + speed (σ - sadd) (the transversality
+  // T of the source: parameter/dynamics similarity to first order); dfz and dpar include it
   __host__ __device__ bool theta_frozen(const Cd sigma, const Cd sadd, const int r, Cd& th, Cd& dfz, Cd& dpar, Cd& hprod,
-                                        Cd& pr, int& pet_out) const {
+                                        Cd& pr, int& pet_out, const Cd speed = Cd(1)) const {
     Cd s0, ds, dds;
     int pet;
     if (!phi_a(v, s0, ds, dds, pet)) return false;
-    Cd pp = s0 + sigma, dz(1), dq(1), hp(1);
+    Cd pp = s0 + sadd + speed * (sigma - sadd), dz = speed, dq = speed, hp(1);
     for (int i = 1; i < r; i++) {
       Cd q0, q1, q2, a0, a1, a2;
       int pet2;
@@ -257,6 +259,29 @@ struct GLCore {
     return true;
   }
 };
+
+// The frozen fiber chain from x: p_1 = x, p_{i+1} = H(p_i) + sadd (i < r), with H' and H'' at each p_i (i < r);
+// false if a step fails or r > kMaxChain
+static constexpr int kMaxChain = 32;
+__host__ __device__ static inline bool gl_fiber_chain(const GLCore& L, const Complex<double> x, const Complex<double> sadd,
+                                                      const int r, Complex<double>* h1, Complex<double>* h2, Complex<double>& pr) {
+  typedef Complex<double> Cd;
+  if (r > kMaxChain) return false;
+  Cd s0, ds, dds;
+  int pet;
+  if (!L.phi_a(L.v, s0, ds, dds, pet)) return false;
+  Cd pp = x;
+  for (int i = 1; i < r; i++) {
+    Cd h, dh, ddh;
+    int pet2;
+    if (!L.horn(pp, pet, h, dh, ddh, pet2)) return false;
+    h1[i] = dh; h2[i] = ddh;
+    pp = h + sadd;
+    pet = pet2;
+  }
+  pr = pp;
+  return true;
+}
 
 // One children job (glavaurs children): the r-transit children of the source u over the target c, shifts jlo..jhi
 struct GLChildJob { int r, nc, jlo, jhi; Complex<double> u, c; double rad; };

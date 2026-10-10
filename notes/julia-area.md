@@ -1237,3 +1237,25 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   only) bulb-target children were 1/3 low, +0.02% (q = 2, level 2) to +0.48% (q = 3, level 3) of the level mass; the q = 2
   fast_census.py used the same approximation for the bulb.  Children of primitive targets: formula/exact = +2.5% to
   +8% (median) for the heavy (> 1e-8) ones: the conformal distortion over the target, shrinking with relative size.
+- **Normal-form constants compose exactly; only the shape factor is approximate.**  The area mode now prints each
+  component's C_nf = K (3π/8)/|A D|² from the return map's jet at its center (A = R''(crit)/2, D = ∂R/∂σ).  By the
+  chain rule C_nf(child) = C_nf(target) |Θ_r' Π H'|^-2 exactly, so the formula mass Σ C_nf is an exact weighted root
+  count, and the only approximation per component is its shape factor S = area/C_nf: |log S| median 1.4% at C ~ 1e-7,
+  0.3% at 1e-9, 0.14% at 1e-11 (q = 2, levels 2-3; slow, ∝ C^0.2): at 1e-40 it must come from a perturbed-normal-form
+  expansion in the return map's jet.  gl_census now uses C_nf of the targets (gl_single writes it).
+- **The parameter structure in a source's island is the holomorphic motion of fiber chains, exactly to all orders.**
+  With σ = σ_X + δ the fiber map is F_δ = H + σ_X + δ; a child's fiber preimage chain z^{(i)}(δ) (z^{(r)} = target)
+  has Taylor coefficients from backward recursions, z1 = (z1' - 1)/H', z2 = (z2' - H''z1²/2)/H', and the child is the
+  slice crossing ζ0 + σ_X + δ = z^{(1)}(δ); the crossing speed is 1 - z1 = T, the transversality.  Test (`glavaurs
+  frefine`, 452k level-3 children of the 40 heaviest two-transit sources): median relative position error, frozen
+  (0th order) ≈ ε, 1st order ≈ 0.7ε², 2nd order ≈ 1.4ε³ (e.g. ε = 0.019: 1.4e-2, 2.5e-4, 1.0e-5; ε = 0.08: 4.5e-2,
+  2e-3, 1e-4); the series stops converging at ε ≳ 0.25.  Children far from their source (10^3-10^4 √C_X away, a
+  minority of the mass) converge badly: the radius is set by the nearest branch point (a shallower component), not by
+  ε alone, so the expansion base must be near the child.
+- **An exact operator formulation (proposed)**: cover the σ-strip by base points σ_b with a smooth partition of unity
+  χ_b; in each the fiber dynamics F_b = H + σ_b and the δ-jets give the children exactly; summed over all depths the
+  patch's mass is Σ_t C_nf(t) [(I - L_b)^{-1} ψ_b](y_t), L_b the fiber transfer operator (weight |F'|^-4) acting on
+  smooth functions (spectrally computable), ψ_b = χ_b × the jet-corrected weight, with the jets as a finite extra
+  state (they transform affinely under pullback).  Open: H^{-1} has infinitely many branches accumulating at the
+  cylinder's ends with algebraically decaying weights (the long-digit families), to be summed by the horn map's end
+  asymptotics; the shape factor S as a jet function.

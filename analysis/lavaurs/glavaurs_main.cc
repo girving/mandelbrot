@@ -302,8 +302,30 @@ int main(int argc, char** argv) {
             if (ok) {
               L.core.theta_frozen(Cd(s.real(), s.imag()), Q.sx, Q.r, tf, dz, dq, hq, pr, pet, speed);
               const SCd H(hq.r, hq.i);
-              snprintf(line, sizeof(line), "%s %.17g %.17g %.6e %.6e %.6e", Q.name.c_str(), s.real(), s.imag(), we,
-                       1 / std::norm(SCd(dq.r, dq.i) * H), 1 / std::norm(H * H));
+              // The holomorphic motion of the fiber chain in δ (F_δ = H + σ_X + δ): z(δ) = z0 + z1 δ + z2 δ², with the
+              // target fixed and z_k^{(i)} from the next point's by H' z1 + 1 = z1', H' z2 + H''/2 z1² = z2'; the child is
+              // the crossing ζ0 + σ_X + δ = z^{(1)}(δ), solved to first and second order (FR_T unset: z0 = ζ0 + σ_f)
+              Cd h1[kMaxChain], h2[kMaxChain], prr;
+              const Cd z0 = L.zeta0() + Cd(s.real(), s.imag());
+              SCd d1 = NAN, d2 = NAN;
+              if (!useT && gl_fiber_chain(L.core, z0, Q.sx, Q.r, h1, h2, prr)) {
+                SCd z1 = 0, z2 = 0;
+                for (int i = Q.r - 1; i >= 1; i--) {
+                  const SCd a(h1[i].r, h1[i].i), b(h2[i].r, h2[i].i);
+                  const SCd n1 = (z1 - 1.0) / a, n2 = (z2 - 0.5 * b * n1 * n1) / a;
+                  z1 = n1; z2 = n2;
+                }
+                const SCd rhs = SCd(z0.r, z0.i) - SCd(L.zeta0().r + Q.sx.r, L.zeta0().i + Q.sx.i);
+                d1 = rhs / (1.0 - z1);
+                // second order: (1 - z1) δ - z2 δ² = rhs, by Newton from d1
+                SCd dd = d1;
+                for (int it = 0; it < 20; it++) dd -= ((1.0 - z1) * dd - z2 * dd * dd - rhs) / ((1.0 - z1) - 2.0 * z2 * dd);
+                d2 = dd;
+              }
+              const SCd sx(Q.sx.r, Q.sx.i);
+              snprintf(line, sizeof(line), "%s %.17g %.17g %.6e %.6e %.6e %.17g %.17g %.17g %.17g", Q.name.c_str(), s.real(),
+                       s.imag(), we, 1 / std::norm(SCd(dq.r, dq.i) * H), 1 / std::norm(H * H), (sx + d1).real(),
+                       (sx + d1).imag(), (sx + d2).real(), (sx + d2).imag());
             }
           }
           out[i] = line;
