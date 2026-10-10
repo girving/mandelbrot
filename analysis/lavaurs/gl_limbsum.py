@@ -13,9 +13,13 @@ def main():
     ap.add_argument('p', type=int); ap.add_argument('q', type=int); ap.add_argument('gate', type=int)
     ap.add_argument('theta', type=float); ap.add_argument('level')
     ap.add_argument('--threads', type=int, default=4)
+    ap.add_argument('--cmin', type=float, default=0)   # classify only components above this; the rest is reported
     a = ap.parse_args()
     q = a.q
     rows = [l.split() for l in open(a.level)]
+    lows = [float(f[5]) for f in rows if f[6] == '0' and float(f[5]) <= a.cmin]
+    rows = [f for f in rows if f[6] == '1' or float(f[5]) > a.cmin]
+    if a.cmin: print('  below cmin %g (not classified): %d components, mass %.3e' % (a.cmin, len(lows), sum(lows)))
     text = ''.join('%s %s %s %s %s\n' % (f[0], f[1], f[2], f[3], f[4]) for f in rows)
     out = subprocess.run([BIN, str(a.p), str(q), 'classify', str(a.theta), str(a.threads)], input=text,
                          capture_output=True, text=True, env=dict(os.environ, GL_SIDE=str(a.gate))).stdout.splitlines()

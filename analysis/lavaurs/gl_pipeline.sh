@@ -2,7 +2,8 @@
 # The general-root strip census on one machine (a GPU pod via cluster/bench.sh RUNS, or a laptop):
 #   bash analysis/lavaurs/gl_pipeline.sh p q gate theta levels outdir [check]
 # single transits (gl_single.py), then per level r = 2..levels: children (gl_census.py; on the GPU when there is one),
-# tunings (gl_tune.py), limbs (gl_limbsum.py), with timings.  With "check": first a small census on CPU and GPU, compared.
+# tunings (gl_tune.py), limbs (gl_limbsum.py; CLASSIFY_MIN: classify only components above it), with timings.  With
+# "check": first a small census on CPU and GPU, compared.  SOURCES, TARGETS: census sizes (default 300, 100).
 set -euo pipefail
 p=$1 q=$2 gate=$3 theta=$4 levels=$5 out=$6 check=${7:-}
 T=${MANDELBROT_THREADS:-8}
@@ -23,15 +24,16 @@ fi
 for ((r = 2; r <= levels; r++)); do
   stamp "level $r census"
   if [ $r = 2 ]; then
-    python3 "$D/gl_census.py" $p $q $gate "$out/single.txt" --levels 2 --threads $T --starts 26 --big-src 1e-9 --out "$out/c"
+    python3 "$D/gl_census.py" $p $q $gate "$out/single.txt" --levels 2 --threads $T --starts 26 --big-src 1e-9 --out "$out/c" \
+      --sources ${SOURCES:-300} --targets ${TARGETS:-100}
   else
     python3 "$D/gl_census.py" $p $q $gate "$out/single.txt" --levels $r --resume $r --threads $T --starts 26 --big-src 1e-9 \
-      --src-min 1e-10 --out "$out/c"
+      --src-min ${SRC_MIN:-1e-10} --out "$out/c" --targets ${TARGETS:-100}
   fi
   stamp "level $r tunings"
   python3 "$D/gl_tune.py" $p $q $gate "$out/single.txt" "$out/c" --level $r --threads $T | head -12
   stamp "level $r limbs (tunings removed)"
   grep -v -F -f <(awk '{print $1" "}' "$out/c_tuned_r$r.txt") "$out/c_r$r.txt" > "$out/c_untuned_r$r.txt" || true
-  python3 "$D/gl_limbsum.py" $p $q $gate $theta "$out/c_untuned_r$r.txt" --threads $T
+  python3 "$D/gl_limbsum.py" $p $q $gate $theta "$out/c_untuned_r$r.txt" --threads $T --cmin ${CLASSIFY_MIN:-0}
 done
 stamp "done"
