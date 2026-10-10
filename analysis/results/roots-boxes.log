@@ -1,0 +1,623 @@
+
+=== Creating conda environment /data/env-v3 [0 s]
+
+=== Machine [9 s]
+no GPU
+CPUs: 176 visible, using 120 threads
+clang version 22.1.8 (https://github.com/conda-forge/clangdev-feedstock 4376d67fb227e616ccc5717854d9d41ab142e4fa)
+
+=== Cloning hybrid-area [9 s]
+commit b1bb800712919197462f4ded30ac47d140a1f733
+
+=== Configuring and building [11 s]
+Run-time dependency OpenMP found: YES 5.1
+WARNING: Could not detect CUDA Toolkit version for /usr/local/cuda
+Run-time dependency CUDA (modules: cudart_static) for cpp found: NO  (tried system)
+ninja: Entering directory `/tmp/mandelbrot/build/release'
+[1/62] Generating tinyformat with a custom command
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100  49197 100  49197   0      0 142.3k      0                              0100  49197 100  49197   0      0 142.3k      0                              0100  49197 100  49197   0      0 142.2k      0                              0
+[2/62] Generating argparse with a custom command
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100  36215 100  36215   0      0  72042      0                              0100  36215 100  36215   0      0  72029      0                              0100  36215 100  36215   0      0  72018      0                              0
+[3/62] Compiling C++ object libbase.so.p/cutil.cc.o
+[4/62] Compiling C++ object libbase.so.p/shutdown.cc.o
+[5/62] Compiling C++ object libarbcc.so.p/fmpq_cc.cc.o
+[6/62] Compiling C++ object libbase.so.p/loops.cc.o
+[7/62] Compiling C++ object libarbcc.so.p/arf_cc.cc.o
+[8/62] Compiling C++ object libarbcc.so.p/arb_cc.cc.o
+[9/62] Compiling C++ object orbit_regimes.p/escape.cc.o
+[10/62] Compiling C++ object libknown.so.p/known.cc.o
+[11/62] Compiling C++ object orbit_census.p/escape.cc.o
+[12/62] Compiling C++ object libbase.so.p/print.cc.o
+[13/62] Compiling C++ object libbase.so.p/debug.cc.o
+[14/62] Compiling C++ object libarbcc.so.p/acb_cc.cc.o
+[15/62] Compiling C++ object orbit_regimes.p/engine.cc.o
+[16/62] Compiling C++ object orbit_census.p/engine.cc.o
+[17/62] Compiling C++ object orbit_bench.p/engine.cc.o
+[18/62] Compiling C++ object libarbcc.so.p/poly.cc.o
+[19/62] Compiling C++ object libbase.so.p/numpy.cc.o
+[20/62] Compiling C++ object codelets.p/sig.cc.o
+[21/62] Compiling C++ object codelets.p/nearest.cc.o
+[22/62] Compiling C++ object libtests.so.p/tests.cc.o
+[23/62] Compiling C++ object libbase.so.p/angles.cc.o
+[24/62] Linking target libbase.so
+[25/62] Generating symbol file libbase.so.p/libbase.so.symbols
+[26/62] Linking target libknown.so
+[27/62] Linking target libtests.so
+[28/62] Linking target libarbcc.so
+[29/62] Generating symbol file libknown.so.p/libknown.so.symbols
+[30/62] Generating symbol file libtests.so.p/libtests.so.symbols
+[31/62] Generating symbol file libarbcc.so.p/libarbcc.so.symbols
+[32/62] Compiling C++ object orbit_bench.p/orbit_bench.cc.o
+[33/62] Linking target orbit_bench
+[34/62] Compiling C++ object codelets.p/exp.cc.o
+[35/62] Compiling C++ object orbit_census.p/orbit_census.cc.o
+[36/62] Linking target orbit_census
+[37/62] Compiling C++ object orbit_regimes.p/orbit_regimes.cc.o
+[38/62] Linking target orbit_regimes
+[39/62] Compiling C++ object codelets.p/codelets.cc.o
+[40/62] Linking target codelets
+[41/62] Generating gen_mul_bases with a custom command
+[42/62] Generating gen_series_bases with a custom command
+[43/62] Generating gen_expansion with a custom command
+[44/62] Generating gen_butterflies with a custom command
+[45/62] Compiling C++ object tree_test.p/escape.cc.o
+[46/62] Compiling C++ object escape_tree.p/escape.cc.o
+[47/62] Compiling C++ object escape_tree.p/engine.cc.o
+[48/62] Compiling C++ object libarea.so.p/octaves.cc.o
+[49/62] Compiling C++ object tree_test.p/engine.cc.o
+[50/62] Compiling C++ object libarea.so.p/expansion.cc.o
+[51/62] Compiling C++ object libarea.so.p/nearest.cc.o
+[52/62] Compiling C++ object libarea.so.p/series.cc.o
+[53/62] Compiling C++ object libarea.so.p/fft.cc.o
+[54/62] Compiling C++ object libarea.so.p/area.cc.o
+[55/62] Linking target libarea.so
+[56/62] Generating symbol file libarea.so.p/libarea.so.symbols
+[57/62] Compiling C++ object tree_test.p/tree_test.cc.o
+[58/62] Compiling C++ object escape_tree.p/escape_tree.cc.o
+[59/62] Compiling C++ object tree_test.p/tree.cc.o
+[60/62] Compiling C++ object escape_tree.p/tree.cc.o
+[61/62] Linking target tree_test
+[62/62] Linking target escape_tree
+INFO: autodetecting backend as ninja
+INFO: calculating backend command to run: /data/env-v3/bin/ninja -C /tmp/mandelbrot/build/release tree_test escape_tree orbit_bench orbit_census orbit_regimes
+
+=== ./build/release/tree_test [24 s]
+[32m[==========][0m ./build/release/tree_test: 22 tests
+[32m[ RUN      ][0m scramble
+[32m[       OK ][0m scramble (3 ms)
+[32m[ RUN      ][0m engine_claims
+[32m[       OK ][0m engine_claims (47 ms)
+[32m[ RUN      ][0m tree_matches_reference
+[32m[       OK ][0m tree_matches_reference (538 ms)
+[32m[ RUN      ][0m tree_newton_matches_reference
+[32m[       OK ][0m tree_newton_matches_reference (615 ms)
+[32m[ RUN      ][0m batching_invariant
+[32m[       OK ][0m batching_invariant (48476 ms)
+[32m[ RUN      ][0m shards_merge_exactly
+[32m[       OK ][0m shards_merge_exactly (1126 ms)
+[32m[ RUN      ][0m split_batches
+[32m[       OK ][0m split_batches (98465 ms)
+[32m[ RUN      ][0m split_depth
+[32m[       OK ][0m split_depth (43756 ms)
+[32m[ RUN      ][0m deep_queue
+  deep queue: 765 suspended samples in a sub-batch of 15832, room for 5: rerunning
+  deep queue: 920 suspended samples in a sub-batch of 39416, room for 5: rerunning
+  deep queue: 7120 suspended samples in a sub-batch of 147584, room for 5: rerunning
+  deep queue: 16 suspended samples in a sub-batch of 11840, room for 5: rerunning
+  roulette 0: 8821 samples suspended, 4 deep passes
+  deep queue: 21 suspended samples in a sub-batch of 39416, room for 5: rerunning
+  deep queue: 97 suspended samples in a sub-batch of 147584, room for 5: rerunning
+  roulette 1: 120 samples suspended, 2 deep passes
+[32m[       OK ][0m deep_queue (1438 ms)
+[32m[ RUN      ][0m roulette_unbiased
+[32m[       OK ][0m roulette_unbiased (647 ms)
+[32m[ RUN      ][0m dd_matches_compare
+[32m[       OK ][0m dd_matches_compare (677 ms)
+[32m[ RUN      ][0m box
+[32m[       OK ][0m box (67 ms)
+[32m[ RUN      ][0m tiles
+[32m[       OK ][0m tiles (439 ms)
+[32m[ RUN      ][0m leaf_stats
+[32m[       OK ][0m leaf_stats (344 ms)
+[32m[ RUN      ][0m compare_float
+[32m[       OK ][0m compare_float (346 ms)
+[32m[ RUN      ][0m rounded
+[32m[       OK ][0m rounded (2 ms)
+[32m[ RUN      ][0m expansion_orbits
+  comparedd: 22 flips of 214672 samples
+[32m[       OK ][0m expansion_orbits (348 ms)
+[32m[ RUN      ][0m expansion_step
+  worst step error 1.31 · 2^-104 (|z|^2 + |c|)
+[32m[       OK ][0m expansion_step (100 ms)
+[32m[ RUN      ][0m expansion3_step
+  worst step error 0.291 · 2^-155 (|z|^2 + |c|), 0.246 with cancellation; overlapping results 0, 205170
+  10^4 steps: error 0.0291 · 2^-155
+[32m[       OK ][0m expansion3_step (451 ms)
+[32m[ RUN      ][0m expansion3_orbits
+  4000 samples: 3027 escaped, 955 attracting; Expansion<3> differs from Expansion<2> on 0, from double on 0
+[32m[       OK ][0m expansion3_orbits (14 ms)
+[32m[ RUN      ][0m compare_rounded
+  compare48: 30 flips of 214672 samples
+  compare36: 88 flips of 214672 samples
+  compare30: 148 flips of 214672 samples
+[32m[       OK ][0m compare_rounded (1033 ms)
+[32m[ RUN      ][0m cuda_matches_cpu
+[32m[       OK ][0m cuda_matches_cpu (0 ms)
+[32m[==========][0m 22 tests ran (198931 ms total)
+[32m[  PASSED  ][0m 22 tests
+
+=== env ./build/release/escape_tree --box -1.0 -0.5 -0.2499999999999999 0.2500000000000001 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [223 s]
+box [-1, -0.5] × [-0.24999999999999989, 0.25000000000000011] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 2.6 s (tree 0.6 s with centers 0.3 s, sampling 1.8 s, reduce 0.2 s, 3 batches)
+  sampling throughput: 4.09e+10 iterations/s
+  centers: 6.47e+06 cells, 3.91e+09 iterations; leaves: 3.69e+06 leaves, 5.9e+07 samples, 7.28e+10 iterations; 0 orbits overflowed
+  certified cells by depth: 398 980 1.92e+03 4.35e+03 1.36e+04 3.44e+04 9.14e+04 2.59e+05 7.59e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   0.4486416862   4.02e-07
+         128   0.4427024312   6.25e-07
+         256   0.4391771341   6.78e-07
+         512   0.4372146507   5.94e-07
+        1024   0.4361941423   4.71e-07
+        2048   0.4356812271   3.61e-07
+        4096   0.4354261300   2.79e-07
+        8192   0.4353004028   2.27e-07
+       16384   0.4352394575   2.00e-07
+       32768   0.4352096855   1.88e-07
+       65536   0.4351952751   1.84e-07
+      131072   0.4351882557   1.84e-07
+      262144   0.4351847959   1.84e-07
+      524288   0.4351831474   1.84e-07
+     1048576   0.4351823549   1.84e-07
+     2097152   0.4351819656   1.84e-07
+     4194304   0.4351817798   1.84e-07
+     8388608   0.4351816797   1.85e-07
+    16777216   0.4351816387   1.85e-07
+       k → k'           A(k) - A(k')     std err
+          64 → 128       5.939255e-03   7.02e-07
+         128 → 256       3.525297e-03   8.15e-07
+         256 → 512       1.962483e-03   7.45e-07
+         512 → 1024      1.020508e-03   5.89e-07
+        1024 → 2048      5.129152e-04   4.36e-07
+        2048 → 4096      2.550972e-04   3.15e-07
+        4096 → 8192      1.257272e-04   2.25e-07
+        8192 → 16384     6.094528e-05   1.59e-07
+       16384 → 32768     2.977205e-05   1.13e-07
+       32768 → 65536     1.441035e-05   7.92e-08
+       65536 → 131072    7.019378e-06   5.60e-08
+      131072 → 262144    3.459863e-06   3.97e-08
+      262144 → 524288    1.648441e-06   2.75e-08
+      524288 → 1048576   7.925555e-07   1.92e-08
+     1048576 → 2097152   3.892928e-07   1.34e-08
+     2097152 → 4194304   1.857989e-07   9.29e-09
+     4194304 → 8388608   1.001172e-07   6.83e-09
+     8388608 → 16777216  4.097819e-08   4.37e-09
+
+=== env ./build/release/escape_tree --box -0.2212250448649375 -0.028774955135062244 0.5532940079733913 0.7457440977032667 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [226 s]
+box [-0.22122504486493749, -0.028774955135062244] × [0.55329400797339134, 0.74574409770326666] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 3.6 s (tree 0.6 s with centers 0.4 s, sampling 2.8 s, reduce 0.2 s, 3 batches)
+  sampling throughput: 4.47e+10 iterations/s
+  centers: 7.25e+06 cells, 8.01e+09 iterations; leaves: 4.32e+06 leaves, 6.92e+07 samples, 1.27e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 423 953 1.87e+03 3.73e+03 1.11e+04 3.17e+04 8.61e+04 2.45e+05 7.31e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   0.0686910967   4.62e-08
+         128   0.0673973903   9.77e-08
+         256   0.0665686566   1.19e-07
+         512   0.0660636540   1.12e-07
+        1024   0.0657847239   9.13e-08
+        2048   0.0656426403   6.97e-08
+        4096   0.0655724184   5.24e-08
+        8192   0.0655381248   4.06e-08
+       16384   0.0655214226   3.34e-08
+       32768   0.0655133274   2.97e-08
+       65536   0.0655093827   2.82e-08
+      131072   0.0655074704   2.77e-08
+      262144   0.0655065408   2.76e-08
+      524288   0.0655060917   2.76e-08
+     1048576   0.0655058696   2.77e-08
+     2097152   0.0655057599   2.77e-08
+     4194304   0.0655057087   2.77e-08
+     8388608   0.0655056838   2.77e-08
+    16777216   0.0655056700   2.77e-08
+       k → k'           A(k) - A(k')     std err
+          64 → 128       1.293706e-03   1.04e-07
+         128 → 256       8.287337e-04   1.38e-07
+         256 → 512       5.050026e-04   1.37e-07
+         512 → 1024      2.789300e-04   1.15e-07
+        1024 → 2048      1.420836e-04   8.70e-08
+        2048 → 4096      7.022193e-05   6.29e-08
+        4096 → 8192      3.429364e-05   4.48e-08
+        8192 → 16384     1.670220e-05   3.18e-08
+       16384 → 32768     8.095125e-06   2.25e-08
+       32768 → 65536     3.944737e-06   1.58e-08
+       65536 → 131072    1.912316e-06   1.11e-08
+      131072 → 262144    9.295979e-07   7.84e-09
+      262144 → 524288    4.491044e-07   5.49e-09
+      524288 → 1048576   2.220687e-07   3.89e-09
+     1048576 → 2097152   1.097581e-07   2.75e-09
+     2097152 → 4194304   5.118825e-08   1.87e-09
+     4194304 → 8388608   2.490426e-08   1.31e-09
+     8388608 → 16777216  1.379737e-08   9.80e-10
+
+=== env ./build/release/escape_tree --box 0.20580582617584084 0.29419417382415924 0.45580582617584076 0.5441941738241591 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [229 s]
+box [0.20580582617584084, 0.29419417382415924] × [0.45580582617584076, 0.54419417382415913] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 5.4 s (tree 0.9 s with centers 0.6 s, sampling 4.3 s, reduce 0.2 s, 3 batches)
+  sampling throughput: 4.41e+10 iterations/s
+  centers: 9.34e+06 cells, 9.87e+09 iterations; leaves: 5.77e+06 leaves, 9.24e+07 samples, 1.9e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 428 869 1.73e+03 3.47e+03 1.1e+04 3.44e+04 9.37e+04 2.74e+05 8.08e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   0.0143946086   8.39e-09
+         128   0.0140350773   2.19e-08
+         256   0.0137546511   3.21e-08
+         512   0.0135608342   3.22e-08
+        1024   0.0134477607   2.63e-08
+        2048   0.0133898827   1.98e-08
+        4096   0.0133617019   1.47e-08
+        8192   0.0133480569   1.09e-08
+       16384   0.0133414426   8.51e-09
+       32768   0.0133382334   7.08e-09
+       65536   0.0133366874   6.37e-09
+      131072   0.0133359348   6.07e-09
+      262144   0.0133355723   5.97e-09
+      524288   0.0133353912   5.94e-09
+     1048576   0.0133353054   5.94e-09
+     2097152   0.0133352620   5.95e-09
+     4194304   0.0133352406   5.96e-09
+     8388608   0.0133352307   5.96e-09
+    16777216   0.0133352260   5.96e-09
+       k → k'           A(k) - A(k')     std err
+          64 → 128       3.595314e-04   2.24e-08
+         128 → 256       2.804262e-04   3.48e-08
+         256 → 512       1.938169e-04   3.81e-08
+         512 → 1024      1.130735e-04   3.32e-08
+        1024 → 2048      5.787805e-05   2.52e-08
+        2048 → 4096      2.818082e-05   1.82e-08
+        4096 → 8192      1.364492e-05   1.29e-08
+        8192 → 16384     6.614340e-06   9.11e-09
+       16384 → 32768     3.209207e-06   6.43e-09
+       32768 → 65536     1.545995e-06   4.51e-09
+       65536 → 131072    7.525523e-07   3.18e-09
+      131072 → 262144    3.625464e-07   2.23e-09
+      262144 → 524288    1.810695e-07   1.59e-09
+      524288 → 1048576   8.584175e-08   1.10e-09
+     1048576 → 2097152   4.335016e-08   7.86e-10
+     2097152 → 4194304   2.143497e-08   5.57e-10
+     4194304 → 8388608   9.880750e-09   3.79e-10
+     8388608 → 16777216  4.671165e-09   2.62e-10
+
+=== env ./build/release/escape_tree --box 0.33325133568951165 0.3802741558729095 0.30507053498275954 0.3520933551661574 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [235 s]
+box [0.33325133568951165, 0.38027415587290953] × [0.30507053498275954, 0.35209335516615742] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 6.0 s (tree 1.0 s with centers 0.6 s, sampling 4.7 s, reduce 0.2 s, 4 batches)
+  sampling throughput: 4.48e+10 iterations/s
+  centers: 8.35e+06 cells, 9.93e+09 iterations; leaves: 5.2e+06 leaves, 8.32e+07 samples, 2.12e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 446 950 1.69e+03 3.31e+03 8.24e+03 2.8e+04 8.05e+04 2.29e+05 7.07e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   4.1835960935e-03   1.80e-09
+         128   4.0812366255e-03   5.28e-09
+         256   4.0058560495e-03   8.09e-09
+         512   3.9543003859e-03   8.61e-09
+        1024   3.9220878995e-03   7.59e-09
+        2048   3.9040354688e-03   5.92e-09
+        4096   3.8948856116e-03   4.40e-09
+        8192   3.8904130153e-03   3.25e-09
+       16384   3.8882468030e-03   2.47e-09
+       32768   3.8871961740e-03   1.99e-09
+       65536   3.8866846958e-03   1.73e-09
+      131072   3.8864372186e-03   1.61e-09
+      262144   3.8863161323e-03   1.56e-09
+      524288   3.8862565035e-03   1.55e-09
+     1048576   3.8862280318e-03   1.55e-09
+     2097152   3.8862138803e-03   1.55e-09
+     4194304   3.8862068746e-03   1.55e-09
+     8388608   3.8862035180e-03   1.55e-09
+    16777216   3.8862018417e-03   1.55e-09
+       k → k'           A(k) - A(k')     std err
+          64 → 128       1.023595e-04   5.39e-09
+         128 → 256       7.538058e-05   8.79e-09
+         256 → 512       5.155566e-05   1.00e-08
+         512 → 1024      3.221249e-05   9.15e-09
+        1024 → 2048      1.805243e-05   7.38e-09
+        2048 → 4096      9.149857e-06   5.47e-09
+        4096 → 8192      4.472596e-06   3.90e-09
+        8192 → 16384     2.166212e-06   2.76e-09
+       16384 → 32768     1.050629e-06   1.95e-09
+       32768 → 65536     5.114782e-07   1.37e-09
+       65536 → 131072    2.474772e-07   9.65e-10
+      131072 → 262144    1.210862e-07   6.82e-10
+      262144 → 524288    5.962880e-08   4.82e-10
+      524288 → 1048576   2.847174e-08   3.35e-10
+     1048576 → 2097152   1.415144e-08   2.39e-10
+     2097152 → 4194304   7.005704e-09   1.69e-10
+     4194304 → 8388608   3.356642e-09   1.17e-10
+     8388608 → 16777216  1.676262e-09   8.28e-11
+
+=== env ./build/release/escape_tree --box -0.5198050064330166 -0.4437204851294043 0.49361449456821893 0.5696990158718312 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [241 s]
+box [-0.51980500643301664, -0.44372048512940432] × [0.49361449456821893, 0.56969901587183125] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 6.2 s (tree 0.8 s with centers 0.6 s, sampling 5.1 s, reduce 0.2 s, 3 batches)
+  sampling throughput: 4.61e+10 iterations/s
+  centers: 9.18e+06 cells, 1.1e+10 iterations; leaves: 5.79e+06 leaves, 9.26e+07 samples, 2.37e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 442 881 1.73e+03 3.42e+03 9.07e+03 3.07e+04 8.53e+04 2.39e+05 7.22e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   0.0108942884   4.72e-09
+         128   0.0106294951   1.40e-08
+         256   0.0104079829   2.36e-08
+         512   0.0102423136   2.55e-08
+        1024   0.0101383455   2.20e-08
+        2048   0.0100816126   1.69e-08
+        4096   0.0100530999   1.25e-08
+        8192   0.0100392267   9.23e-09
+       16384   0.0100324975   6.97e-09
+       32768   0.0100292375   5.56e-09
+       65536   0.0100276576   4.78e-09
+      131072   0.0100268907   4.42e-09
+      262144   0.0100265206   4.28e-09
+      524288   0.0100263360   4.23e-09
+     1048576   0.0100262475   4.22e-09
+     2097152   0.0100262042   4.22e-09
+     4194304   0.0100261833   4.23e-09
+     8388608   0.0100261731   4.23e-09
+    16777216   0.0100261679   4.23e-09
+       k → k'           A(k) - A(k')     std err
+          64 → 128       2.647933e-04   1.42e-08
+         128 → 256       2.215122e-04   2.48e-08
+         256 → 512       1.656693e-04   2.93e-08
+         512 → 1024      1.039680e-04   2.68e-08
+        1024 → 2048      5.673291e-05   2.13e-08
+        2048 → 4096      2.851273e-05   1.56e-08
+        4096 → 8192      1.387315e-05   1.11e-08
+        8192 → 16384     6.729183e-06   7.87e-09
+       16384 → 32768     3.260038e-06   5.55e-09
+       32768 → 65536     1.579950e-06   3.90e-09
+       65536 → 131072    7.668572e-07   2.74e-09
+      131072 → 262144    3.700905e-07   1.93e-09
+      262144 → 524288    1.846194e-07   1.37e-09
+      524288 → 1048576   8.849265e-08   9.55e-10
+     1048576 → 2097152   4.333520e-08   6.74e-10
+     2097152 → 4194304   2.082116e-08   4.68e-10
+     4194304 → 8388608   1.025424e-08   3.32e-10
+     8388608 → 16777216  5.143291e-09   2.35e-10
+
+=== env ./build/release/escape_tree --box 0.3611111111111111 0.3888888888888889 0.2026174620572207 0.2303952398349985 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [247 s]
+box [0.3611111111111111, 0.3888888888888889] × [0.2026174620572207, 0.23039523983499849] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 7.4 s (tree 1.1 s with centers 0.7 s, sampling 6.0 s, reduce 0.2 s, 4 batches)
+  sampling throughput: 4.63e+10 iterations/s
+  centers: 7.67e+06 cells, 1.2e+10 iterations; leaves: 4.87e+06 leaves, 7.79e+07 samples, 2.77e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 446 944 1.88e+03 3.79e+03 7.61e+03 2.37e+04 7.05e+04 1.99e+05 5.79e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   1.4996208943e-03   3.67e-10
+         128   1.4702789543e-03   1.30e-09
+         256   1.4447727856e-03   2.70e-09
+         512   1.4242496727e-03   3.21e-09
+        1024   1.4103541200e-03   2.95e-09
+        2048   1.4021310504e-03   2.37e-09
+        4096   1.3977765295e-03   1.78e-09
+        8192   1.3956213787e-03   1.31e-09
+       16384   1.3945737198e-03   9.79e-10
+       32768   1.3940635893e-03   7.68e-10
+       65536   1.3938164770e-03   6.47e-10
+      131072   1.3936959756e-03   5.86e-10
+      262144   1.3936375782e-03   5.61e-10
+      524288   1.3936090996e-03   5.53e-10
+     1048576   1.3935952548e-03   5.50e-10
+     2097152   1.3935883633e-03   5.51e-10
+     4194304   1.3935848680e-03   5.51e-10
+     8388608   1.3935832037e-03   5.52e-10
+    16777216   1.3935824664e-03   5.52e-10
+       k → k'           A(k) - A(k')     std err
+          64 → 128       2.934194e-05   1.32e-09
+         128 → 256       2.550617e-05   2.75e-09
+         256 → 512       2.052311e-05   3.56e-09
+         512 → 1024      1.389555e-05   3.49e-09
+        1024 → 2048      8.223070e-06   2.91e-09
+        2048 → 4096      4.354521e-06   2.21e-09
+        4096 → 8192      2.155151e-06   1.60e-09
+        8192 → 16384     1.047659e-06   1.13e-09
+       16384 → 32768     5.101305e-07   8.00e-10
+       32768 → 65536     2.471124e-07   5.62e-10
+       65536 → 131072    1.205014e-07   3.97e-10
+      131072 → 262144    5.839737e-08   2.78e-10
+      262144 → 524288    2.847864e-08   1.96e-10
+      524288 → 1048576   1.384480e-08   1.38e-10
+     1048576 → 2097152   6.891500e-09   9.81e-11
+     2097152 → 4194304   3.495334e-09   7.01e-11
+     4194304 → 8388608   1.664308e-09   4.88e-11
+     8388608 → 16777216  7.372970e-10   3.26e-11
+
+=== env ./build/release/escape_tree --box 0.35852036423237277 0.376229904604518 0.13832899300248636 0.15603853337463158 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [254 s]
+box [0.35852036423237277, 0.376229904604518] × [0.13832899300248636, 0.15603853337463158] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 8.7 s (tree 1.2 s with centers 0.7 s, sampling 7.2 s, reduce 0.2 s, 4 batches)
+  sampling throughput: 4.7e+10 iterations/s
+  centers: 8.66e+06 cells, 1.36e+10 iterations; leaves: 5.58e+06 leaves, 8.93e+07 samples, 3.41e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 455 943 1.74e+03 3.34e+03 6.88e+03 2.21e+04 7.12e+04 2.01e+05 6.07e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   6.1108016889e-04   1.21e-10
+         128   5.9718237563e-04   4.97e-10
+         256   5.8497658601e-04   1.14e-09
+         512   5.7481496785e-04   1.41e-09
+        1024   5.6784537644e-04   1.32e-09
+        2048   5.6365307802e-04   1.08e-09
+        4096   5.6137670425e-04   8.17e-10
+        8192   5.6023800008e-04   5.99e-10
+       16384   5.5968440267e-04   4.43e-10
+       32768   5.5941607133e-04   3.40e-10
+       65536   5.5928605974e-04   2.78e-10
+      131072   5.5922275361e-04   2.45e-10
+      262144   5.5919194527e-04   2.30e-10
+      524288   5.5917703648e-04   2.24e-10
+     1048576   5.5916973601e-04   2.22e-10
+     2097152   5.5916600955e-04   2.22e-10
+     4194304   5.5916427454e-04   2.22e-10
+     8388608   5.5916343216e-04   2.22e-10
+    16777216   5.5916299285e-04   2.23e-10
+       k → k'           A(k) - A(k')     std err
+          64 → 128       1.389779e-05   5.03e-10
+         128 → 256       1.220579e-05   1.15e-09
+         256 → 512       1.016162e-05   1.55e-09
+         512 → 1024      6.969591e-06   1.56e-09
+        1024 → 2048      4.192298e-06   1.31e-09
+        2048 → 4096      2.276374e-06   1.01e-09
+        4096 → 8192      1.138704e-06   7.36e-10
+        8192 → 16384     5.535974e-07   5.22e-10
+       16384 → 32768     2.683313e-07   3.68e-10
+       32768 → 65536     1.300116e-07   2.59e-10
+       65536 → 131072    6.330613e-08   1.82e-10
+      131072 → 262144    3.080834e-08   1.28e-10
+      262144 → 524288    1.490879e-08   9.02e-11
+      524288 → 1048576   7.300464e-09   6.34e-11
+     1048576 → 2097152   3.726467e-09   4.57e-11
+     2097152 → 4194304   1.735007e-09   3.15e-11
+     4194304 → 8388608   8.423837e-10   2.21e-11
+     8388608 → 16777216  4.393014e-10   1.60e-11
+
+=== env ./build/release/escape_tree --box -0.6262533724196035 -0.5864603964121822 0.39250325217207593 0.4322962281794973 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [263 s]
+box [-0.62625337241960355, -0.58646039641218217] × [0.39250325217207593, 0.43229622817949731] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 10.0 s (tree 1.3 s with centers 0.8 s, sampling 8.4 s, reduce 0.3 s, 4 batches)
+  sampling throughput: 4.71e+10 iterations/s
+  centers: 9.87e+06 cells, 1.54e+10 iterations; leaves: 6.39e+06 leaves, 1.02e+08 samples, 3.97e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 449 869 1.74e+03 3.46e+03 7.19e+03 2.64e+04 7.97e+04 2.23e+05 6.72e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   3.0537235467e-03   7.83e-10
+         128   2.9836460645e-03   2.75e-09
+         256   2.9216824136e-03   6.04e-09
+         512   2.8638515800e-03   8.15e-09
+        1024   2.8189214413e-03   7.83e-09
+        2048   2.7908625206e-03   6.29e-09
+        4096   2.7758988443e-03   4.69e-09
+        8192   2.7685078024e-03   3.42e-09
+       16384   2.7649183707e-03   2.50e-09
+       32768   2.7631822194e-03   1.90e-09
+       65536   2.7623414897e-03   1.52e-09
+      131072   2.7619323166e-03   1.32e-09
+      262144   2.7617336290e-03   1.22e-09
+      524288   2.7616376180e-03   1.18e-09
+     1048576   2.7615897866e-03   1.17e-09
+     2097152   2.7615662705e-03   1.17e-09
+     4194304   2.7615551304e-03   1.17e-09
+     8388608   2.7615495235e-03   1.17e-09
+    16777216   2.7615468188e-03   1.17e-09
+       k → k'           A(k) - A(k')     std err
+          64 → 128       7.007748e-05   2.78e-09
+         128 → 256       6.196365e-05   6.03e-09
+         256 → 512       5.783083e-05   8.52e-09
+         512 → 1024      4.493014e-05   8.94e-09
+        1024 → 2048      2.805892e-05   7.69e-09
+        2048 → 4096      1.496368e-05   5.87e-09
+        4096 → 8192      7.391042e-06   4.22e-09
+        8192 → 16384     3.589432e-06   2.99e-09
+       16384 → 32768     1.736151e-06   2.10e-09
+       32768 → 65536     8.407297e-07   1.48e-09
+       65536 → 131072    4.091731e-07   1.04e-09
+      131072 → 262144    1.986876e-07   7.31e-10
+      262144 → 524288    9.601092e-08   5.13e-10
+      524288 → 1048576   4.783144e-08   3.62e-10
+     1048576 → 2097152   2.351607e-08   2.57e-10
+     2097152 → 4194304   1.114012e-08   1.79e-10
+     4194304 → 8388608   5.606929e-09   1.28e-10
+     8388608 → 16777216  2.704658e-09   8.94e-11
+
+=== env ./build/release/escape_tree --box -1.31 -1.19 -0.06 0.06 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [273 s]
+box [-1.3100000000000001, -1.1899999999999999] × [-0.059999999999999998, 0.059999999999999998] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 4.9 s (tree 1.0 s with centers 0.6 s, sampling 3.7 s, reduce 0.2 s, 4 batches)
+  sampling throughput: 4.34e+10 iterations/s
+  centers: 8.32e+06 cells, 9.69e+09 iterations; leaves: 4.98e+06 leaves, 7.97e+07 samples, 1.59e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 412 968 1.88e+03 3.74e+03 8.73e+03 3.18e+04 9.52e+04 2.75e+05 8.42e+05
+  double:
+       k      area{g < 2^-k}      std err
+          64   0.0268003454   1.49e-08
+         128   0.0261366339   3.25e-08
+         256   0.0257500663   4.22e-08
+         512   0.0255224289   4.29e-08
+        1024   0.0253943557   3.70e-08
+        2048   0.0253274045   2.89e-08
+        4096   0.0252940380   2.18e-08
+        8192   0.0252777477   1.67e-08
+       16384   0.0252698247   1.34e-08
+       32768   0.0252659631   1.17e-08
+       65536   0.0252641123   1.09e-08
+      131072   0.0252632108   1.07e-08
+      262144   0.0252627729   1.06e-08
+      524288   0.0252625579   1.06e-08
+     1048576   0.0252624547   1.07e-08
+     2097152   0.0252624043   1.07e-08
+     4194304   0.0252623780   1.07e-08
+     8388608   0.0252623651   1.07e-08
+    16777216   0.0252623593   1.07e-08
+       k → k'           A(k) - A(k')     std err
+          64 → 128       6.637115e-04   3.47e-08
+         128 → 256       3.865676e-04   4.91e-08
+         256 → 512       2.276374e-04   5.23e-08
+         512 → 1024      1.280731e-04   4.64e-08
+        1024 → 2048      6.695121e-05   3.64e-08
+        2048 → 4096      3.336657e-05   2.67e-08
+        4096 → 8192      1.629026e-05   1.91e-08
+        8192 → 16384     7.923004e-06   1.36e-08
+       16384 → 32768     3.861630e-06   9.61e-09
+       32768 → 65536     1.850751e-06   6.72e-09
+       65536 → 131072    9.014904e-07   4.76e-09
+      131072 → 262144    4.379243e-07   3.34e-09
+      262144 → 524288    2.149522e-07   2.37e-09
+      524288 → 1048576   1.032114e-07   1.65e-09
+     1048576 → 2097152   5.042553e-08   1.15e-09
+     2097152 → 4194304   2.628565e-08   8.37e-10
+     4194304 → 8388608   1.287460e-08   5.88e-10
+     8388608 → 16777216  5.820394e-09   3.95e-10
+
+=== env ./build/release/escape_tree --box -1.77 -1.73 -0.02 0.02 --base 32 --depth 8 --max-iter 16777224 64 128 256 512 1024 2048 4096 8192 16384 32768 65536 131072 262144 524288 1048576 2097152 4194304 8388608 16777216 [278 s]
+box [-1.77, -1.73] × [-0.02, 0.02] (doubled)
+base 32, depth 8 (effective grid 8192), safety 4, 16 samples/leaf, strata 2, max_iter 16777224, seed 1, first Newton 8192, center max_iter 16384, center first Newton 8192, center max period 256, Newton max period 256, Newton iterations 30, Newton close inf, Newton repel 1.41421, burst 128, prec double, cpu, 120 threads: 3.8 s (tree 1.0 s with centers 0.5 s, sampling 2.5 s, reduce 0.3 s, 4 batches)
+  sampling throughput: 4.08e+10 iterations/s
+  centers: 1.5e+07 cells, 8.6e+09 iterations; leaves: 7.47e+06 leaves, 1.19e+08 samples, 1.01e+11 iterations; 0 orbits overflowed
+  certified cells by depth: 0 576 3.33e+03 9.9e+03 3.48e+04 1.04e+05 3.06e+05 8.71e+05 2.46e+06
+  double:
+       k      area{g < 2^-k}      std err
+          64   1.0204743683e-03   1.87e-09
+         128   9.5551272631e-04   2.78e-09
+         256   9.2710230649e-04   3.50e-09
+         512   9.1362618506e-04   3.38e-09
+        1024   9.0705643296e-04   2.82e-09
+        2048   9.0383556485e-04   2.21e-09
+        4096   9.0226234198e-04   1.73e-09
+        8192   9.0149612725e-04   1.44e-09
+       16384   9.0112409890e-04   1.29e-09
+       32768   9.0094255805e-04   1.23e-09
+       65536   9.0085420310e-04   1.21e-09
+      131072   9.0081183314e-04   1.21e-09
+      262144   9.0079175830e-04   1.21e-09
+      524288   9.0078164041e-04   1.22e-09
+     1048576   9.0077678263e-04   1.22e-09
+     2097152   9.0077440441e-04   1.22e-09
+     4194304   9.0077326894e-04   1.22e-09
+     8388608   9.0077267289e-04   1.22e-09
+    16777216   9.0077238083e-04   1.22e-09
+       k → k'           A(k) - A(k')     std err
+          64 → 128       6.496164e-05   3.32e-09
+         128 → 256       2.841042e-05   4.29e-09
+         256 → 512       1.347612e-05   4.33e-09
+         512 → 1024      6.569752e-06   3.60e-09
+        1024 → 2048      3.220868e-06   2.72e-09
+        2048 → 4096      1.573223e-06   1.96e-09
+        4096 → 8192      7.662147e-07   1.40e-09
+        8192 → 16384     3.720284e-07   9.97e-10
+       16384 → 32768     1.815408e-07   7.06e-10
+       32768 → 65536     8.835495e-08   4.99e-10
+       65536 → 131072    4.236996e-08   3.49e-10
+      131072 → 262144    2.007484e-08   2.43e-10
+      262144 → 524288    1.011789e-08   1.73e-10
+      524288 → 1048576   4.857779e-09   1.20e-10
+     1048576 → 2097152   2.378225e-09   8.42e-11
+     2097152 → 4194304   1.135468e-09   5.82e-11
+     4194304 → 8388608   5.960464e-10   4.21e-11
+     8388608 → 16777216  2.920628e-10   2.95e-11
+
+=== Done; results in /data/results/bench-20261007-160307.txt [282 s]

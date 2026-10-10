@@ -111,7 +111,7 @@ template<int n,class I> void convert_int_test() {
     const E x(a);
     ASSERT_TRUE(ulp_valid(x))
         << tfm::format("n %d, i %d, a %d", n, i, a)
-        << tfm::format("\nx %.30", x)
+        << tfm::format("\nx %.30g", x)
         << tfm::format("\nx %s (ulp %g)", x.span(), ulp(x.x[0]));
     const Arf y = exact_arf(x);
     ASSERT_TRUE(arf_equal_si(y, a));

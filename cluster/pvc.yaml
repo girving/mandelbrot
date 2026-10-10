@@ -1,0 +1,14 @@
+# Persistent disk for the conda build environment used by bench.yaml (created on first use, reused
+# after).  Only a cache: everything on it can be rebuilt from git.
+#   kubectl apply -f cluster/pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: irving-mandelbrot
+  namespace: research
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: crusoe-ssd
+  resources:
+    requests:
+      storage: 20Gi

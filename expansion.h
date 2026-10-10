@@ -78,7 +78,7 @@ template<int n_> struct Expansion {
     return true;
   }
 
-  explicit operator double() const {
+  __host__ __device__ explicit operator double() const {
     double s = x[n-1];
     for (int i = n-2; i >= 0; i--)
       s += x[i];
@@ -96,14 +96,27 @@ template<int n_> struct Expansion {
     return false;
   }
 
-  bool operator==(const Expansion y) const {
+  __host__ __device__ bool operator==(const Expansion y) const {
     for (int i = 0; i < n; i++)
       if (x[i] != y.x[i])
         return false;
     return true;
   }
 
-  bool operator!=(const Expansion y) const { return !(*this == y); }
+  __host__ __device__ bool operator!=(const Expansion y) const { return !(*this == y); }
+
+  // Ordering, lexicographic on the nonoverlapping components (the leading one dominates).  Like IEEE, every
+  // comparison involving nan is false.
+  friend __host__ __device__ bool operator<(const Expansion a, const Expansion b) {
+    for (int i = 0; i < n; i++) if (a.x[i] != b.x[i]) return a.x[i] < b.x[i];
+    return false;
+  }
+  friend __host__ __device__ bool operator<=(const Expansion a, const Expansion b) {
+    for (int i = 0; i < n; i++) if (a.x[i] != b.x[i]) return a.x[i] < b.x[i];
+    return true;
+  }
+  friend __host__ __device__ bool operator>(const Expansion a, const Expansion b) { return b < a; }
+  friend __host__ __device__ bool operator>=(const Expansion a, const Expansion b) { return b <= a; }
 
   // These are slow
   Arb arb(const int prec) const;

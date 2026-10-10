@@ -2,6 +2,7 @@
 
 #include "complex.h"
 #include "expansion.h"
+#include "numpy.h"
 #include "series.h"
 #include <png.h>
 #include <array>
@@ -165,6 +166,7 @@ struct Canvas : public Noncopyable {
       }
       png_write_row(png, row.data());
     }
+    png_write_end(png, nullptr);  // The IEND chunk: without it the file is truncated
     png_destroy_write_struct(&png, &info);
     fclose(f);
   }
@@ -175,27 +177,39 @@ Complex<double> cis_tau(const double t) {
   return Complex<double>(cos(s), sin(s));
 }
 
-void logo() {
+// Render the logo from the f series (a series file, or an .npy of shape (n, 2) holding double-double
+// coefficients as (hi, lo) pairs), size pixels tall with samples antialiasing samples per pixel
+void logo(const string& input, const int size, const int samples, const string& output) {
   typedef Expansion<2> E;
   typedef Complex<double> C;
 
-  // Read f series
+  // Read f series, as doubles
   const int max_k = 25;
-  const auto [_, f_] = read_series<E>(tfm::format("exp2-11mar/f-k%d", max_k));
-  const auto f = f_.view();
+  vector<double> f;
+  if (input.ends_with(".npy")) {
+    const auto n = read_numpy(input);
+    slow_assert(n.shape.size() == 2 && n.shape[1] == 2 && n.shape[0] >= (int64_t(1) << max_k),
+                "%s: want shape (n >= 2^%d, 2)", input, max_k);
+    f.resize(int64_t(1) << max_k);
+    for (size_t i = 0; i < f.size(); i++) f[i] = n.data[2 * i] + n.data[2 * i + 1];
+  } else {
+    const auto [_, f_] = read_series<E>(input);
+    slow_assert(f_.known() >= (int64_t(1) << max_k), "%s: too few terms", input);
+    const auto fv = f_.view();
+    f.resize(int64_t(1) << max_k);
+    for (size_t i = 0; i < f.size(); i++) f[i] = double(fv[i]);
+  }
 
   // Render
-  const int size = 256;
-  const int samples = 256;
   const Canvas canvas(Box{{-2.01,-1.14},{.5,1.14}}, size, samples);
-  const auto render = [f,&canvas](const int k, const double radius, const Color color) {
+  const auto render = [&f,&canvas](const int k, const double radius, const Color color) {
     // f[:2^k].astype(double)
     print("k %d", k);
     const int p = 1 << k;
     Series<double> fk(p);
     fk.set_counts(p, p);
     for (int i = 0; i < p; i++)
-      fk[i] = double(f[i]);
+      fk[i] = f[i];
 
     // Do an srfft to get point samples along the circle
     Array<C> fz(p/2);
@@ -217,12 +231,17 @@ void logo() {
   render(5, 0.02, Color{0,.9,.3,1});
 
   // Write to file
-  canvas.write("logo.png");
+  canvas.write(output);
 }
 
 int main(const int argc, const char** argv) {
   try {
-    logo();
+    // logo [input [size [samples [output]]]]: defaults reproduce logo.png
+    const string input = argc > 1 ? argv[1] : "exp2-11mar/f-k25";
+    const int size = argc > 2 ? atoi(argv[2]) : 256;
+    const int samples = argc > 3 ? atoi(argv[3]) : 256;
+    const string output = argc > 4 ? argv[4] : "logo.png";
+    logo(input, size, samples, output);
     return 0;
   } catch (const std::exception& e) {
     die(e.what());
