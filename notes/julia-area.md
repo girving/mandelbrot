@@ -1136,3 +1136,10 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   S1 and the bulb (shifted by the branch constant (11/8)π); q = 3 gives a bulb-like component (area_σ ≈ 0.125) and
   NRPs 5.33e-4, 5.24e-4, 1.76e-5, 1.63e-5, … — top/second ratio 30 vs M's 29 in limb 10/31.  Next: calibrate σ
   against M near 1/3 (centers' 1/ε + q²k phases at k = 10..18), then port the pipeline.
+- **q = 3 calibrated against M**: M's NRPs in limbs k/(3k+1) at k = 10..18 (phases 1/ε + 9k from the α fixed point's
+  multiplier λ_c = λ e^{2πiε}, extrapolated in 1/k) map onto the model's single-transit components by
+  σ_model = (1/ε + q²k)/q² + b with slope 0.1110 + 0.0001i = 1/q² (as for q = 2: 1/4): fitted on the top two
+  families, the next six land within 0.001 in σ (the extrapolation's accuracy), with C/area_σ = 0.35–0.37 (normal-
+  form areas).  The model has a second, near-conjugate group of components (Im σ ≈ -0.7 vs -3): presumably the other
+  side of 1/3 ([2, 1, k]).  Next: exact areas (boundary tracing) in the general model, the C normalization K_q, then
+  the strip machinery (children by Newton, area formula, limb classifier, tunings) for q = 3 and beyond.
