@@ -1422,27 +1422,117 @@ int main(int argc, char** argv) {
     const double a1 = theta / 2, a2 = (theta + 1) / 2;
     const auto r1 = ray(a1), r2 = ray(a2);
     const bool r1a = std::abs(r1.back() - alpha) < std::abs(r2.back() - alpha);
-    const auto& arc1 = r1a ? br[ba] : br[1 - ba];
-    const auto& arc2 = r1a ? br[1 - ba] : br[ba];
-    std::vector<SCd> poly;
     const double far = 200;
-    poly.push_back(std::polar(far, 2 * M_PI * a1));
-    poly.insert(poly.end(), r1.begin(), r1.end());
-    poly.insert(poly.end(), arc1.rbegin(), arc1.rend());
-    poly.push_back(SCd(L.crit.r, L.crit.i) + alpha);
-    poly.insert(poly.end(), arc2.begin(), arc2.end());
-    poly.insert(poly.end(), r2.rbegin(), r2.rend());
-    for (int d = 0; d < 720; d++) poly.push_back(std::polar(far, 2 * M_PI * (a2 - (a2 - a1) * d / 720)));
-    const auto inside = [&](const SCd z) {
+    // the partition polygon: ray 1, the arc branch reaching its landing point, the middle (critical point or the two
+    // internal rays to the component's root and its mirror), the other branch, ray 2, closed far out
+    const auto make_poly = [&](const std::vector<SCd>* b2, const int bA, const std::vector<SCd>& mid) {
+      const auto& arc1 = r1a ? b2[bA] : b2[1 - bA];
+      const auto& arc2 = r1a ? b2[1 - bA] : b2[bA];
+      std::vector<SCd> P;
+      P.push_back(std::polar(far, 2 * M_PI * a1));
+      P.insert(P.end(), r1.begin(), r1.end());
+      P.insert(P.end(), arc1.rbegin(), arc1.rend());
+      if (r1a == (bA == 0)) P.insert(P.end(), mid.begin(), mid.end());
+      else P.insert(P.end(), mid.rbegin(), mid.rend());
+      P.insert(P.end(), arc2.begin(), arc2.end());
+      P.insert(P.end(), r2.rbegin(), r2.rend());
+      for (int d = 0; d < 720; d++) P.push_back(std::polar(far, 2 * M_PI * (a2 - (a2 - a1) * d / 720)));
+      return P;
+    };
+    const auto poly = make_poly(br, ba, {SCd(L.crit.r, L.crit.i) + alpha});
+    const auto inside_poly = [](const std::vector<SCd>& P, const SCd z) {
       bool in = false;
-      for (size_t i = 0; i < poly.size(); i++) {
-        const SCd a = poly[i], b = poly[(i + 1) % poly.size()];
+      for (size_t i = 0; i < P.size(); i++) {
+        const SCd a = P[i], b = P[(i + 1) % P.size()];
         if ((a.imag() > z.imag()) != (b.imag() > z.imag())) {
           const double x = a.real() + (z.imag() - a.imag()) * (b.real() - a.real()) / (b.imag() - a.imag());
           if (x > z.real()) in = !in;
         }
       }
       return in;
+    };
+    // CLASSIFY_OWN=1: each component's own partition.  At W's centre the critical point's Fatou component (W's return
+    // map R ≈ crit + A u²) has its root at the β fixed point ρ of R (≈ crit + 1/A, by Newton on R(w) = w), mirror
+    // ρ' = 2 crit - ρ; the partition is the internal rays crit → ρ, ρ' and the lifts of the vertical half-line above
+    // Φ_a(crit) + δ_W, δ_W = Φ_a(ρ) - Φ_a(crit), continued from ρ, ρ' to ±α (the fixed partition is δ_W = 0).
+    const bool own = getenv("CLASSIFY_OWN") && atoi(getenv("CLASSIFY_OWN"));
+    const auto own_poly = [&](const int r, const int n, const Cd sg0, std::vector<SCd>& P, double* dW) {
+      Cd sg = sg0;
+      if (!L.center(r, n, sg)) return false;   // the exact centre (inputs may be rounded)
+      GLJet x;
+      if (!L.core.return_map(r, n, L.crit, sg, x)) return false;
+      const SCd A = 0.5 * SCd(x.ww.r, x.ww.i), cr(L.crit.r, L.crit.i);
+      // the root = the landing point of internal ray 0 of crit's basin: Böttcher φ ≈ A u near crit, φ(R) = φ², so the ray
+      // point at radius ε is crit + ε/A and the next one out (radius √ρ) solves R(z) = previous point; walk out to
+      // radius ~1 (each Newton from the extrapolated ray), then polish the fixed point R(z) = z
+      SCd w = cr;
+      bool ok = false;
+      {
+        double rad = 1e-3;
+        SCd prev = cr, cur = cr + rad / A;
+        double rprev = 0;
+        for (int k = 0; k < 60 && rad < 1 - 1e-12; k++) {
+          const double rn = std::sqrt(rad);
+          SCd z = cur + (rprev < rad ? (cur - prev) * ((rn - rad) / (rad - rprev)) : SCd(0));
+          bool cv = false;
+          for (int it = 0; it < 60; it++) {
+            if (!L.core.return_map(r, n, Cd(z.real(), z.imag()), sg, x)) break;
+            const SCd res = SCd(x.v.r, x.v.i) - cur, step = res / SCd(x.w.r, x.w.i);
+            z -= step;
+            if (std::abs(res) < 1e-11 * (1 + std::abs(cur))) { cv = true; break; }
+          }
+          if (!cv) break;
+          prev = cur; rprev = rad; cur = z; rad = rn;
+        }
+        // polish: R(z) = z from the last ray point
+        SCd z = cur;
+        for (int it = 0; it < 60; it++) {
+          if (!L.core.return_map(r, n, Cd(z.real(), z.imag()), sg, x)) break;
+          const SCd res = SCd(x.v.r, x.v.i) - z;
+          if (std::abs(res) < 1e-11 * (1 + std::abs(z))) { ok = std::abs(z - cr) > 0.05 / std::abs(A); w = z; break; }
+          z -= res / (SCd(x.w.r, x.w.i) - 1.0);
+        }
+        if (getenv("OWN_DEBUG")) fprintf(stderr, "own: ray to radius %.6f at %.5f%+.5fi, fixed point %.5f%+.5fi ok %d\n", rad, (cur - cr).real(), (cur - cr).imag(), (w - cr).real(), (w - cr).imag(), ok);
+      }
+      if (ok) L.core.return_map(r, n, Cd(w.real(), w.imag()), sg, x);
+      const bool dbg = getenv("OWN_DEBUG");
+      if (dbg) fprintf(stderr, "own: A %.4g%+.4gi guess %.5f%+.5fi -> ρ %.6f%+.6fi ok %d |R'(ρ)| %.4g\n", A.real(), A.imag(), (cr + 1.0 / A).real(), (cr + 1.0 / A).imag(), w.real(), w.imag(), ok, std::hypot(x.w.r, x.w.i));
+      if (!ok || std::abs(w - cr) < 1e-6) return false;
+      const SCd rho = w, rho2 = 2.0 * cr - w;
+      Cd p0, d0, dd0, pr, dr, ddr;
+      int k0, kr;
+      if (!L.phi_a(L.crit, p0, d0, dd0, k0) || !L.phi_a(Cd(rho.real(), rho.imag()), pr, dr, ddr, kr)) return false;
+      const SCd base(pr.r, pr.i);
+      if (dW) *dW = std::abs(base - SCd(p0.r, p0.i));
+      const double sgn = L.side;
+      std::vector<SCd> b2[2];
+      for (int b = 0; b < 2; b++) {
+        Cd ww = b ? Cd(rho2.real(), rho2.imag()) : Cd(rho.real(), rho.imag());
+        b2[b].push_back(SCd(ww.r, ww.i) + alpha);
+        double t = 1e-5;
+        for (int it = 0; it < 6000 && t < 1e4; it++) {
+          bool cv = false;
+          for (int nt = 0; nt < 60; nt++) {
+            Cd s, d, dd;
+            int kk;
+            if (!L.phi_a(ww, s, d, dd, kk)) break;
+            const SCd step = (SCd(s.r, s.i) - (base + SCd(0, sgn * t))) / SCd(d.r, d.i);
+            ww = ww - Cd(step.real(), step.imag());
+            if (std::abs(step) < 1e-9 && std::abs(step * SCd(d.r, d.i)) < 1e-10) { cv = true; break; }
+          }
+          if (!cv) break;
+          b2[b].push_back(SCd(ww.r, ww.i) + alpha);
+          if (std::abs(b2[b].back() - alpha) < 0.01 || std::abs(b2[b].back() + alpha) < 0.01) break;
+          t *= 1.03;
+        }
+      }
+      const int bA = std::abs(b2[0].back() - alpha) < std::abs(b2[1].back() - alpha) ? 0 : 1;
+      if (dbg) fprintf(stderr, "own: δ %.5f%+.5fi, branch ends %.4f%+.4fi (%zu pts) %.4f%+.4fi (%zu pts), α %.4f%+.4fi\n", (base - SCd(p0.r, p0.i)).real(), (base - SCd(p0.r, p0.i)).imag(), b2[0].back().real(), b2[0].back().imag(), b2[0].size(), b2[1].back().real(), b2[1].back().imag(), b2[1].size(), alpha.real(), alpha.imag());
+      if (!(std::abs(b2[bA].back() - alpha) < 0.05 && std::abs(b2[1 - bA].back() + alpha) < 0.05)) return false;
+      // the middle: from branch bA's start (ρ or ρ') through crit to the other start
+      const SCd sA = b2[bA].front(), sB = b2[1 - bA].front();
+      P = make_poly(b2, bA, {sA, cr + alpha, sB});
+      return true;
     };
     if (mode == "blocktune") {
       // Exact tuning test by the block form of the kneading sequence.  Every transit of a component takes the same Λ
@@ -1576,6 +1666,11 @@ int main(int argc, char** argv) {
           std::vector<OrbitPoint> pts;
           char line[512];
           if (!orbit_points(L, jb.r, jb.n, jb.s, J, pts)) { snprintf(line, sizeof(line), "%s failed", jb.name.c_str()); out[i] = line; continue; }
+          std::vector<SCd> myP;
+          double dW = 0;
+          if (own && !own_poly(jb.r, jb.n, jb.s, myP, &dW)) { snprintf(line, sizeof(line), "%s failed own", jb.name.c_str()); out[i] = line; continue; }
+          const std::vector<SCd>& PP = own ? myP : poly;
+          const auto inside = [&](const SCd z) { return inside_poly(PP, z); };
           if (knead) {
             // the whole explicit kneading word: e-points, 'G' at each gate passage (its interior is all 1s), the exit
             // steps and landing point, ..., the final excursion (the critical point itself omitted)
@@ -1599,13 +1694,19 @@ int main(int argc, char** argv) {
               if (getenv("CLASSIFY_MARGIN")) {   // the deciding point and its distance to the partition boundary
                 const SCd z = SCd(o.w.r, o.w.i) + alpha;
                 double dmin = INFINITY;
-                for (size_t e = 0; e < poly.size(); e++) {
-                  const SCd a0 = poly[e], b0 = poly[(e + 1) % poly.size()], ab = b0 - a0;
+                size_t emin = 0;
+                for (size_t e = 0; e < PP.size(); e++) {
+                  const SCd a0 = PP[e], b0 = PP[(e + 1) % PP.size()], ab = b0 - a0;
                   const double t = std::max(0.0, std::min(1.0, std::real((z - a0) * std::conj(ab)) / std::max(std::norm(ab), 1e-300)));
-                  dmin = std::min(dmin, std::abs(z - (a0 + t * ab)));
+                  const double dd = std::abs(z - (a0 + t * ab));
+                  if (dd < dmin) { dmin = dd; emin = e; }
                 }
+                // which part of the polygon: 1 + ray 1, arc 1, middle, arc 2, ray 2, far circle
+                const size_t n1 = 1 + r1.size();
+                const char* part = emin < n1 ? "ray1" : emin >= PP.size() - 720 ? "far" : emin >= PP.size() - 720 - r2.size() ? "ray2" : "arc/mid";
+                fprintf(stderr, "    nearest polygon edge %zu of %zu (%s)\n", emin, PP.size(), part);
                 char extra[160];
-                snprintf(extra, sizeof(extra), "  kind %c T %d s %d z %.5f%+.5fi margin %.3g", o.kind, o.T, o.s, z.real(), z.imag(), dmin);
+                snprintf(extra, sizeof(extra), "  kind %c T %d s %d z %.5f%+.5fi margin %.3g |δ_W| %.3g", o.kind, o.T, o.s, z.real(), z.imag(), dmin, dW);
                 strncat(line, extra, sizeof(line) - strlen(line) - 1);
               }
               break;
