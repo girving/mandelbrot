@@ -1351,3 +1351,9 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   3 x 3 census: 445 children, all 445 centers of the reference model (lavaurs_area); the old (non-equivariant) model's
   413 had 185 spurious and missed 217 real ones, nearly cancelling in mass — which is why its q = 2 totals agreed with
   the reference.  20 x 20 census: primitive mass 2.926225e-4 (old 2.925596e-4; the difference is the C_nf fix).
+- **And a limb-split bug of my own (fixed)**: replacing b = (offset + 1)/q by a per-root residue r0 mod q shifted b by
+  one, so mediant components (m = 2) got b = 0 and Fraction(0, 2) = 0 filed them under the bulb limb (the apparent
+  "mediant collapse" at 1/3: new bulb limb 1.965e-5 ≈ old 8.30e-6 + old mediant 1.164e-5).  With the equivariant
+  transit the bulb-limb residue is -1 at q = 2, 3, 4 anyway (the "2" at q = 4 was the transit bug); b = 0 at m > 1 is now
+  reported, not counted.  q = 2 level 2 (20 x 20): bulb limb 2.6951e-4, mediant 2.2999e-5 (reference 2.711e-4,
+  2.30e-5); 1/4 level 2 (40 x 20): bulb limb 5.929e-6, mediant 5.854e-7.
