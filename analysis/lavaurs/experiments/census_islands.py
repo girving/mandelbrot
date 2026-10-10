@@ -93,6 +93,7 @@ def main():
         if len(f) > 5: eps[f[0]] = 1 / abs(complex(float(f[4]), float(f[5])))
     rows = []
     agg = defaultdict(lambda: [0.0, 0.0])
+    atoms = []
     for nm in cand:
         r, n, sU, CU, satU = comps[nm]
         vU = Z0 + sU
@@ -110,6 +111,7 @@ def main():
             tsat = rkey(zs[-1]) in sat_y
             agg[(in_sat(nm), tsat)][0] += CW
             if rho > 0.5: agg[(in_sat(nm), tsat)][1] += CW
+            atoms.append((in_sat(nm), tsat, eps.get(nm, float('nan')), D, abs(dd), CW, rho > 0.5, r, mm))
             tot[mm] += CW
             if rho > 0.5:
                 bad[mm] += CW; badby[pieces[r]] += CW
@@ -136,6 +138,24 @@ def main():
     for (isat, tsat), (m, b) in sorted(agg.items()):
         print('  island %-22s target %-9s mass %.4e  bad %.3e' % ('inside a satellite' if isat else 'not inside a satellite',
               'satellite' if tsat else 'primitive', m, b / m if m else 0))
+    def table(title, sel, key, bins):
+        print(title)
+        for lo, hi in bins:
+            m = [x for x in sel if lo <= key(x) < hi]
+            if not m: continue
+            M = sum(x[5] for x in m); bd = sum(x[5] for x in m if x[6])
+            print('    %-9.3g-%-9.3g atoms %6d mass %.3e  bad %.3f' % (lo, hi, len(m), M, bd / M))
+    eb = ((0.3, 2), (0.1, 0.3), (0.03, 0.1), (0.01, 0.03), (0.003, 0.01), (0, 0.003))
+    db = ((1, 1e9), (0.3, 1), (0.1, 0.3), (0.03, 0.1), (0.01, 0.03), (0, 0.01))
+    for cls, name in (((True, True), 'inside a satellite, satellite target'), ((False, True), 'outside, satellite target'),
+                      ((True, False), 'inside a satellite, primitive target'), ((False, False), 'outside, primitive target')):
+        sel = [x for x in atoms if (x[0], x[1]) == cls]
+        if not sel: continue
+        print('class: %s (%d atoms)' % (name, len(sel)))
+        table('  by island ε', sel, lambda x: x[2], eb)
+        table('  by D (distance to the target, mod lattice)', sel, lambda x: x[3], db)
+        table('  by d (|σ_W - σ_U|)', sel, lambda x: x[4], db)
+        table('  by island level', sel, lambda x: x[7], ((1, 2), (2, 3), (3, 4), (4, 5)))
     print('done, %.0f s' % (time.time() - t0))
 if __name__ == '__main__':
     main()
