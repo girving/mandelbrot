@@ -896,6 +896,7 @@ int main(int argc, char** argv) {
     // "name bulb r" (no 0 before the critical point), or "name failed".
     const double theta = atof(argv[4]);
     const int threads = argc > 5 ? atoi(argv[5]) : 2;
+    const bool knead = getenv("KNEAD") && atoi(getenv("KNEAD"));   // print the whole kneading word instead
     const int J = 40;
     const SCd lam(L.lam.r, L.lam.i), c0 = lam / 2.0 - lam * lam / 4.0, alpha = lam / 2.0;
     const auto ray = [&](const double t) {
@@ -992,6 +993,20 @@ int main(int argc, char** argv) {
           std::vector<OrbitPoint> pts;
           char line[512];
           if (!orbit_points(L, jb.r, jb.n, jb.s, J, pts)) { snprintf(line, sizeof(line), "%s failed", jb.name.c_str()); out[i] = line; continue; }
+          if (knead) {
+            // the whole explicit kneading word: e-points, 'G' at each gate passage (its interior is all 1s), the exit
+            // steps and landing point, ..., the final excursion (the critical point itself omitted)
+            // points within 0.15 of α (gate steps, always 1) and gate passages collapse into one marker '|', so only
+            // the symbols of points away from α remain: a word independent of how many steps a passage takes
+            std::string w = jb.name + " ";
+            for (const auto& o : pts) {
+              const bool near = std::hypot(o.w.r, o.w.i) < 0.15 || (o.kind == 'x' && o.s < 0);
+              if (near) { if (w.back() != '|') w += '|'; }
+              else w += inside(SCd(o.w.r, o.w.i) + alpha) ? '1' : '0';
+            }
+            out[i] = w;
+            continue;
+          }
           snprintf(line, sizeof(line), "%s bulb %d", jb.name.c_str(), jb.r);
           for (const auto& o : pts) {
             if (std::hypot(o.w.r, o.w.i) < 0.15) continue;
