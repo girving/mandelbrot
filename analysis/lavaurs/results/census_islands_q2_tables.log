@@ -2150,3 +2150,60 @@ bulb L1_3511 σ -1.007458-0.161352i C 2.0812e-01 radius 0.1639
      2.5-5      mass 7.015e-05 bad 0.011
      5.0-1e+09  mass 3.017e-07 bad 0.003
 done, 89 s
+heaviest bad atoms of level 2-3 islands inside a satellite island:
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L4_28134     L4 σ -4.6400-0.0709i C 1.58e-05 target L1_3511  d 0.142 D 0.120 (at z_4 of 4) pieces C+C-C+
+  U L3_27141     L3 σ -5.2189-0.3390i C 4.86e-06 ε 0.0609 target L1_3511  | W L5_42924     L5 σ -6.4752-0.1680i C 1.06e-05 target L1_3511  d 0.308 D 0.276 (at z_5 of 5) pieces C-C-C+C+
+  U L2_96        L2 σ -4.2353-0.3574i C 3.00e-06 ε 0.2076 target L1_0     | W L5_42924     L5 σ -6.4752-0.1680i C 1.06e-05 target L1_3511  d 0.306 D 0.301 (at z_5 of 5) pieces C-C-C+C+
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L5_42911     L5 σ -6.7351-0.0402i C 5.45e-06 target L1_3511  d 0.234 D 0.120 (at z_5 of 5) pieces C+C+C-C+
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L5_42931     L5 σ -6.6965-0.0608i C 2.99e-06 target L1_3511  d 0.196 D 0.120 (at z_5 of 5) pieces C+C-C-C-
+  U L2_96        L2 σ -4.2353-0.3574i C 3.00e-06 ε 0.2076 target L1_0     | W L4_108696    L4 σ -5.4670-0.1981i C 2.63e-06 target L1_3511  d 0.281 D 0.301 (at z_4 of 4) pieces C-C-C+
+  U L3_27173     L3 σ -3.8504-0.3989i C 9.95e-07 ε 0.0423 target L1_3511  | W L5_91442     L5 σ -5.5503-0.1494i C 2.24e-06 target L1_3511  d 0.390 D 0.285 (at z_5 of 5) pieces C+NC+C-
+  U L3_27141     L3 σ -5.2189-0.3390i C 4.86e-06 ε 0.0609 target L1_3511  | W L6_94252     L6 σ -6.4844-0.1958i C 7.38e-07 target L1_3511  d 0.302 D 0.276 (at z_6 of 6) pieces C-C-C+C+C+
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L5_100256    L5 σ -4.8244-0.3771i C 7.02e-07 target L1_3511  d 0.466 D 0.120 (at z_5 of 5) pieces C+C-C+C+
+  U L3_27121     L3 σ -5.6671-0.0187i C 3.06e-03 ε 0.2285 target L1_3511  | W L5_100256    L5 σ -4.8244-0.3771i C 7.02e-07 target L1_3511  d 0.391 D 0.214 (at z_5 of 5) pieces C+C-C+C+
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L5_114491    L5 σ -5.6472-0.0882i C 6.53e-07 target L1_3511  d 0.154 D 0.106 (at z_4 of 5) pieces C+C-C-C-
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L4_269502    L4 σ -3.7033-0.0727i C 6.39e-07 target L1_3511  d 0.205 D 0.120 (at z_4 of 4) pieces C+C+N
+  U L3_27141     L3 σ -5.2189-0.3390i C 4.86e-06 ε 0.0609 target L1_3511  | W L5_42932     L5 σ -6.4229-0.1556i C 5.82e-07 target L1_3511  d 0.274 D 0.276 (at z_5 of 5) pieces C-C-C-C+
+  U L2_96        L2 σ -4.2353-0.3574i C 3.00e-06 ε 0.2076 target L1_0     | W L5_42932     L5 σ -6.4229-0.1556i C 5.82e-07 target L1_3511  d 0.276 D 0.301 (at z_5 of 5) pieces C-C-C-C+
+  U L3_27134     L3 σ -5.3334-0.0187i C 3.06e-03 ε 0.2306 target L1_3511  | W L6_55247     L6 σ -7.1209-0.6176i C 4.77e-07 target L1_3511  d 0.635 D 0.225 (at z_6 of 6) pieces C-C+C+C+C+
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L4_68479     L4 σ -3.7481-0.1586i C 3.55e-07 target L1_3511  d 0.273 D 0.120 (at z_4 of 4) pieces C+C+C-
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L5_42923     L5 σ -6.5607-0.0968i C 3.31e-07 target L1_3511  d 0.081 D 0.120 (at z_5 of 5) pieces C+C-C-C+
+  U L3_27121     L3 σ -5.6671-0.0187i C 3.06e-03 ε 0.2285 target L1_3511  | W L5_42923     L5 σ -6.5607-0.0968i C 3.31e-07 target L1_3511  d 0.132 D 0.214 (at z_5 of 5) pieces C+C-C-C+
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L5_42961     L5 σ -5.6216-0.0677i C 3.10e-07 target L1_3511  d 0.123 D 0.120 (at z_5 of 5) pieces C+C-C+C+
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L5_42962     L5 σ -5.7830-0.2323i C 2.81e-07 target L1_3511  d 0.340 D 0.120 (at z_5 of 5) pieces C+C+NC+
+  U L3_27121     L3 σ -5.6671-0.0187i C 3.06e-03 ε 0.2285 target L1_3511  | W L6_101137    L6 σ -6.8101-0.3761i C 2.81e-07 target L1_3511  d 0.385 D 0.214 (at z_6 of 6) pieces C+C-C+C+C+
+  U L3_27134     L3 σ -5.3334-0.0187i C 3.06e-03 ε 0.2306 target L1_3511  | W L5_42941     L5 σ -6.4481-0.1065i C 2.80e-07 target L1_3511  d 0.144 D 0.225 (at z_5 of 5) pieces C-C+C+C-
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L5_114466    L5 σ -6.5706-0.0609i C 2.62e-07 target L1_3511  d 0.072 D 0.120 (at z_5 of 5) pieces C+C-C+N
+  U L2_8         L2 σ -4.5009-0.0418i C 1.51e-02 ε 0.4013 target L1_3511  | W L4_118575    L4 σ -5.7526-0.1811i C 2.32e-07 target L1_3511  d 0.288 D 0.120 (at z_4 of 4) pieces C+C+C-
+  U L3_27183     L3 σ -5.3967-0.1484i C 2.38e-07 ε 0.0879 target L1_0     | W L6_64409     L6 σ -6.3107-0.0976i C 1.54e-07 target L1_3511  d 0.100 D 0.112 (at z_6 of 6) pieces C-C+C-C+C+
+done, 88 s
+bad share with the target's branch point removed (D' over the intermediate chain points), by class and island level:
+  inside, satellite target   L1 m=1 mass 9.536e-05  bad 1.000  bad' 0.000
+  inside, satellite target   L1 m=2 mass 4.028e-05  bad 1.000  bad' 0.984
+  inside, satellite target   L2 m=1 mass 2.499e-05  bad 0.809  bad' 0.000
+  inside, satellite target   L2 m=2 mass 2.371e-05  bad 0.965  bad' 0.918
+  inside, satellite target   L3 m=1 mass 3.068e-05  bad 0.502  bad' 0.000
+  inside, satellite target   L3 m=2 mass 3.733e-06  bad 0.594  bad' 0.549
+  inside, satellite target   L4 m=1 mass 7.493e-06  bad 0.350  bad' 0.000
+  outside, satellite target  L1 m=1 mass 4.144e-05  bad 0.000  bad' 0.000
+  outside, satellite target  L1 m=2 mass 9.937e-06  bad 0.030  bad' 0.030
+  outside, satellite target  L2 m=1 mass 9.915e-06  bad 0.000  bad' 0.000
+  outside, satellite target  L2 m=2 mass 3.074e-06  bad 0.037  bad' 0.037
+  outside, satellite target  L3 m=1 mass 3.692e-06  bad 0.000  bad' 0.000
+  outside, satellite target  L3 m=2 mass 7.893e-07  bad 0.011  bad' 0.011
+  outside, satellite target  L4 m=1 mass 7.864e-07  bad 0.000  bad' 0.000
+  inside, primitive target   L1 m=1 mass 7.210e-06  bad 0.521  bad' 0.000
+  inside, primitive target   L1 m=2 mass 1.461e-06  bad 1.000  bad' 0.994
+  inside, primitive target   L2 m=1 mass 7.973e-07  bad 0.007  bad' 0.000
+  inside, primitive target   L2 m=2 mass 3.073e-07  bad 0.868  bad' 0.865
+  inside, primitive target   L3 m=1 mass 1.742e-07  bad 0.400  bad' 0.000
+  inside, primitive target   L3 m=2 mass 8.876e-08  bad 0.586  bad' 0.585
+  inside, primitive target   L4 m=1 mass 6.700e-08  bad 0.258  bad' 0.000
+  outside, primitive target  L1 m=1 mass 2.298e-06  bad 0.766  bad' 0.000
+  outside, primitive target  L1 m=2 mass 2.200e-07  bad 0.912  bad' 0.096
+  outside, primitive target  L2 m=1 mass 2.274e-07  bad 0.489  bad' 0.000
+  outside, primitive target  L2 m=2 mass 3.568e-08  bad 0.252  bad' 0.042
+  outside, primitive target  L3 m=1 mass 3.972e-08  bad 0.002  bad' 0.000
+  outside, primitive target  L3 m=2 mass 8.629e-09  bad 0.013  bad' 0.000
+  outside, primitive target  L4 m=1 mass 6.919e-09  bad 0.013  bad' 0.000
+heaviest bad atoms of level 2-3 islands inside a satellite island:
