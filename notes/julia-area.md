@@ -1577,3 +1577,17 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   gains only the good share (11-65% per level at levels 2-4): close to enumeration there, while outside it converges.
   Next: dissect individual heavy bad atoms at levels 2-3 inside the bulb's island (which chain point approaches the
   critical value, from which targets) to find the mechanism.
+- **Dissection of the bad atoms inside the bulb's island** (25 heaviest at island levels 2-3): all land on the bulb
+  B; D is set by the target point in all but one (|σ_U - σ_B| mod lattice ≈ 0.12-0.3); the dominant islands are
+  satellites adjacent to B (the mediant bulb L2_8, ε 0.40; the third bulbs L3_27121/27134, ε 0.23) or islands whose
+  own target is B; their islands are wide (d up to 0.6 at ε 0.04-0.06): an island extends ~ε |H''(y_t)|^-1/2 and the
+  bulb, the largest target, has the smallest H''.
+- **With the target's branch point removed** (the last step to the target done exactly; D' over the intermediate
+  chain points): one-transit atoms are then always good (they are direct children of sub-islands: exact).  Two-transit
+  atoms: outside satellites' islands bad' 0.03, 0.04, 0.01 (island levels 1-3); inside, bad' 0.98, 0.92, 0.55 (masses
+  4.0e-5, 2.4e-5, 3.7e-6): their intermediate point comes back near the island's own critical value, i.e. they are the
+  decorations of the island's own copy, the O(ε_U) near-v share of the scale-invariance argument.  It stays large
+  because satellites keep large ε (1, 0.40, 0.23, 0.15 for the bulb and its 1/2, 1/3, 1/4 satellites).  So the exact
+  route is: census near the top, island expansions (last step exact) for non-satellite islands, and a separate
+  treatment of satellite islands' copy decorations, presumably by renormalization (F_σU is quadratic-like near its
+  superattracting cycle, so the decorations near the copy should be the image of a universal structure); untested.
