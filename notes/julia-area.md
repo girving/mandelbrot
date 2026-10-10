@@ -1460,3 +1460,29 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   **C(S1) = 1.72497406349896482647335138261525654566e-3** (model, Expansion<3>, N = 48, Nb = 256; E2 agrees to 1e-30).
   So for 1e-40 the finite-k corrections need no new structure here, only M-side areas at Expansion<4> (the next step
   for checks beyond 1e-34; E2 S1 members are good to ~5e-25, the deep orbits' conditioning).
+
+**The fiber-patch operator: design check (2026-10-10).**
+- The frozen patch formula is exact in form: with σ = σ_b + δ and ρ_r(z, δ) the chain measure, the patch mass is
+  Σ_t C_t m_00^{(r)}(y_t) for the δ-moments m_ab(z) = ∫ δ^a δ̄^b ρ_r(z, δ) d²δ, which evolve by the frozen transfer
+  operator (weight |F'|^-4) plus derivative couplings, m_ab' = Σ_cd (-1)^{c+d}/(c! d!) ∂^c ∂̄^d L m_{a+c,b+d}, from
+  m_ab^{(1)} = (z - p0)^a (z̄ - p̄0)^b χ(z - p0) (the δ-dependence of F_δ = τ_δ ∘ F_0 is a pure translation).
+- **But L does not act on smooth functions as proposed.**  Every critical point of the horn map is a target (Ψ(y_t)'s
+  orbit through crit) and all have the same critical value ζ0 (mod the deck shifts 1/q, τ), so F_σ = H + σ is a
+  finite-type map of the cylinder with one critical value v = ζ0 + σ (plus the ends).  At v all critical branch pairs
+  merge and L φ ≈ (Σ_t φ(y_t) / 4|H''(y_t)|²) |y - v|^-2 + smooth: log-divergent density, cut off in reality by the
+  islands' internal structure (the tunings and satellites of the components there).  So the smooth-density operator
+  is wrong exactly where the census's islands are.
+- What does carry over: the census is the island tree.  A level-r component U's island maps 2:1 onto the cylinder by
+  z_{r+1} (branched at U's centre, critical value ζ0 + σ_U), and its children kernel depends on U only through
+  (t_U, σ_U, ε_U): C_W / C_U = (C_t' / C_t_U) |H'(z_r)|^-4 × (1 + O(ε)).  Frozen at σ, the relative descendant mass
+  satisfies the renewal Ψ_t = Σ_t' M_tt'(σ) (1 + Ψ_t') over targets (tunings excluded): one linear solve per level-1
+  ancestor instead of an enumeration per level.  Obstacle: Ψ_0(t, σ) is singular at centres (where ζ0 + σ hits a
+  target), and the frozen base σ_X is itself a centre, so the ε-expansion has the small radius seen in frefine ("set
+  by the nearest branch point").  Next: the renewal with the exact one-step state (dchildren's ε, ε' = ε/(H' + ε)) as a
+  tail estimator past the censused levels, checked against levels 4-6.
+- Census completeness near Misiurewicz points (`GL_TREE_ROOT=cocrit glavaurs tree`: non-critical preimages of ζ0,
+  via v' = -λ - v; `glavaurs tsolve`: Newton on Θ_r = target from any start).  These σ_p carry scaled copies of the
+  level-1 structure (q = 2, largest σ_p = -1.2911 - 0.9041i: Θ_2 - σ = -1/2 - τ, |Θ_2'| = 41.6).  Of 7.538e-6 of
+  level-2 mass within 0.1 of σ_p, census-style source children find all but 1.3e-9 (1.29e-9 with the other half's
+  bulb as target, outside the census targets anyway; 3.3e-11 genuinely missed, 1e-7 of level 2): the source search
+  is not systematically blind there, but it is not complete by construction either.
