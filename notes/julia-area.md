@@ -1711,3 +1711,21 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   either the size formula misses a factor (to derive: the decoration's normal form A_W D_W through j quadratic-like
   passes and the outer route, with the atom's own c-dependence), or the found centres are still not the tower members.
   Layer 3's poly(n) route is not established by this test; it needs the size theory worked out exactly first.
+- **The exact size of a copy decoration** (`experiments/decor_size.py`).  Copy U (period p), R_c = f_c^p = F_c(z²),
+  A_c = (f_c^(p-1))'(c), renormalized map g_c(w) = A_c R_c(w/A_c), c' = A_c f_c^p(0).  A decoration W of period
+  P = (j+1) p + e leaves after j + 1 returns at x = R^(j+1)(0), with f^e(x) = 0 along the outer branch X(c); W(c) =
+  A_c X(c) is the atom in renormalized coordinates.  Composing the jets (A_W = (f^e)'(x) (R^j)'(R(0)) A_c, D_W =
+  (f^e)'(x) ∂_c[R^(j+1)(0) - X(c)] since f_c^e(X(c)) ≡ 0):
+      A_W D_W = (f^e)'(x)² · (g^j)'(c') · Q'(c),   Q(c) = g_c^j(c'(c)) - W(c)  (= A_c (R_c^(j+1)(0) - X(c))).
+  Verified at 464 centres of three real copies (p = 4, 5, 6) to 1e-8.  Also: the exact D_W = ∂_c f^P(0) = Λ (1 + β)
+  (Λ = Π 2 z_i, β = Σ 1/Π_{k≤i} 2 z_k), so the usual size estimate 1/(βΛ²) is off by (1 + β)/β: that, the atom term, and
+  misidentified partners were the earlier test's size errors.  In the quadratic model Q' = (dc'/dc)(P_j'(c') - dW/dc'):
+  for j = 0 exactly 1 - W' (checked), the atom motion dW/dc' has median |.| 0.096, 0.085, 0.064 (p = 4, 5, 6; it shrinks
+  slowly, not like 1/|A|), and the quadratic model's residual beyond it is ~4% (p = 4, j ≥ 1).
+- So per outer atom (renormalized position W, motion W', outer factor (f^e)'(x), dc'/dc) the tower's masses are
+  |(f^e)'(x)|^-4 |dc'/dc|^-2 K(W, W') with the quadratic family's kernel K(w, W') = Σ_j Σ_{P_j(c')=w} |(g^j)'(c')|^-2
+  |P_j'(c') - W'|^-2, plus the jet corrections of g.  Caution for the complexity claim: K sums 2^j roots at depth j with
+  total weight ~2^-j, so n bits by direct summation need ~2^n roots; a poly(n) evaluation needs K from M's exterior
+  structure near ∂M (where these roots equidistribute), i.e. the same boundary data the Böttcher-series route needs
+  many terms for.  Layer 3's poly(n) therefore rests on a self-consistent (renormalization fixed-point) formulation in
+  which the near-∂M part of K is itself expressed through the total structure, not on K being "computed once".
