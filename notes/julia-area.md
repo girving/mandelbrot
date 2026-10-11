@@ -1792,3 +1792,41 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   hinges on whether that operator acts on a space with poly(n)-dimensional n-bit approximations; the earlier obstacle
   (the transfer operator is log-singular at the critical value) is where to look.  Since R grows with depth, κ(1/k) is
   likely Gevrey rather than convergent (Σ_r ρ^r R_r^j ~ j!), which still allows optimal truncation at k ~ n.
+
+**Toward poly(n): count is not the obstacle, rank is (2026-10-10).**
+- Even level 1 alone has a power-law count (`count_exponent.py`-style on `single.txt`: slope 0.26-0.34 for η =
+  1e-7..1e-11).  But level-1 components are preimages of the targets under σ ↦ H(ζ0 + σ) + σ, a dynamical object, and
+  power-law counts of dynamical preimages are what transfer operators sum without enumeration (as `julia_area` does
+  for K(c), and as the satellite tree's matrix-Mayer resolvent does for ~1e5 bulbs with a power-law count, to 1e-14).
+  So "bounded family count" is the wrong test; the right one is whether the cascade is a linear map on a context of
+  poly(n) dimension.
+- **Exact form of the cascade.**  An island child's weight is w = |Θ_{r+1}'(σ_W) Π H'|^-2, and Π H' is the landing
+  derivative from the target point y = Θ_{r+1}(σ_W) to the critical point, a function of (t, j) only.  So
+      C_W = C_t g(y) |κ_U'(σ_W)|^-2,   Σ_{children of U at y} = C_t g(y) ρ_U(y),   ρ_U = (κ_U)_* Leb,
+  i.e. the parent enters only through the pushforward density of its island map, paired with a fixed (dynamically
+  generated) target measure.  For a 2:1 island map, ρ_U(y) = A_U(y) / |y - κ_c| + B_U(y) with A_U, B_U real-analytic
+  on the cell (κ_c ≈ ζ0 + σ_U the island's critical value): an explicit Coulomb-type singularity times analytic data.
+- **Trace formula.**  With x(σ) an atom (a backward chain from a target at parameter σ), the parameter-space mass is
+  Σ_atoms w_x / |1 - x'(σ_x)|^2 at the parameter σ_x where x(σ) = v_σ; when σ ↦ x(σ) - ζ0 contracts this is the trace
+  of a composition operator, so the whole level sum is Tr[(1 - T)^-1 J E] for the fibrewise transfer operator T of
+  (σ, z) ↦ (σ, H(z) + σ) and a rank-one closing J E (evaluate at the target, set σ := z - ζ0).  The operator is
+  nuclear except where T is singular: on the postcritical curves z = P_i(σ), i.e. exactly the atoms passing near the
+  critical value (the copy decorations of layer 3).  So the parameter sum is a dynamical trace plus layer 3.
+- **Rank of the one-level cascade** (`experiments/cascade_rank.py`, `cascade_rank_sub.py`; island children of the
+  level-1 sources, rows = parents, columns = (target, shift relative to the parent), sheets summed, mass-weighted SVD).
+  14 targets: rank 14/16/27/48 at 1e-4/1e-6/1e-8/1e-10, stable from 75 to 297 parents (77 parents hold all but 1e-6
+  of the mass).  41 targets (508 labels, 423 parents): 20/40/47/73, with a plateau of ~40 singular values near 2e-5.
+  Restricting the columns to the top 6/10/15/20/30/41 targets gives rank(1e-5) = 7/10/15/20/29/40: **one direction per
+  target**, even for targets holding 1e-4 of the mass.  That is the Coulomb factor 1/|y - κ_U|: as functions of the
+  parent's critical value, the kernels of different targets are independent.  So a satellite-tree-style finite
+  automaton does not carry the primitive cascade; its rank grows with the number of targets resolved, i.e. like the
+  target count, η^-0.3.
+- What would carry it: the target sum is a dynamical one (targets are preimages of the critical point under
+  f_{-3/4}, read in the attracting Fatou coordinate), so the parent's children total is
+  ∫ (A_U(y)/|y - κ_U| + B_U(y)) dτ(y) for the fixed self-similar target measure τ, and the state that matters is the
+  continuous critical value κ_U ≈ ζ0 + σ_U plus low-rank analytic data (A_U, B_U).  Children's critical values move by
+  O(island scale), so the cascade is a near-local operator in κ (the frozen renewal Ψ_0 = m/(1 - m), m(κ) = the
+  Coulomb potential of τ at κ) with corrections in powers of the island scale, and inner (layer 3) solutions where κ
+  comes within a target's radius.  The poly(n) question becomes a numerical-analysis one: Coulomb-type couplings
+  between two self-similar measures (the parameter measure of island critical values and τ), the setting of energies
+  of self-conformal measures, which transfer operators on two variables with a diagonal singularity can compute.
