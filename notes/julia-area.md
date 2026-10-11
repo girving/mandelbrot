@@ -1890,3 +1890,12 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   piece is infrastructure: the transfer operator of H on the cell has infinitely many inverse branches (pieces
   accumulating at ∂dom H), which must come from f's own (parabolic) transfer operator through the Fatou coordinates
   rather than by enumerating pieces.
+- **B is fully dynamical per island.**  With H = Φ_attr ∘ f^m ∘ Ψ_rep, the cell operator 𝓛φ(w) = Σ_{H(x)=w}
+  |H'(x)|^-4 φ(x) is the first-passage transfer operator of f = f_{-3/4} (weight |f'|^-4) from the repelling
+  fundamental domain around J into the attracting one, conjugated by the Fatou coordinates; and the target measure
+  τ = Σ_t C_t δ_{y_t} is the same operator's dual applied to a point mass at the critical point (the targets are H's
+  critical points).  So an island's total (frozen) descendant mass ⟨(1 - 𝓛)^-1 S_U, τ⟩ needs only Galerkin solves for
+  the parabolic quadratic's transfer operator (as julia_area does at weight -2; weight -4 contracts more), the
+  singular basis at v on the cell, the δσ (atom motion) series, and layer 3 at the near field.  Plan: build the
+  weight-4 first-passage operator of f_{-3/4} by collocation, check 𝓛 against enumerated horn-map preimages, then
+  ⟨(1 - 𝓛)^-1 S_U, τ⟩ against island totals from the census.
