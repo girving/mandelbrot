@@ -44,7 +44,7 @@ for p in parents:
     for lab, c, m, n in sorted(kids[p], key=lambda x: -x[2])[:a.kids]:
         jc = -(n + 1)
         for tn, ntt, ct, _, _, _ in targets:
-            lines.append('%s#%s#%d#%s~%s 2 %.17g %.17g %d %.17g %.17g %d %d' % (p, lab[0], lab[1], lab[2], tn, c.real, c.imag, ntt, ct.real, ct.imag, jc + a.jlo, jc + a.jhi))
+            lines.append('%s#%s#%d#%s~%s 3 %.17g %.17g %d %.17g %.17g %d %d' % (p, lab[0], lab[1], lab[2], tn, c.real, c.imag, ntt, ct.real, ct.imag, jc + a.jlo, jc + a.jhi))
 if a.load: out = open(a.out).read(); err = open(a.out + '.err').read()
 else:
     res = subprocess.run([B, '1', '2', 'ichildren', str(a.threads)], input='\n'.join(lines) + '\n', capture_output=True, text=True, env=env)

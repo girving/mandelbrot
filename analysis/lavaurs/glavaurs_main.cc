@@ -930,6 +930,174 @@ int main(int argc, char** argv) {
     }
     return 0;
   }
+  if (mode == "gstate") {
+    // An island's state G(σ) = (σ - σ_U)(σ - σ_c) / (Θ_{r+1}'(σ) Λ_{r+1}(σ)) (U of level r, centre σ_U, island critical
+    // point σ_c), whose |·|^2 divided by |(σ - σ_U)(σ - σ_c)|^2 is the children's density J_{r+1}.  On circles of radius
+    // ρ R about σ_U (ρ = 1/4 .. 2) its Laurent coefficients by a 256-point DFT: prints per radius
+    // "name ρ defect c_0 |c_8| |c_16| |c_32| |c_64|", with |c_k| scaled by (ρR)^k and defect = max_{k<0} / max_{k≥0}.
+    // Reads "name r sU_re sU_im sc_re sc_im R".
+    const int M = 256;
+    char name[256];
+    int r;
+    double a, b, c, d, R;
+    while (scanf("%255s %d %lf %lf %lf %lf %lf", name, &r, &a, &b, &c, &d, &R) == 7) {
+      const Cd sU(a, b), sc(c, d);
+      for (const double rho : {0.25, 0.5, 0.75, 1.0, 1.5, 2.0}) {
+        std::vector<Cd> G(M);
+        bool ok = true;
+        for (int m = 0; m < M && ok; m++) {
+          const double th = 2 * M_PI * m / M;
+          const Cd e(std::cos(th), std::sin(th)), s = sU + Cd(rho * R, 0) * e;
+          Cd t0, t1, t2, hp;
+          if (!L.theta(s, r + 1, t0, t1, t2, hp)) { ok = false; break; }
+          G[m] = (s - sU) * (s - sc) / (t1 * hp);
+        }
+        if (!ok) { printf("%s %g fail\n", name, rho); continue; }
+        // c_k (ρR)^k = (1/M) Σ_m G_m e^{-2πi k m / M}
+        std::vector<double> mag(M);
+        for (int k = 0; k < M; k++) {
+          Cd sum(0, 0);
+          for (int m = 0; m < M; m++) {
+            const double ph = -2 * M_PI * double(k) * m / M;
+            sum += G[m] * Cd(std::cos(ph), std::sin(ph));
+          }
+          mag[k] = abs(sum) / M;   // index k ≥ M/2 is the coefficient k - M
+        }
+        double pos = 0, neg = 0;
+        for (int k = 0; k < M / 2; k++) pos = std::max(pos, mag[k]);
+        for (int k = M / 2; k < M; k++) neg = std::max(neg, mag[k]);
+        printf("%s %g %.3e %.6e %.3e %.3e %.3e %.3e\n", name, rho, neg / pos, mag[0], mag[8], mag[16], mag[32], mag[64]);
+      }
+    }
+    return 0;
+  }
+  if (mode == "sstate") {
+    // The island state in the island's own coordinate: y = κ_U(σ) = κ_c + s^2 (κ = Θ_{r+1}), one sheet per sign of s.
+    // σ(s) by continuation from σ_c along each ray (predictor dσ/ds = 2s/κ'), then G(s) = (σ - σ_U)(σ - σ_c) /
+    // (Θ_{r+1}'(σ) Λ_{r+1}(σ)).  On circles |y - κ_c| = ρ (|s| = √ρ) a 128-point DFT gives the Laurent coefficients in
+    // s; prints "name ρ defect |c_0| |c_4| |c_8| |c_16| |c_32| fails" (|c_k| scaled by |s|^k, defect = max_{k<0}/max_{k≥0}).
+    // Reads "name r sU_re sU_im sc_re sc_im".
+    const int M = 128, K = 24;
+    char name[256];
+    int r;
+    double a, b, c, d;
+    while (scanf("%255s %d %lf %lf %lf %lf", name, &r, &a, &b, &c, &d) == 6) {
+      const Cd sU(a, b), sc(c, d);
+      Cd kc, k1, k2, hp;
+      if (!L.theta(sc, r + 1, kc, k1, k2, hp)) { printf("%s fail\n", name); continue; }
+      const Cd root = csqrt(Cd(2, 0) / k2);   // σ - σ_c ≈ s √(2/κ'')
+      for (const double rho : {0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6}) {
+        const double sr = std::sqrt(rho);
+        std::vector<Cd> G(M);
+        int fails = 0;
+        for (int m = 0; m < M; m++) {
+          const double th = 2 * M_PI * m / M;
+          const Cd e(std::cos(th), std::sin(th));
+          Cd sg = sc;
+          bool ok = true;
+          for (int k = 1; k <= K && ok; k++) {
+            const Cd s = Cd(sr * k / K, 0) * e, y = kc + sqr(s);
+            sg = k == 1 ? sc + root * s : sg;
+            for (int it = 0; it < 30; it++) {
+              Cd t0, t1, t2, h0;
+              if (!L.theta(sg, r + 1, t0, t1, t2, h0)) { ok = false; break; }
+              const Cd st = (t0 - y) / t1;
+              sg -= st;
+              if (abs(st) < 1e-14 * (1 + abs(sg))) break;
+            }
+            if (ok && k < K) {   // predictor to the next ray point: dσ = 2 s ds / κ'
+              Cd t0, t1, t2, h0;
+              if (!L.theta(sg, r + 1, t0, t1, t2, h0)) ok = false;
+              else sg += Cd(2, 0) * s * (Cd(sr / K, 0) * e) / t1;
+            }
+          }
+          Cd t0, t1, t2, h0;
+          if (!ok || !L.theta(sg, r + 1, t0, t1, t2, h0)) { fails++; G[m] = Cd(0, 0); continue; }
+          G[m] = (sg - sU) * (sg - sc) / (t1 * h0);
+        }
+        std::vector<double> mag(M);
+        for (int k = 0; k < M; k++) {
+          Cd sum(0, 0);
+          for (int m = 0; m < M; m++) {
+            const double ph = -2 * M_PI * double(k) * m / M;
+            sum += G[m] * Cd(std::cos(ph), std::sin(ph));
+          }
+          mag[k] = abs(sum) / M;
+        }
+        double pos = 0, neg = 0;
+        for (int k = 0; k < M / 2; k++) pos = std::max(pos, mag[k]);
+        for (int k = M / 2; k < M; k++) neg = std::max(neg, mag[k]);
+        printf("%s %g %.3e %.6e %.3e %.3e %.3e %.3e %d\n", name, rho, neg / pos, mag[0], mag[4], mag[8], mag[16], mag[32], fails);
+      }
+    }
+    return 0;
+  }
+  if (mode == "gisland") {
+    // Samples of an island's state over its Voronoi cell: y = κ_c + x + i t on an nx × ny grid of the rectangle
+    // |x| ≤ hx, |t| ≤ hy, both sheets s = ±√(y - κ_c), σ(s) continued from σ_c along the segment (a ray in s), and
+    // G = (σ - σ_U)(σ - σ_c) / (Θ_{r+1}' Λ_{r+1}).  Reads "name r sU_re sU_im sc_re sc_im nx ny hx hy"; prints
+    // "name s_re s_im σ_re σ_im G_re G_im" per point (or "name s_re s_im fail").
+    const int K = 32;
+    char name[256];
+    int r, nx, ny;
+    double a, b, c, d, hx, hy;
+    while (scanf("%255s %d %lf %lf %lf %lf %d %d %lf %lf", name, &r, &a, &b, &c, &d, &nx, &ny, &hx, &hy) == 10) {
+      const Cd sU(a, b);
+      // the island's critical point: Newton on Θ_{r+1}' = 0 from the given start (σ_U if none better)
+      Cd sc(c, d), kc, k1, k2, hp;
+      bool found = false;
+      int it = 0;
+      double last = 0;
+      bool th0 = L.theta(sc, r + 1, kc, k1, k2, hp);
+      for (; it < 60; it++) {
+        if (!L.theta(sc, r + 1, kc, k1, k2, hp)) break;
+        const Cd st = k1 / k2;
+        sc -= st;
+        last = abs(st);
+        if (last < 1e-14 * (1 + abs(sc))) break;
+      }
+      found = last < 1e-10 * (1 + abs(sc));   // deep islands: Newton's floor is ~1e-13
+      if (!found || !L.theta(sc, r + 1, kc, k1, k2, hp)) {
+        printf("%s fail critical point (theta at start %d, iterations %d, last step %.3g, |σ - σ_U| %.3g)\n", name, th0, it, last, abs(sc - sU));
+        continue;
+      }
+      if (getenv("GIS_DEBUG")) fprintf(stderr, "%s: σ_c %.12g%+.12gi |σ_c - σ_U| %.3g κ'' %.4g\n", name, sc.r, sc.i, abs(sc - sU), abs(k2));
+      const Cd root = csqrt(Cd(2, 0) / k2);
+      for (int ix = 0; ix < nx; ix++)
+        for (int iy = 0; iy < ny; iy++)
+          for (const double sgn : {1.0, -1.0}) {
+            const double x = nx > 1 ? -hx + 2 * hx * ix / (nx - 1) : 0, t = ny > 1 ? -hy + 2 * hy * iy / (ny - 1) : 0;
+            const Cd sf = Cd(sgn, 0) * csqrt(Cd(x, t));
+            if (abs(sf) == 0) continue;
+            Cd sg = sc;
+            bool ok = true;
+            for (int k = 1; k <= K && ok; k++) {
+              const Cd s = Cd(double(k) / K, 0) * sf, y = kc + sqr(s);
+              if (k == 1) sg = sc + root * s;
+              for (int it = 0; it < 30; it++) {
+                Cd t0, t1, t2, h0;
+                if (!L.theta(sg, r + 1, t0, t1, t2, h0)) { ok = false; break; }
+                const Cd st = (t0 - y) / t1;
+                sg -= st;
+                if (abs(st) < 1e-14 * (1 + abs(sg))) break;
+              }
+              if (ok && k < K) {
+                Cd t0, t1, t2, h0;
+                if (!L.theta(sg, r + 1, t0, t1, t2, h0)) ok = false;
+                else sg += Cd(2, 0) * s * (Cd(1.0 / K, 0) * sf) / t1;
+              }
+            }
+            Cd t0, t1, t2, h0;
+            if (!ok || !L.theta(sg, r + 1, t0, t1, t2, h0) || abs(t0 - (kc + sqr(sf))) > 1e-9) {
+              printf("%s %.17g %.17g fail\n", name, sf.r, sf.i);
+              continue;
+            }
+            const Cd G = (sg - sU) * (sg - sc) / (t1 * h0);
+            printf("%s %.17g %.17g %.17g %.17g %.17g %.17g\n", name, sf.r, sf.i, sg.r, sg.i, G.r, G.i);
+          }
+    }
+    return 0;
+  }
   if (mode == "tsolve") {
     // Newton on Θ_r(σ) = σ_c + j/q + target shift from a given start (any start, e.g. near a Misiurewicz point, where
     // children's source quadratic does not apply); kept when the landing point reaches the critical point in n_c - j

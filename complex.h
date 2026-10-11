@@ -59,5 +59,16 @@ __host__ __device__ static inline Complex<double> inv(const Complex<double> z) {
 __host__ __device__ static inline Complex<double> operator/(const Complex<double> z, const Complex<double> w) {
   return z * inv(w);
 }
+// Principal square root (branch cut along the negative real axis), without cancellation
+__host__ __device__ static inline Complex<double> csqrt(const Complex<double> z) {
+  const double r = abs(z);
+  if (r == 0) return Complex<double>(0, 0);
+  if (z.r >= 0) {
+    const double x = std::sqrt((r + z.r) / 2);
+    return Complex<double>(x, z.i / (2 * x));
+  }
+  const double y = std::copysign(std::sqrt((r - z.r) / 2), z.i);
+  return Complex<double>(z.i / (2 * y), y);
+}
 
 }  // namespace mandelbrot
