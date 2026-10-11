@@ -1800,12 +1800,12 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   for K(c), and as the satellite tree's matrix-Mayer resolvent does for ~1e5 bulbs with a power-law count, to 1e-14).
   So "bounded family count" is the wrong test; the right one is whether the cascade is a linear map on a context of
   poly(n) dimension.
-- **Exact form of the cascade.**  An island child's weight is w = |Θ_{r+1}'(σ_W) Π H'|^-2, and Π H' is the landing
-  derivative from the target point y = Θ_{r+1}(σ_W) to the critical point, a function of (t, j) only.  So
-      C_W = C_t g(y) |κ_U'(σ_W)|^-2,   Σ_{children of U at y} = C_t g(y) ρ_U(y),   ρ_U = (κ_U)_* Leb,
-  i.e. the parent enters only through the pushforward density of its island map, paired with a fixed (dynamically
-  generated) target measure.  For a 2:1 island map, ρ_U(y) = A_U(y) / |y - κ_c| + B_U(y) with A_U, B_U real-analytic
-  on the cell (κ_c ≈ ζ0 + σ_U the island's critical value): an explicit Coulomb-type singularity times analytic data.
+- **Exact form of the cascade.**  An island child's weight is w = |Θ_{r+1}'(σ_W) Λ_{r+1}(σ_W)|^-2 (Λ = Π H', the
+  multiplier part), and by the chain rule, exactly,
+      C_W = C_t J_r(σ_W) |H'(x_W)|^-4 |1 + 1/(H'(x_W) Θ_r'(σ_W))|^-2,   J_r(σ) = |Θ_r'(σ) Λ_r(σ)|^-2,  x_W = p_r(σ_W),
+  so the parent enters through the density J_r on its island, evaluated at the children.  For a 2:1 island the
+  pushforward of that density has the form A_U(y)/|y - κ_c| + B_U(y) (A, B real-analytic, κ_c ≈ ζ0 + σ_U).  (An earlier
+  version of this note called Π H' a landing factor of (t, j) alone; it is not: it carries the parent's history.)
 - **Trace formula.**  With x(σ) an atom (a backward chain from a target at parameter σ), the parameter-space mass is
   Σ_atoms w_x / |1 - x'(σ_x)|^2 at the parameter σ_x where x(σ) = v_σ; when σ ↦ x(σ) - ζ0 contracts this is the trace
   of a composition operator, so the whole level sum is Tr[(1 - T)^-1 J E] for the fibrewise transfer operator T of
@@ -1830,3 +1830,13 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   comes within a target's radius.  The poly(n) question becomes a numerical-analysis one: Coulomb-type couplings
   between two self-similar measures (the parameter measure of island critical values and τ), the setting of energies
   of self-conformal measures, which transfer operators on two variables with a diagonal singularity can compute.
+- **Approach A (frozen renewal) fails at O(1)** (`glavaurs frozenchk`: per parent-child pair the exact ratio
+  w_W/w_U against the frozen |H'(x_f)|^-4 with H(x_f) + σ_U = y; 9738 pairs of the S1 lineage, parent levels 1-6).
+  Mass-weighted |frozen/exact - 1| = 0.84, 0.80, 0.61, 0.47, 0.45 at parent levels 2-6 (medians), not shrinking like the
+  island scale.  Splitting the exact ratio into its factors: freezing the last step's dynamics costs little and
+  shrinks with level (mass-weighted |log| 0.083, 0.030, 0.020, 0.014, 0.014), the 1 + 1/(H'Θ') term ~0.03, but the
+  parent's own jets vary across its island by |log| ≈ 0.75 for both |Θ_r'(σ_W)/Θ_r'(σ_U)|^-2 and
+  |Λ_r(σ_W)/Λ_r(σ_U)|^-2, at every level: a parent's island is as large as the scale on which its history's derivatives
+  vary (scale invariance).  So children-to-parent ratios are not functions of the parent's state (t_U, σ_U); the
+  state must be the density J_r as a function on the island.  The cascade is linear in it (J_{r+1} = J_r |H'∘p_r|^-4
+  |1 + ...|^-2), which is the transfer-operator (trace) formulation, approach B.
