@@ -15,6 +15,7 @@ namespace mandelbrot {
 #ifndef __CUDACC__
 
 bool glavaurs_gpu_children(const GLCore&, const std::vector<GLChildJob>&, int, std::vector<GLChild>&) { return false; }
+bool glavaurs_gpu_ichildren(const GLCore&, const std::vector<GLIslandJob>&, std::vector<GLIslandChild>&) { return false; }
 
 #else  // __CUDACC__
 
@@ -26,7 +27,7 @@ using glcore::carg;
 using glcore::cdiv;
 using glcore::cpolar;
 
-__host__ __device__ static inline Cd csqrt(const Cd z) { return cpolar(::sqrt(cabs(z)), carg(z) / 2); }
+__host__ __device__ static inline Cd polar_sqrt(const Cd z) { return cpolar(::sqrt(cabs(z)), carg(z) / 2); }
 
 struct JobDev {
   int r, nc, jlo, nst;
@@ -37,7 +38,7 @@ struct JobDev {
 __device__ static Cd task_start(const GLCore& core, const JobDev& J, const int j, const int si, const int m) {
   const Cd y = Cd(J.c.r + double(j) / core.q, J.c.i) + core.target_shift(j);
   const Cd a = Cd(0.5) * J.dd0, b = J.d0, cc = J.t0 - y;
-  const Cd sq = csqrt(b * b - Cd(4) * a * cc);
+  const Cd sq = polar_sqrt(b * b - Cd(4) * a * cc);
   const Cd r0 = J.u + cdiv(-b + sq, Cd(2) * a);
   if (si == 0) return r0;
   if (si == 1) return J.u + cdiv(-b - sq, Cd(2) * a);
@@ -86,6 +87,24 @@ __global__ void verify_kernel(const GLCore core, const Cand* cands, const long l
   if (!core.theta(c.s, c.r, th, d, dd, hp)) return;
   valid[i] = 1;
   w[i] = 1 / sqr_abs(d * hp);
+}
+
+// One thread per (job, shift, sheet): the island child by gl_island_path (glavaurs_core.h), as the CPU threads do
+__global__ void ichildren_kernel(const GLCore core, const GLIslandJob* jobs, const int njobs, const long long base,
+                                 const long long count, Cd* sol, double* w, unsigned char* ok) {
+  const long long i = blockIdx.x * (long long)blockDim.x + threadIdx.x;
+  if (i >= count) return;
+  const long long t = base + i;
+  int lo = 0, hi = njobs - 1;
+  while (lo < hi) { const int mid = (lo + hi + 1) / 2; if (jobs[mid].first <= t) lo = mid; else hi = mid - 1; }
+  const GLIslandJob& J = jobs[lo];
+  const long long off = t - J.first;
+  const int j = J.jlo + int(off / 2), sgn = off % 2 == 0 ? 1 : -1;
+  Cd sg;
+  double ww;
+  ok[i] = gl_island_path(core, J, j, sgn, sg, ww);
+  sol[i] = sg;
+  w[i] = ok[i] ? ww : 0;
 }
 
 #define GL_CUDA(e) do { const cudaError_t _e = (e); if (_e != cudaSuccess) { \
@@ -175,6 +194,49 @@ bool glavaurs_gpu_children(const GLCore& core, const std::vector<GLChildJob>& jo
   cudaFree(dw);
   for (size_t i = 0; i < pend.size(); i++)
     if (valid[i]) { pend[i].w = w[i]; out.push_back(pend[i]); }
+  return true;
+}
+
+bool glavaurs_gpu_ichildren(const GLCore& core, const std::vector<GLIslandJob>& jobs, std::vector<GLIslandChild>& out) {
+  int devices = 0;
+  if (cudaGetDeviceCount(&devices) != cudaSuccess || devices == 0) return false;
+  out.clear();
+  if (jobs.empty()) return true;
+  const long long total = jobs.back().first + 2LL * (jobs.back().jhi - jobs.back().jlo + 1);
+  GLIslandJob* djobs;
+  GL_CUDA(cudaMalloc(&djobs, jobs.size() * sizeof(GLIslandJob)));
+  GL_CUDA(cudaMemcpy(djobs, jobs.data(), jobs.size() * sizeof(GLIslandJob), cudaMemcpyHostToDevice));
+  const long long chunk = std::min(1ll << 22, total);
+  Cd* dsol;
+  double* dw;
+  unsigned char* dok;
+  GL_CUDA(cudaMalloc(&dsol, chunk * sizeof(Cd)));
+  GL_CUDA(cudaMalloc(&dw, chunk * sizeof(double)));
+  GL_CUDA(cudaMalloc(&dok, chunk));
+  std::vector<Cd> sol(chunk);
+  std::vector<double> w(chunk);
+  std::vector<unsigned char> ok(chunk);
+  int ji = 0;
+  for (long long base = 0; base < total; base += chunk) {
+    const long long count = std::min(chunk, total - base);
+    ichildren_kernel<<<(count + 127) / 128, 128>>>(core, djobs, int(jobs.size()), base, count, dsol, dw, dok);
+    GL_CUDA(cudaGetLastError());
+    GL_CUDA(cudaMemcpy(sol.data(), dsol, count * sizeof(Cd), cudaMemcpyDeviceToHost));
+    GL_CUDA(cudaMemcpy(w.data(), dw, count * sizeof(double), cudaMemcpyDeviceToHost));
+    GL_CUDA(cudaMemcpy(ok.data(), dok, count, cudaMemcpyDeviceToHost));
+    for (long long i = 0; i < count; i++) {
+      const long long t = base + i;
+      while (ji + 1 < int(jobs.size()) && jobs[ji + 1].first <= t) ji++;
+      if (!ok[i]) continue;
+      const long long off = t - jobs[ji].first;
+      out.push_back(GLIslandChild{ji, jobs[ji].jlo + int(off / 2), off % 2 == 0 ? 1 : -1, sol[i], w[i]});
+    }
+    fprintf(stderr, "glavaurs gpu: ichildren %lld / %lld paths\n", base + count, total);
+  }
+  cudaFree(dsol);
+  cudaFree(dw);
+  cudaFree(dok);
+  cudaFree(djobs);
   return true;
 }
 

@@ -477,6 +477,68 @@ struct GLChild { int job, j, start; Complex<double> s; double w; int sat; };
 // The children of all jobs on the GPU (same algorithm and output as the CPU mode); false if CUDA is unavailable
 bool glavaurs_gpu_children(const GLCore& core, const std::vector<GLChildJob>& jobs, int starts, std::vector<GLChild>& out);
 
+// One island-children job (glavaurs ichildren): the island map κ = Θ_r near a source, with its critical point σ_c,
+// critical value κ_c and a2 = κ''(σ_c)/2 found on the host, over the target c, shifts jlo..jhi; z0 = Φ_a(v)
+struct GLIslandJob { int r, nc, jlo, jhi; Complex<double> sc, kc, a2, c, z0; long long first; };
+// One island child: job index, shift, sheet (+1/-1), centre, w = |Θ_r' Π H'|^-2
+struct GLIslandChild { int job, j, sgn; Complex<double> s; double w; };
+
+// The island child of job J at shift j on sheet sgn: the end of the preimage path of the segment κ_c → y under κ,
+// continued from σ_c (predictor-corrector in λ along κ = κ_c + λ (y - κ_c)), kept when it lands on the critical point
+// after nc - j steps.  Shared by the CPU threads and the GPU kernel, so the two give identical output.
+__host__ __device__ inline bool gl_island_path(const GLCore& core, const GLIslandJob& J, const int j, const int sgn,
+                                               Complex<double>& sg_out, double& w_out) {
+  typedef Complex<double> Cd;
+  using glcore::cabs;
+  if (J.nc - j < 0) return false;
+  const Cd y = Cd(J.c.r + double(j) / core.q, J.c.i) + core.target_shift(j), dy = y - J.kc;
+  Cd q0, q1, q2, hp;
+  double lam = 1e-6;
+  Cd sg = J.sc + Cd(double(sgn)) * csqrt(Cd(lam) * dy / J.a2);
+  for (int it = 0; it < 20; it++) {   // polish the start on κ = κ_c + λ (y - κ_c)
+    if (!core.theta(sg, J.r, q0, q1, q2, hp)) return false;
+    const Cd res = q0 - (J.kc + Cd(lam) * dy);
+    sg -= res / q1;
+    if (cabs(res) < 1e-11 * (1 + cabs(q0))) break;
+  }
+  double h = 1e-6;
+  const double sdy = cabs(dy / J.a2);
+  while (lam < 1) {
+    const double lt = lam + h < 1 ? lam + h : 1;
+    Cd s1 = sg;
+    if (!core.theta(s1, J.r, q0, q1, q2, hp)) return false;
+    s1 += Cd(lt - lam) * dy / q1;   // predictor: dσ/dλ = (y - κ_c)/κ'(σ)
+    bool conv = false;
+    for (int it = 0; it < 12; it++) {
+      if (!core.theta(s1, J.r, q0, q1, q2, hp)) break;
+      const Cd res = q0 - (J.kc + Cd(lt) * dy), step = res / q1;
+      s1 -= step;
+      if (!(cabs(step) < 0.3 * cabs(s1 - J.sc))) break;
+      // near σ_c the roundoff floor is ~1e-16 |κ| / |κ'| with κ' ∝ σ - σ_c: tolerance relative to it
+      if (cabs(res) < 1e-11 * (1 + cabs(q0)) || cabs(step) < 1e-13 * (1 + cabs(s1))) { conv = true; break; }
+    }
+    if (conv && cabs(s1 - sg) < 0.25 * cabs(sg - J.sc) + 4 * ::sqrt(h * sdy)) {
+      sg = s1; lam = lt; h = 2 * h < 0.05 ? 2 * h : 0.05;
+    } else {
+      h *= 0.25;
+      if (h < 1e-12) return false;
+    }
+  }
+  Cd t, d, dd;
+  int pet;
+  if (!core.theta(sg, J.r, t, d, dd, hp, &pet)) return false;
+  Cd x, d1, d2;
+  if (!core.psi(t + J.z0, core.exit_petal(pet), x, d1, d2)) return false;
+  for (int i = 0; i < J.nc - j; i++) x = core.lam * x + sqr(x);
+  if (!(cabs(x - core.crit) < 1e-6)) return false;
+  sg_out = sg;
+  w_out = 1 / sqr_abs(d * hp);
+  return true;
+}
+
+// The island children of all jobs on the GPU, one thread per (job, shift, sheet); false if CUDA is unavailable
+bool glavaurs_gpu_ichildren(const GLCore& core, const std::vector<GLIslandJob>& jobs, std::vector<GLIslandChild>& out);
+
 // The model at precision S (double, Expansion<2>, Expansion<3>): the Fatou coefficients a_j (j = -q..N) and β solved
 // in acb at 512 bits and rounded to S, λ, A (with its canonical arg), the gate, r0, and kv (glavaurs.cc)
 template<class S> GLCoreT<S> gl_make_core(int p, int q, int side, int N);

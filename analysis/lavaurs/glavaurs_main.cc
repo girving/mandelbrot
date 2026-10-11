@@ -887,11 +887,12 @@ int main(int argc, char** argv) {
     return 0;
   }
   if (mode == "ichildren") {
-    // Island children: the source U's island map κ(σ) = Θ_{r+1}(σ) has its critical point σ_c next to σ_U (κ' = 0); for
+    // Island children: the source U's island map κ(σ) = Θ_r(σ) has its critical point σ_c next to σ_U (κ' = 0); for
     // each target copy y = σ_c' + j/q + shift, the two children in U's island are the ends of the two preimage paths of
     // the straight segment from κ(σ_c) to y, continued from σ_c (the island = the 2:1 branch over the plane slit along
     // these segments).  Kept when the landing reaches the critical point in n_c - j steps.  Prints "name|±|j re im w"
-    // (w = |Θ' Π H'|^-2) or nothing for a failed path.
+    // (w = |Θ' Π H'|^-2) or nothing for a failed path.  The paths (gl_island_path, glavaurs_core.h) run on the GPU
+    // when there is one (GL_GPU=0: CPU threads), with identical output.
     const int threads = argc > 4 ? atoi(argv[4]) : 2;
     struct Q { std::string name; int r, nc, jlo, jhi; Cd u, c; };
     std::vector<Q> qs;
@@ -903,332 +904,57 @@ int main(int argc, char** argv) {
     Cd z0, d0, dd0;
     int s0;
     L.phi_a(L.v, z0, d0, dd0, s0);
-    std::vector<std::string> out(qs.size());
-    std::atomic<int64_t> next(0);
-    std::vector<std::thread> pool;
-    for (int th = 0; th < threads; th++)
-      pool.emplace_back([&]() {
-        for (int64_t qi; (qi = next++) < int64_t(qs.size());) {
-          const auto& Q = qs[qi];
-          std::string text;
-          const auto kap = [&](const SCd sg, SCd& k0, SCd& k1, SCd& k2, int& pet) {
-            Cd t, d, dd, hp;
-            if (!L.theta(Cd(sg.real(), sg.imag()), Q.r, t, d, dd, hp, &pet)) return false;
-            k0 = SCd(t.r, t.i); k1 = SCd(d.r, d.i); k2 = SCd(dd.r, dd.i);
-            return true;
-          };
-          // the critical point of κ next to σ_U
-          SCd sc(Q.u.r, Q.u.i), k0, k1, k2;
-          int pet;
-          bool ok = false;
-          for (int it = 0; it < 40; it++) {
-            if (!kap(sc, k0, k1, k2, pet)) break;
-            const SCd step = k1 / k2;
-            sc -= step;
-            if (std::abs(step) < 1e-13 * (1 + std::abs(sc))) { ok = true; break; }
-          }
-          if (!ok || !kap(sc, k0, k1, k2, pet)) { if (getenv("ICH_DEBUG")) fprintf(stderr, "%s: no critical point\n", Q.name.c_str()); continue; }
-          const SCd kc = k0, a2 = 0.5 * k2;
-          if (getenv("ICH_DEBUG")) fprintf(stderr, "%s: σ_c %.12g%+.12gi (|σ_c - σ_U| %.3g) κ_c %.6g%+.6gi κ'' %.4g\n", Q.name.c_str(), sc.real(), sc.imag(), std::abs(sc - SCd(Q.u.r, Q.u.i)), kc.real(), kc.imag(), std::abs(k2));
-          for (int j = Q.jlo; j <= Q.jhi; j++) {
-            if (Q.nc - j < 0) continue;
-            const Cd ts = L.core.target_shift(j);
-            const SCd y = SCd(Q.c.r + double(j) / q + ts.r, Q.c.i + ts.i);
-            for (const int sgn : {1, -1}) {
-              double lam = 1e-6;
-              SCd sg = sc + double(sgn) * std::sqrt(lam * (y - kc) / a2);
-              bool good = true;
-              for (int it = 0; it < 20; it++) {   // polish the start on κ = κ_c + λ (y - κ_c)
-                SCd q0, q1, q2;
-                int pe;
-                if (!kap(sg, q0, q1, q2, pe)) { good = false; break; }
-                const SCd step = (q0 - (kc + lam * (y - kc))) / q1;
-                sg -= step;
-                if (std::abs(q0 - (kc + lam * (y - kc))) < 1e-11 * (1 + std::abs(q0))) break;
-              }
-              double h = 1e-6;
-              while (lam < 1 && good) {
-                double lt = std::min(1.0, lam + h);
-                SCd s1 = sg;
-                // predictor: dσ/dλ = (y - kc)/κ'(σ)
-                SCd q0, q1, q2;
-                int pe;
-                if (!kap(s1, q0, q1, q2, pe)) { good = false; break; }
-                s1 += (lt - lam) * (y - kc) / q1;
-                bool conv = false;
-                for (int it = 0; it < 12; it++) {
-                  if (!kap(s1, q0, q1, q2, pe)) break;
-                  const SCd step = (q0 - (kc + lt * (y - kc))) / q1;
-                  if (getenv("ICH_NEWTON")) fprintf(stderr, "      it %d |res| %.3g |κ'| %.3g |step| %.3g |s1-σc| %.3g\n", it, std::abs(q0 - (kc + lt * (y - kc))), std::abs(q1), std::abs(step), std::abs(s1 - sc));
-                  s1 -= step;
-                  if (!(std::abs(step) < 0.3 * std::abs(s1 - sc))) break;
-                  // near σ_c the roundoff floor is ~1e-16 |κ| / |κ'| with κ' ∝ σ - σ_c: tolerance relative to it
-                  if (std::abs(q0 - (kc + lt * (y - kc))) < 1e-11 * (1 + std::abs(q0)) || std::abs(step) < 1e-13 * (1 + std::abs(s1))) {
-                    conv = true; break;
-                  }
-                }
-                if (getenv("ICH_DEBUG") && getenv("ICH_STEPS")) fprintf(stderr, "    λ %.3g h %.3g conv %d |Δσ| %.3g |σ-σc| %.3g\n", lam, h, conv, std::abs(s1 - sg), std::abs(sg - sc));
-                if (conv && std::abs(s1 - sg) < 0.25 * std::abs(sg - sc) + 4 * std::sqrt(h * std::abs((y - kc) / a2))) {
-                  sg = s1; lam = lt; h = std::min(2 * h, 0.05);
-                } else {
-                  h *= 0.25;
-                  if (h < 1e-12) good = false;
-                }
-              }
-              if (!good) { if (getenv("ICH_DEBUG")) fprintf(stderr, "  j %d %c: path failed at λ %.3g\n", j, sgn > 0 ? '+' : '-', lam); continue; }
-              Cd t, d, dd, hp;
-              if (!L.theta(Cd(sg.real(), sg.imag()), Q.r, t, d, dd, hp, &pet)) continue;
-              Cd x, d1, d2;
-              if (!L.psi(t + z0, L.exit_petal(pet), x, d1, d2)) continue;
-              for (int i = 0; i < Q.nc - j; i++) x = L.lam * x + x * x;
-              if (!(std::hypot((x - L.crit).r, (x - L.crit).i) < 1e-6)) { if (getenv("ICH_DEBUG")) fprintf(stderr, "  j %d %c: landing fails\n", j, sgn > 0 ? '+' : '-'); continue; }
-              char line[512];
-              snprintf(line, sizeof(line), "%s|%c|%d %.17g %.17g %.17g\n", Q.name.c_str(), sgn > 0 ? '+' : '-', j, sg.real(),
-                       sg.imag(), 1 / std::norm(SCd(d.r, d.i) * SCd(hp.r, hp.i)));
-              text += line;
-            }
-          }
-          out[qi] = text;
-        }
-      });
-    for (auto& t : pool) t.join();
-    for (const auto& t : out) fputs(t.c_str(), stdout);
-    return 0;
-  }
-  if (mode == "frozenchk") {
-    // Frozen-renewal check for parent U (level r, centre σ_U) and child W (level r + 1, centre σ_W):
-    //   exact  C_W/C_U ∝ w_W/w_U, w = |Θ' Π H'|^-2
-    //   frozen |H'(x_f)|^-4 with H(x_f) + σ_U = y, y = p_{r+1}(σ_W) the child's landing point
-    // and the exact ratio's factors |H'(x)|^-4 (x = p_r(σ_W)), |Θ_r'(σ_W)/Θ_r'(σ_U)|^-2, |Λ_r(σ_W)/Λ_r(σ_U)|^-2,
-    // |1 + 1/(H'(x) Θ_r'(σ_W))|^-2.  Reads "name r sU_re sU_im sW_re sW_im"; prints
-    // "name |δ| w_U exact frozen f_x f_theta f_lambda f_one pole |σ_U - c_a| |c_a - c_b|", pole =
-    // |(σ_U - c_a)(σ_U - c_b) / ((σ_W - c_a)(σ_W - c_b))|^2 the leading-pole prediction of f_theta f_lambda.
-    Cd s0, ds, dds;
-    int pv;
-    if (!L.phi_a(L.v, s0, ds, dds, pv)) return 1;
-    char name[256];
-    int r;
-    double a, b, c, d;
-    while (scanf("%255s %d %lf %lf %lf %lf", name, &r, &a, &b, &c, &d) == 6) {
-      const Cd sU(a, b), sW(c, d);
-      Cd tU, dU, ddU, hU, tW1, dW1, ddW1, hW1, tW, dWr, ddW, hW;
-      int petU, petW1, petW;
-      if (!L.theta(sU, r, tU, dU, ddU, hU, &petU) || !L.theta(sW, r + 1, tW1, dW1, ddW1, hW1, &petW1) ||
-          !L.theta(sW, r, tW, dWr, ddW, hW, &petW)) { printf("%s fail theta\n", name); continue; }
-      const double wU = 1 / sqr_abs(dU * hU), wW = 1 / sqr_abs(dW1 * hW1);
-      const Cd y = tW1 + s0, xe = tW + s0;
-      Cd h, dh, ddh;
-      int pet2;
-      if (!L.horn(xe, petW, h, dh, ddh, pet2)) { printf("%s fail horn\n", name); continue; }
-      const Cd dhe = dh;
-      Cd x = xe;
-      for (int it = 0; it < 50; it++) {
-        if (!L.horn(x, petW, h, dh, ddh, pet2)) break;
-        const Cd st = (h + sU - y) / dh;
-        x -= st;
-        if (abs(st) < 1e-14 * (1 + abs(x))) break;
-      }
-      if (!(L.horn(x, petW, h, dh, ddh, pet2) && abs(h + sU - y) < 1e-9 * (1 + abs(y)))) {
-        printf("%s fail newton %.3g\n", name, abs(h + sU - y));
-        continue;
-      }
-      // the parent density's leading poles: c_a with Θ_r'(c_a) = 0 and c_b with Λ_r(c_b) = 0, Newton from σ_U
-      // (Λ_r' by a centred difference); J_r = |Θ_r' Λ_r|^-2 ≈ |σ - c_a|^-2 |σ - c_b|^-2 × smooth
-      Cd ca = sU, cb = sU;
-      bool oka = r > 1, okb = r > 1;
-      for (int it = 0; oka && it < 60; it++) {
-        Cd t0, t1, t2, hh;
-        if (!L.theta(ca, r, t0, t1, t2, hh)) { oka = false; break; }
-        const Cd st = t1 / t2;
-        ca -= st;
-        if (abs(st) < 1e-13 * (1 + abs(ca))) break;
-        if (!(abs(ca - sU) < 1)) oka = false;
-      }
-      for (int it = 0; okb && it < 60; it++) {
-        Cd t0, t1, t2, hp, hm, h0;
-        const Cd e(1e-7, 0);
-        if (!L.theta(cb, r, t0, t1, t2, h0) || !L.theta(cb + e, r, t0, t1, t2, hp) || !L.theta(cb - e, r, t0, t1, t2, hm)) {
-          okb = false; break;
-        }
-        const Cd st = h0 / ((hp - hm) / Cd(2e-7, 0));
-        cb -= st;
-        if (abs(st) < 1e-12 * (1 + abs(cb))) break;
-        if (!(abs(cb - sU) < 1)) okb = false;
-      }
-      const double pole = oka && okb ? sqr_abs((sU - ca) * (sU - cb) / ((sW - ca) * (sW - cb))) : 1;
-      printf("%s %.6e %.6e %.10e %.10e %.10e %.10e %.10e %.10e %.10e %.4e %.4e\n", name, abs(sW - sU), wU, wW / wU,
-             1 / sqr(sqr_abs(dh)), 1 / sqr(sqr_abs(dhe)), 1 / sqr_abs(dWr / dU), 1 / sqr_abs(hW / hU),
-             1 / sqr_abs(Cd(1) + inv(dhe * dWr)), pole, oka && okb ? abs(sU - ca) : -1.0, oka && okb ? abs(ca - cb) : -1.0);
-      if (getenv("FROZEN_POLES")) printf("  poles %d %d %.17g %.17g %.17g %.17g\n", oka, okb, ca.r, ca.i, cb.r, cb.i);
-    }
-    return 0;
-  }
-  if (mode == "gstate") {
-    // An island's state G(σ) = (σ - σ_U)(σ - σ_c) / (Θ_{r+1}'(σ) Λ_{r+1}(σ)) (U of level r, centre σ_U, island critical
-    // point σ_c), whose |·|^2 divided by |(σ - σ_U)(σ - σ_c)|^2 is the children's density J_{r+1}.  On circles of radius
-    // ρ R about σ_U (ρ = 1/4 .. 2) its Laurent coefficients by a 256-point DFT: prints per radius
-    // "name ρ defect c_0 |c_8| |c_16| |c_32| |c_64|", with |c_k| scaled by (ρR)^k and defect = max_{k<0} / max_{k≥0}.
-    // Reads "name r sU_re sU_im sc_re sc_im R".
-    const int M = 256;
-    char name[256];
-    int r;
-    double a, b, c, d, R;
-    while (scanf("%255s %d %lf %lf %lf %lf %lf", name, &r, &a, &b, &c, &d, &R) == 7) {
-      const Cd sU(a, b), sc(c, d);
-      for (const double rho : {0.25, 0.5, 0.75, 1.0, 1.5, 2.0}) {
-        std::vector<Cd> G(M);
-        bool ok = true;
-        for (int m = 0; m < M && ok; m++) {
-          const double th = 2 * M_PI * m / M;
-          const Cd e(std::cos(th), std::sin(th)), s = sU + Cd(rho * R, 0) * e;
-          Cd t0, t1, t2, hp;
-          if (!L.theta(s, r + 1, t0, t1, t2, hp)) { ok = false; break; }
-          G[m] = (s - sU) * (s - sc) / (t1 * hp);
-        }
-        if (!ok) { printf("%s %g fail\n", name, rho); continue; }
-        // c_k (ρR)^k = (1/M) Σ_m G_m e^{-2πi k m / M}
-        std::vector<double> mag(M);
-        for (int k = 0; k < M; k++) {
-          Cd sum(0, 0);
-          for (int m = 0; m < M; m++) {
-            const double ph = -2 * M_PI * double(k) * m / M;
-            sum += G[m] * Cd(std::cos(ph), std::sin(ph));
-          }
-          mag[k] = abs(sum) / M;   // index k ≥ M/2 is the coefficient k - M
-        }
-        double pos = 0, neg = 0;
-        for (int k = 0; k < M / 2; k++) pos = std::max(pos, mag[k]);
-        for (int k = M / 2; k < M; k++) neg = std::max(neg, mag[k]);
-        printf("%s %g %.3e %.6e %.3e %.3e %.3e %.3e\n", name, rho, neg / pos, mag[0], mag[8], mag[16], mag[32], mag[64]);
-      }
-    }
-    return 0;
-  }
-  if (mode == "sstate") {
-    // The island state in the island's own coordinate: y = κ_U(σ) = κ_c + s^2 (κ = Θ_{r+1}), one sheet per sign of s.
-    // σ(s) by continuation from σ_c along each ray (predictor dσ/ds = 2s/κ'), then G(s) = (σ - σ_U)(σ - σ_c) /
-    // (Θ_{r+1}'(σ) Λ_{r+1}(σ)).  On circles |y - κ_c| = ρ (|s| = √ρ) a 128-point DFT gives the Laurent coefficients in
-    // s; prints "name ρ defect |c_0| |c_4| |c_8| |c_16| |c_32| fails" (|c_k| scaled by |s|^k, defect = max_{k<0}/max_{k≥0}).
-    // Reads "name r sU_re sU_im sc_re sc_im".
-    const int M = 128, K = 24;
-    char name[256];
-    int r;
-    double a, b, c, d;
-    while (scanf("%255s %d %lf %lf %lf %lf", name, &r, &a, &b, &c, &d) == 6) {
-      const Cd sU(a, b), sc(c, d);
-      Cd kc, k1, k2, hp;
-      if (!L.theta(sc, r + 1, kc, k1, k2, hp)) { printf("%s fail\n", name); continue; }
-      const Cd root = csqrt(Cd(2, 0) / k2);   // σ - σ_c ≈ s √(2/κ'')
-      for (const double rho : {0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6}) {
-        const double sr = std::sqrt(rho);
-        std::vector<Cd> G(M);
-        int fails = 0;
-        for (int m = 0; m < M; m++) {
-          const double th = 2 * M_PI * m / M;
-          const Cd e(std::cos(th), std::sin(th));
-          Cd sg = sc;
-          bool ok = true;
-          for (int k = 1; k <= K && ok; k++) {
-            const Cd s = Cd(sr * k / K, 0) * e, y = kc + sqr(s);
-            sg = k == 1 ? sc + root * s : sg;
-            for (int it = 0; it < 30; it++) {
-              Cd t0, t1, t2, h0;
-              if (!L.theta(sg, r + 1, t0, t1, t2, h0)) { ok = false; break; }
-              const Cd st = (t0 - y) / t1;
-              sg -= st;
-              if (abs(st) < 1e-14 * (1 + abs(sg))) break;
-            }
-            if (ok && k < K) {   // predictor to the next ray point: dσ = 2 s ds / κ'
-              Cd t0, t1, t2, h0;
-              if (!L.theta(sg, r + 1, t0, t1, t2, h0)) ok = false;
-              else sg += Cd(2, 0) * s * (Cd(sr / K, 0) * e) / t1;
-            }
-          }
-          Cd t0, t1, t2, h0;
-          if (!ok || !L.theta(sg, r + 1, t0, t1, t2, h0)) { fails++; G[m] = Cd(0, 0); continue; }
-          G[m] = (sg - sU) * (sg - sc) / (t1 * h0);
-        }
-        std::vector<double> mag(M);
-        for (int k = 0; k < M; k++) {
-          Cd sum(0, 0);
-          for (int m = 0; m < M; m++) {
-            const double ph = -2 * M_PI * double(k) * m / M;
-            sum += G[m] * Cd(std::cos(ph), std::sin(ph));
-          }
-          mag[k] = abs(sum) / M;
-        }
-        double pos = 0, neg = 0;
-        for (int k = 0; k < M / 2; k++) pos = std::max(pos, mag[k]);
-        for (int k = M / 2; k < M; k++) neg = std::max(neg, mag[k]);
-        printf("%s %g %.3e %.6e %.3e %.3e %.3e %.3e %d\n", name, rho, neg / pos, mag[0], mag[4], mag[8], mag[16], mag[32], fails);
-      }
-    }
-    return 0;
-  }
-  if (mode == "gisland") {
-    // Samples of an island's state over its Voronoi cell: y = κ_c + x + i t on an nx × ny grid of the rectangle
-    // |x| ≤ hx, |t| ≤ hy, both sheets s = ±√(y - κ_c), σ(s) continued from σ_c along the segment (a ray in s), and
-    // G = (σ - σ_U)(σ - σ_c) / (Θ_{r+1}' Λ_{r+1}).  Reads "name r sU_re sU_im sc_re sc_im nx ny hx hy"; prints
-    // "name s_re s_im σ_re σ_im G_re G_im" per point (or "name s_re s_im fail").
-    const int K = 32;
-    char name[256];
-    int r, nx, ny;
-    double a, b, c, d, hx, hy;
-    while (scanf("%255s %d %lf %lf %lf %lf %d %d %lf %lf", name, &r, &a, &b, &c, &d, &nx, &ny, &hx, &hy) == 10) {
-      const Cd sU(a, b);
-      // the island's critical point: Newton on Θ_{r+1}' = 0 from the given start (σ_U if none better)
-      Cd sc(c, d), kc, k1, k2, hp;
-      bool found = false;
-      int it = 0;
-      double last = 0;
-      bool th0 = L.theta(sc, r + 1, kc, k1, k2, hp);
-      for (; it < 60; it++) {
-        if (!L.theta(sc, r + 1, kc, k1, k2, hp)) break;
-        const Cd st = k1 / k2;
-        sc -= st;
-        last = abs(st);
+    // per job: the island's critical point (Newton on κ' = 0 from σ_U; deep islands stop at a ~1e-13 floor)
+    std::vector<GLIslandJob> jobs;
+    std::vector<int> qix;
+    long long total = 0;
+    for (int qi = 0; qi < int(qs.size()); qi++) {
+      const auto& Qj = qs[qi];
+      Cd sc = Qj.u, k0, k1, k2, hp;
+      double last = INFINITY;
+      bool ok = false;
+      for (int it = 0; it < 60; it++) {
+        if (!L.core.theta(sc, Qj.r, k0, k1, k2, hp)) break;
+        const Cd step = k1 / k2;
+        sc -= step;
+        last = abs(step);
         if (last < 1e-14 * (1 + abs(sc))) break;
       }
-      found = last < 1e-10 * (1 + abs(sc));   // deep islands: Newton's floor is ~1e-13
-      if (!found || !L.theta(sc, r + 1, kc, k1, k2, hp)) {
-        printf("%s fail critical point (theta at start %d, iterations %d, last step %.3g, |σ - σ_U| %.3g)\n", name, th0, it, last, abs(sc - sU));
-        continue;
-      }
-      if (getenv("GIS_DEBUG")) fprintf(stderr, "%s: σ_c %.12g%+.12gi |σ_c - σ_U| %.3g κ'' %.4g\n", name, sc.r, sc.i, abs(sc - sU), abs(k2));
-      const Cd root = csqrt(Cd(2, 0) / k2);
-      for (int ix = 0; ix < nx; ix++)
-        for (int iy = 0; iy < ny; iy++)
-          for (const double sgn : {1.0, -1.0}) {
-            const double x = nx > 1 ? -hx + 2 * hx * ix / (nx - 1) : 0, t = ny > 1 ? -hy + 2 * hy * iy / (ny - 1) : 0;
-            const Cd sf = Cd(sgn, 0) * csqrt(Cd(x, t));
-            if (abs(sf) == 0) continue;
-            Cd sg = sc;
-            bool ok = true;
-            for (int k = 1; k <= K && ok; k++) {
-              const Cd s = Cd(double(k) / K, 0) * sf, y = kc + sqr(s);
-              if (k == 1) sg = sc + root * s;
-              for (int it = 0; it < 30; it++) {
-                Cd t0, t1, t2, h0;
-                if (!L.theta(sg, r + 1, t0, t1, t2, h0)) { ok = false; break; }
-                const Cd st = (t0 - y) / t1;
-                sg -= st;
-                if (abs(st) < 1e-14 * (1 + abs(sg))) break;
-              }
-              if (ok && k < K) {
-                Cd t0, t1, t2, h0;
-                if (!L.theta(sg, r + 1, t0, t1, t2, h0)) ok = false;
-                else sg += Cd(2, 0) * s * (Cd(1.0 / K, 0) * sf) / t1;
-              }
-            }
-            Cd t0, t1, t2, h0;
-            if (!ok || !L.theta(sg, r + 1, t0, t1, t2, h0) || abs(t0 - (kc + sqr(sf))) > 1e-9) {
-              printf("%s %.17g %.17g fail\n", name, sf.r, sf.i);
-              continue;
-            }
-            const Cd G = (sg - sU) * (sg - sc) / (t1 * h0);
-            printf("%s %.17g %.17g %.17g %.17g %.17g %.17g\n", name, sf.r, sf.i, sg.r, sg.i, G.r, G.i);
-          }
+      ok = last < 1e-10 * (1 + abs(sc)) && L.core.theta(sc, Qj.r, k0, k1, k2, hp);
+      if (!ok) { if (getenv("ICH_DEBUG")) fprintf(stderr, "%s: no critical point\n", Qj.name.c_str()); continue; }
+      if (getenv("ICH_DEBUG"))
+        fprintf(stderr, "%s: σ_c %.12g%+.12gi (|σ_c - σ_U| %.3g) κ_c %.6g%+.6gi κ'' %.4g\n", Qj.name.c_str(), sc.r, sc.i,
+                abs(sc - Qj.u), k0.r, k0.i, abs(k2));
+      if (Qj.jhi < Qj.jlo) continue;
+      jobs.push_back(GLIslandJob{Qj.r, Qj.nc, Qj.jlo, Qj.jhi, sc, k0, Cd(0.5) * k2, Qj.c, z0, total});
+      qix.push_back(qi);
+      total += 2LL * (Qj.jhi - Qj.jlo + 1);
     }
+    std::vector<GLIslandChild> kids;
+    bool gpu = false;
+    if (!getenv("GL_GPU") || atoi(getenv("GL_GPU"))) gpu = glavaurs_gpu_ichildren(L.core, jobs, kids);
+    if (!gpu) {
+      std::vector<std::vector<GLIslandChild>> per(jobs.size());
+      std::atomic<int64_t> next(0);
+      std::vector<std::thread> pool;
+      for (int th = 0; th < threads; th++)
+        pool.emplace_back([&]() {
+          for (int64_t ji; (ji = next++) < int64_t(jobs.size());) {
+            const auto& J = jobs[ji];
+            for (int j = J.jlo; j <= J.jhi; j++)
+              for (const int sgn : {1, -1}) {
+                Cd sg;
+                double w;
+                if (gl_island_path(L.core, J, j, sgn, sg, w)) per[ji].push_back(GLIslandChild{int(ji), j, sgn, sg, w});
+              }
+          }
+        });
+      for (auto& t : pool) t.join();
+      for (const auto& v : per) kids.insert(kids.end(), v.begin(), v.end());
+    }
+    if (getenv("ICH_DEBUG")) fprintf(stderr, "ichildren: %zu children from %zu jobs (%lld paths) on the %s\n", kids.size(), jobs.size(), total, gpu ? "GPU" : "CPU");
+    for (const auto& k : kids)
+      printf("%s|%c|%d %.17g %.17g %.17g\n", qs[qix[k.job]].name.c_str(), k.sgn > 0 ? '+' : '-', k.j, k.s.r, k.s.i, k.w);
     return 0;
   }
   if (mode == "tsolve") {

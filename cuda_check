@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Local CUDA build check without a CUDA machine: device-only compiles (sm_80, sm_90) of the build's sources with
+clang's CUDA support, using the CUDA headers and libdevice from NVIDIA's Linux wheels (no toolkit install; cached in
+~/.cache/mandelbrot/cuda-<version>).  The cluster build compiles every C++ source with -x cuda, so this mirrors it
+for device code: it catches host-only calls in __device__ code, ambiguous overloads, launch syntax, missing device
+math, and so on (it cannot link or run kernels).
+
+  ./cuda_check                        # every source in build/release/compile_commands.json
+  ./cuda_check glavaurs_gpu.cc bulb.cc
+  ./cuda_check --arch sm_80 ...
+
+Needs Homebrew clang (brew install llvm) and pip.  macOS-specific fix: clang's Darwin driver passes the macOS SDK
+version as the device compile's -target-sdk-version, so the CUDA version is overridden with -Xclang."""
+import argparse, json, os, shlex, shutil, subprocess, sys, tempfile, zipfile
+from concurrent.futures import ThreadPoolExecutor
+
+VERSION = '12.8'
+WHEELS = ['nvidia-cuda-runtime-cu12==12.8.*', 'nvidia-cuda-nvcc-cu12==12.8.*', 'nvidia-cuda-cccl-cu12==12.8.*',
+          'nvidia-curand-cu12']
+ROOT = os.path.dirname(os.path.abspath(__file__))
+CLANG = '/opt/homebrew/opt/llvm/bin/clang++'
+
+
+def sdk():
+  """The CUDA headers + libdevice tree, built once from the wheels"""
+  path = os.path.expanduser('~/.cache/mandelbrot/cuda-' + VERSION)
+  if os.path.exists(os.path.join(path, 'nvvm', 'libdevice', 'libdevice.10.bc')):
+    os.makedirs(os.path.join(path, 'bin'), exist_ok=True)
+    return path
+  print('cuda_check: fetching CUDA %s headers and libdevice into %s' % (VERSION, path), flush=True)
+  with tempfile.TemporaryDirectory() as tmp:
+    subprocess.run([sys.executable, '-m', 'pip', 'download', '-q', '--no-deps', '--only-binary=:all:',
+                    '--platform', 'manylinux2014_x86_64', '--python-version', '3.12', '-d', tmp] + WHEELS, check=True)
+    os.makedirs(os.path.join(path, 'include'), exist_ok=True)
+    os.makedirs(os.path.join(path, 'nvvm'), exist_ok=True)
+    for w in os.listdir(tmp):
+      if not w.endswith('.whl'): continue
+      with zipfile.ZipFile(os.path.join(tmp, w)) as z:
+        for n in z.namelist():
+          parts = n.split('/')
+          if len(parts) > 3 and parts[0] == 'nvidia' and parts[2] == 'include' and not n.endswith('/'):
+            out = os.path.join(path, 'include', *parts[3:])
+          elif len(parts) > 4 and parts[0] == 'nvidia' and parts[2:4] == ['nvvm', 'libdevice'] and not n.endswith('/'):
+            out = os.path.join(path, 'nvvm', 'libdevice', parts[-1])
+          else:
+            continue
+          os.makedirs(os.path.dirname(out), exist_ok=True)
+          with z.open(n) as src, open(out, 'wb') as dst: shutil.copyfileobj(src, dst)
+  with open(os.path.join(path, 'version.txt'), 'w') as f: f.write('CUDA Version %s\n' % VERSION)
+  os.makedirs(os.path.join(path, 'bin'), exist_ok=True)   # clang's CUDA detection requires bin/
+  return path
+
+
+def main():
+  ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+  ap.add_argument('files', nargs='*')
+  ap.add_argument('--arch', action='append', help='GPU arch (default sm_80 and sm_90, as meson.build)')
+  ap.add_argument('--build', default=os.path.join(ROOT, 'build', 'release'))
+  ap.add_argument('-j', type=int, default=4)
+  a = ap.parse_args()
+  if not os.path.exists(CLANG): sys.exit('cuda_check: needs Homebrew clang (brew install llvm)')
+  cuda = sdk()
+  archs = a.arch or ['sm_80', 'sm_90']
+  db = json.load(open(os.path.join(a.build, 'compile_commands.json')))
+  entries = {}
+  for e in db:
+    f = os.path.normpath(os.path.join(e['directory'], e['file']))
+    if f.endswith('.cc'): entries[f] = e
+  files = [os.path.abspath(f) for f in a.files] if a.files else sorted(entries)
+
+  def check(f):
+    e = entries.get(f)
+    if e is None: return f, False, 'not in compile_commands.json'
+    args = shlex.split(e['command']) if 'command' in e else list(e['arguments'])
+    flags, skip = [], False
+    for x in args[1:]:   # the build's own flags, minus outputs, dependency files and the source
+      if skip: skip = False; continue
+      if x in ('-o', '-MF', '-MQ', '-MT'): skip = True; continue
+      if x in ('-c', '-MD') or x == e['file'] or x.endswith('.cc'): continue
+      flags.append(x)
+    out = []
+    for arch in archs:
+      cmd = [CLANG, '-x', 'cuda', '--cuda-path=' + cuda, '--cuda-gpu-arch=' + arch, '--cuda-device-only',
+             '-Xclang', '-target-sdk-version=' + VERSION, '-Wno-unknown-cuda-version', '-S', '-o', os.devnull] + flags + [f]
+      r = subprocess.run(cmd, cwd=e['directory'], capture_output=True, text=True)
+      if r.returncode: out.append('%s:\n%s' % (arch, r.stderr.strip()))
+    return f, not out, '\n'.join(out)
+
+  failed = 0
+  with ThreadPoolExecutor(a.j) as pool:
+    for f, ok, msg in pool.map(check, files):
+      print('%s %s' % ('ok  ' if ok else 'FAIL', os.path.relpath(f, ROOT)), flush=True)
+      if not ok: failed += 1; print(msg)
+  print('cuda_check: %d of %d sources fail' % (failed, len(files)))
+  sys.exit(1 if failed else 0)
+
+
+if __name__ == '__main__':
+  main()
