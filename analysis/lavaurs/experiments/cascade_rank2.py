@@ -4,14 +4,14 @@ If the cascade is a linear map on a small context, the mass-weighted rank of the
 over the one-level rank, not multiplicatively.
 
   python3 cascade_rank2.py single.txt ich_level1.txt [--parents 60] [--kids 12] [--targets 16]"""
-import argparse, math, os, subprocess
+import argparse, math, os, re, subprocess
 import numpy as np
 B = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../../build/release/glavaurs')
 ap = argparse.ArgumentParser(); ap.add_argument('single'); ap.add_argument('ich')
 ap.add_argument('--parents', type=int, default=60); ap.add_argument('--kids', type=int, default=12); ap.add_argument('--targets', type=int, default=16)
 ap.add_argument('--jlo', type=int, default=-14); ap.add_argument('--jhi', type=int, default=3); ap.add_argument('--threads', type=int, default=2)
 ap.add_argument('--out', default=None); ap.add_argument('--load', action='store_true'); a = ap.parse_args()
-env = dict(os.environ, GL_SIDE='-1')
+env = dict(os.environ, GL_SIDE='-1', ICH_DEBUG='1')
 comps = []
 for l in open(a.single):
     f = l.split(); sat = f[0].startswith('sat'); n = int(f[0][3:]) if sat else int(f[0])
@@ -20,13 +20,23 @@ info = {c[0]: c for c in comps}
 cut = (-0.16135210336424927 - 4.1583377953217475) / 2
 own = [c for c in comps if c[2].imag > cut]
 targets = [c for c in own if c[5]] + sorted([c for c in own if not c[5]], key=lambda c: -c[3])[:a.targets]
-# level-1 island children: (parent, t1, j1rel, sheet) -> (σ, mass, n)
+def islands(path):   # ICH_DEBUG island data: source -> (σ_c, |κ''|)
+    isl = {}
+    for l in open(path):
+        m = re.match(r"(\S+)~\S+: σ_c (\S+?)([+-][0-9.e+-]+)i .* κ'' (\S+)", l)
+        if m: isl[m.group(1)] = (complex(float(m.group(2)), float(m.group(3))), float(m.group(4)))
+    return isl
+def near(isl, src, c):   # tuning-like near field: the child at the island's critical value
+    sc, k2 = isl[src]
+    return 0.5 * k2 * abs(c - sc) ** 2 < 0.03
+isl1 = islands(a.ich + '.err')
+# level-1 island children: (parent, t1, j1rel, sheet) -> (σ, mass, n); near-field (tuning) children dropped
 kids = {}
 for l in open(a.ich):
     f = l.split(); nm, br, j = f[0].rsplit('|', 2); src, t = nm.rsplit('~', 1); w = float(f[3])
     if w >= 1: continue
     c = complex(float(f[1]), float(f[2]))
-    if c.imag <= cut: continue
+    if c.imag <= cut or src not in isl1 or near(isl1, src, c): continue
     kids.setdefault(src, []).append(((t, int(j) + info[src][1] + 1, br), c, info[t][4] * w, info[t][1] - int(j)))
 parents = sorted(kids, key=lambda s: -info[s][3])[:a.parents]
 lines = []
@@ -35,10 +45,15 @@ for p in parents:
         jc = -(n + 1)
         for tn, ntt, ct, _, _, _ in targets:
             lines.append('%s#%s#%d#%s~%s 2 %.17g %.17g %d %.17g %.17g %d %d' % (p, lab[0], lab[1], lab[2], tn, c.real, c.imag, ntt, ct.real, ct.imag, jc + a.jlo, jc + a.jhi))
-if a.load: out = open(a.out).read()
+if a.load: out = open(a.out).read(); err = open(a.out + '.err').read()
 else:
-    out = subprocess.run([B, '1', '2', 'ichildren', str(a.threads)], input='\n'.join(lines) + '\n', capture_output=True, text=True, env=env).stdout
-    if a.out: open(a.out, 'w').write(out)
+    res = subprocess.run([B, '1', '2', 'ichildren', str(a.threads)], input='\n'.join(lines) + '\n', capture_output=True, text=True, env=env)
+    out, err = res.stdout, res.stderr
+    if a.out: open(a.out, 'w').write(out); open(a.out + '.err', 'w').write(err)
+isl2 = {}
+for l in err.splitlines():
+    m = re.match(r"(\S+)~\S+: σ_c (\S+?)([+-][0-9.e+-]+)i .* κ'' (\S+)", l)
+    if m: isl2[m.group(1)] = (complex(float(m.group(2)), float(m.group(3))), float(m.group(4)))
 nkid = {}
 for p in parents:
     for lab, c, m, n in kids[p]: nkid[(p, lab)] = (m, n)
@@ -48,6 +63,7 @@ for p in parents:
 for l in out.splitlines():
     f = l.split(); nm, br, j = f[0].rsplit('|', 2); src, t2 = nm.rsplit('~', 1); w = float(f[3])
     if w >= 1: continue
+    if src not in isl2 or near(isl2, src, complex(float(f[1]), float(f[2]))): continue
     p, t1, j1, s1 = src.split('#'); mk, nk = nkid[(p, (t1, int(j1), s1))]
     key = (p, (t1, int(j1), t2, int(j) + nk + 1))
     two[key] = two.get(key, 0) + info[t2][4] * w      # grandchild mass relative to the child's C (C_t2 w)

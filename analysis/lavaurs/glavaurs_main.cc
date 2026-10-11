@@ -868,7 +868,8 @@ int main(int argc, char** argv) {
     //   frozen |H'(x_f)|^-4 with H(x_f) + σ_U = y, y = p_{r+1}(σ_W) the child's landing point
     // and the exact ratio's factors |H'(x)|^-4 (x = p_r(σ_W)), |Θ_r'(σ_W)/Θ_r'(σ_U)|^-2, |Λ_r(σ_W)/Λ_r(σ_U)|^-2,
     // |1 + 1/(H'(x) Θ_r'(σ_W))|^-2.  Reads "name r sU_re sU_im sW_re sW_im"; prints
-    // "name |δ| w_U exact frozen f_x f_theta f_lambda f_one".
+    // "name |δ| w_U exact frozen f_x f_theta f_lambda f_one pole |σ_U - c_a| |c_a - c_b|", pole =
+    // |(σ_U - c_a)(σ_U - c_b) / ((σ_W - c_a)(σ_W - c_b))|^2 the leading-pole prediction of f_theta f_lambda.
     Cd s0, ds, dds;
     int pv;
     if (!L.phi_a(L.v, s0, ds, dds, pv)) return 1;
@@ -898,9 +899,34 @@ int main(int argc, char** argv) {
         printf("%s fail newton %.3g\n", name, abs(h + sU - y));
         continue;
       }
-      printf("%s %.6e %.6e %.10e %.10e %.10e %.10e %.10e %.10e\n", name, abs(sW - sU), wU, wW / wU,
+      // the parent density's leading poles: c_a with Θ_r'(c_a) = 0 and c_b with Λ_r(c_b) = 0, Newton from σ_U
+      // (Λ_r' by a centred difference); J_r = |Θ_r' Λ_r|^-2 ≈ |σ - c_a|^-2 |σ - c_b|^-2 × smooth
+      Cd ca = sU, cb = sU;
+      bool oka = r > 1, okb = r > 1;
+      for (int it = 0; oka && it < 60; it++) {
+        Cd t0, t1, t2, hh;
+        if (!L.theta(ca, r, t0, t1, t2, hh)) { oka = false; break; }
+        const Cd st = t1 / t2;
+        ca -= st;
+        if (abs(st) < 1e-13 * (1 + abs(ca))) break;
+        if (!(abs(ca - sU) < 1)) oka = false;
+      }
+      for (int it = 0; okb && it < 60; it++) {
+        Cd t0, t1, t2, hp, hm, h0;
+        const Cd e(1e-7, 0);
+        if (!L.theta(cb, r, t0, t1, t2, h0) || !L.theta(cb + e, r, t0, t1, t2, hp) || !L.theta(cb - e, r, t0, t1, t2, hm)) {
+          okb = false; break;
+        }
+        const Cd st = h0 / ((hp - hm) / Cd(2e-7, 0));
+        cb -= st;
+        if (abs(st) < 1e-12 * (1 + abs(cb))) break;
+        if (!(abs(cb - sU) < 1)) okb = false;
+      }
+      const double pole = oka && okb ? sqr_abs((sU - ca) * (sU - cb) / ((sW - ca) * (sW - cb))) : 1;
+      printf("%s %.6e %.6e %.10e %.10e %.10e %.10e %.10e %.10e %.10e %.4e %.4e\n", name, abs(sW - sU), wU, wW / wU,
              1 / sqr(sqr_abs(dh)), 1 / sqr(sqr_abs(dhe)), 1 / sqr_abs(dWr / dU), 1 / sqr_abs(hW / hU),
-             1 / sqr_abs(Cd(1) + inv(dhe * dWr)));
+             1 / sqr_abs(Cd(1) + inv(dhe * dWr)), pole, oka && okb ? abs(sU - ca) : -1.0, oka && okb ? abs(ca - cb) : -1.0);
+      if (getenv("FROZEN_POLES")) printf("  poles %d %d %.17g %.17g %.17g %.17g\n", oka, okb, ca.r, ca.i, cb.r, cb.i);
     }
     return 0;
   }

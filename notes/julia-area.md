@@ -1840,3 +1840,31 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   vary (scale invariance).  So children-to-parent ratios are not functions of the parent's state (t_U, σ_U); the
   state must be the density J_r as a function on the island.  The cascade is linear in it (J_{r+1} = J_r |H'∘p_r|^-4
   |1 + ...|^-2), which is the transfer-operator (trace) formulation, approach B.
+- **Correction to the rank note: the one-direction-per-target plateau was tunings** (`cascade_split.py`).  40 entries
+  (0.01%) carry 63% of the one-level matrix's mass: each target used as a source, its child at relative shift 0 sitting
+  at the island's critical value (|y - κ_c| ≈ 0), i.e. the tuning t*t, which the census excludes and the μ(M) fixed
+  point accounts for.  With those removed the rank at 1e-3/1e-4/1e-5/1e-6/1e-8 is 6/10/18/20/39 (41 targets), growing
+  only slowly with the targets (rank(1e-5) = 6, 8, 9, 10, 13, 18 for 6..41 targets): about 5 per decade, consistent
+  with a context of O(n) dimension.  Depth (`cascade_rank2.py`, near-field entries dropped at both levels, 60 parents
+  × 12 children × 12 targets): one level 2/10/20/36/57 at 1e-2/1e-4/1e-6/1e-8/1e-10, two levels 11/12/23/34/52 —
+  additive, not multiplicative (but capped by the 60 rows at the fine end).
+- **What A and B trip over: the poles of g = 1/(Θ'Λ).**  The weight is J = |Θ' Λ|^-2 = |g|^2 with g meromorphic in σ.
+  Chain rule: Θ_r' = Σ_l Π_{m=l}^{r-1} H'(p_m), Λ_r = Π_{m<r} H'(p_m), g_{r+1} = g_r / [H'(p_r)(H'(p_r) Θ_r' + 1)].  So
+  Λ_r has a simple zero at every lower-level centre (p_i = a target = a critical point of H); Θ_r' vanishes only at
+  island critical points (at an older ancestor's centre the l > i terms survive).  Near an island U: g has simple
+  poles at the parent's centre σ_P (Λ) and at the parent island's critical point σ_c(P) (Θ'), close together, i.e. a
+  split double pole, |σ - σ_P|^-2 |σ - σ_c(P)|^-2 in J, and simple poles |σ - σ_A|^-2 at older ancestors.  In the
+  island's own coordinate y = κ_U(σ) (2:1 onto the cell) the leading singularity is |y - κ_c|^-2 [R_0(y) +
+  |y - κ_c| R_1(y)] with R_0, R_1 real-analytic.  Scale invariance puts the parent's poles at an O(1) number of island
+  widths, ε_U/|σ_U - σ_c(P)| ≈ 1/(2 |y_U - κ_c(P)| |H''(y_U)|^(1/2)), at every level: hence A's O(1) errors; and in
+  the σ variable these poles sit at all component centres, dense: hence B's σ-kernel is not smooth.  Beyond the
+  leading poles, at a superattracting return the singular profile is self-similar (the tuned copy and its decorations:
+  μ(M), layer 3), not a pole.
+- Check (`frozenchk` with pole location: Newton for Θ_r' = 0 and Λ_r = 0 from σ_U): at parent level 2, where the poles
+  are found reliably (c_b = σ_P exactly), the jets' variation across the island drops from median |log| 0.54 → 0.25
+  (Θ') and 0.59 → 0.26 (Λ) with the pole factors; by |δ|/|σ_U - c_b|: 0.27 → 0.15 (< 0.2), 0.63 → 0.21 (0.2-0.5),
+  1.2 → 0.85 (0.5-1).  The mass-weighted error does not improve (the heaviest children sit at |δ| comparable to the
+  pole distance, where further singularities at similar distances enter), and at deeper levels the census lineage's
+  parents are not island parents (census children are not island-local), so Newton finds other zeros.  The clean
+  version needs island ancestry (ichildren lineages) and the island coordinate y, where the parent's double pole
+  becomes the explicit |y - κ_c|^-2 factor and older ancestors map outside the cell.
