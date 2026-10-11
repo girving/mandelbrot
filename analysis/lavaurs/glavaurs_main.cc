@@ -869,7 +869,6 @@ int main(int argc, char** argv) {
     // and the exact ratio's factors |H'(x)|^-4 (x = p_r(σ_W)), |Θ_r'(σ_W)/Θ_r'(σ_U)|^-2, |Λ_r(σ_W)/Λ_r(σ_U)|^-2,
     // |1 + 1/(H'(x) Θ_r'(σ_W))|^-2.  Reads "name r sU_re sU_im sW_re sW_im"; prints
     // "name |δ| w_U exact frozen f_x f_theta f_lambda f_one".
-    const auto S_ = [](const Cd z) { return SCd(z.r, z.i); };
     Cd s0, ds, dds;
     int pv;
     if (!L.phi_a(L.v, s0, ds, dds, pv)) return 1;
@@ -877,30 +876,31 @@ int main(int argc, char** argv) {
     int r;
     double a, b, c, d;
     while (scanf("%255s %d %lf %lf %lf %lf", name, &r, &a, &b, &c, &d) == 6) {
-      const SCd sU(a, b), sW(c, d);
+      const Cd sU(a, b), sW(c, d);
       Cd tU, dU, ddU, hU, tW1, dW1, ddW1, hW1, tW, dWr, ddW, hW;
       int petU, petW1, petW;
-      if (!L.theta(Cd(a, b), r, tU, dU, ddU, hU, &petU) || !L.theta(Cd(c, d), r + 1, tW1, dW1, ddW1, hW1, &petW1) ||
-          !L.theta(Cd(c, d), r, tW, dWr, ddW, hW, &petW)) { printf("%s fail theta\n", name); continue; }
-      const double wU = 1 / std::norm(S_(dU) * S_(hU)), wW = 1 / std::norm(S_(dW1) * S_(hW1));
-      const SCd y = S_(tW1) + S_(s0), xe = S_(tW) + S_(s0);
+      if (!L.theta(sU, r, tU, dU, ddU, hU, &petU) || !L.theta(sW, r + 1, tW1, dW1, ddW1, hW1, &petW1) ||
+          !L.theta(sW, r, tW, dWr, ddW, hW, &petW)) { printf("%s fail theta\n", name); continue; }
+      const double wU = 1 / sqr_abs(dU * hU), wW = 1 / sqr_abs(dW1 * hW1);
+      const Cd y = tW1 + s0, xe = tW + s0;
       Cd h, dh, ddh;
       int pet2;
-      if (!L.horn(Cd(xe.real(), xe.imag()), petW, h, dh, ddh, pet2)) { printf("%s fail horn\n", name); continue; }
-      const SCd dhe = S_(dh);
-      SCd x = xe;
-      bool ok = false;
+      if (!L.horn(xe, petW, h, dh, ddh, pet2)) { printf("%s fail horn\n", name); continue; }
+      const Cd dhe = dh;
+      Cd x = xe;
       for (int it = 0; it < 50; it++) {
-        if (!L.horn(Cd(x.real(), x.imag()), petW, h, dh, ddh, pet2)) break;
-        const SCd st = (S_(h) + sU - y) / S_(dh);
+        if (!L.horn(x, petW, h, dh, ddh, pet2)) break;
+        const Cd st = (h + sU - y) / dh;
         x -= st;
-        if (std::abs(st) < 1e-14 * (1 + std::abs(x))) break;
+        if (abs(st) < 1e-14 * (1 + abs(x))) break;
       }
-      ok = L.horn(Cd(x.real(), x.imag()), petW, h, dh, ddh, pet2) && std::abs(S_(h) + sU - y) < 1e-9 * (1 + std::abs(y));
-      if (!ok) { printf("%s fail newton %.3g\n", name, std::abs(S_(h) + sU - y)); continue; }
-      const double fz = 1 / sqr(std::norm(S_(dh))), fx = 1 / sqr(std::norm(dhe));
-      printf("%s %.6e %.6e %.10e %.10e %.10e %.10e %.10e %.10e\n", name, std::abs(sW - sU), wU, wW / wU, fz, fx,
-             1 / std::norm(S_(dWr) / S_(dU)), 1 / std::norm(S_(hW) / S_(hU)), 1 / std::norm(1.0 + 1.0 / (dhe * S_(dWr))));
+      if (!(L.horn(x, petW, h, dh, ddh, pet2) && abs(h + sU - y) < 1e-9 * (1 + abs(y)))) {
+        printf("%s fail newton %.3g\n", name, abs(h + sU - y));
+        continue;
+      }
+      printf("%s %.6e %.6e %.10e %.10e %.10e %.10e %.10e %.10e\n", name, abs(sW - sU), wU, wW / wU,
+             1 / sqr(sqr_abs(dh)), 1 / sqr(sqr_abs(dhe)), 1 / sqr_abs(dWr / dU), 1 / sqr_abs(hW / hU),
+             1 / sqr_abs(Cd(1) + inv(dhe * dWr)));
     }
     return 0;
   }

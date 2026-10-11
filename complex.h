@@ -56,5 +56,8 @@ template<int sign, class S> __host__ __device__ static inline Complex<S> diag(co
 __host__ __device__ static inline double abs(const Complex<double> z) { return hypot(z.r, z.i); }
 __host__ __device__ static inline double sqr_abs(const Complex<double> z) { return sqr(z.r) + sqr(z.i); }
 __host__ __device__ static inline Complex<double> inv(const Complex<double> z) { return inv(sqr_abs(z)) * conj(z); }
+__host__ __device__ static inline Complex<double> operator/(const Complex<double> z, const Complex<double> w) {
+  return z * inv(w);
+}
 
 }  // namespace mandelbrot
