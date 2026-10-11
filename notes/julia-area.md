@@ -1899,3 +1899,18 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   singular basis at v on the cell, the δσ (atom motion) series, and layer 3 at the near field.  Plan: build the
   weight-4 first-passage operator of f_{-3/4} by collocation, check 𝓛 against enumerated horn-map preimages, then
   ⟨(1 - 𝓛)^-1 S_U, τ⟩ against island totals from the census.
+- **B, first infrastructure** (`glavaurs hpre`, `hval`): all horn-map preimages of a point w (and its lattice
+  translates) with |H'|^-4 weights, by tree's backward walk of f from roots pulled back from deep in each attracting
+  petal (root at Φ_a = w found by series inversion, then N local inverse steps, tracking |Φ_a'|).  Check at
+  w = v + 0.1 + 0.05i: 3157 preimages above 1e-12, every one with horn(x) - w in the lattice to ≤ 5e-8 (the series and
+  landing precision); weight shares 0.50 / 0.28 / 0.22 on the translates 0, -(1/2 + τ), -(1/2 - τ), so the critical-value
+  lattice is Z + Z(1/2 + τ).  This is the reference for 𝓛φ(w) = Σ |H'(x)|^-4 φ(x) on the cell (to be replaced by f's
+  transfer operator for poly(n)).
+- **B's near field is a disk cut, not a fractal one.**  At an island centre F_σ has a superattracting cycle; atoms in
+  its immediate basin are the island's tuned copy (excluded, μ(M) fixed point) and atoms near the basin boundary are
+  the decorations (layer 3).  The basin boundary is the return map's Julia set (fractal), but the split can be made
+  on a disk D in renormalized coordinates where the return map is still quadratic-like: chains avoiding D are the far
+  field, with 𝓛 restricted to x ∉ D; its outputs are analytic on each side of the known curve F(∂D) (piecewise
+  analytic, so Galerkin with domain decomposition at D), and chains entering D are summed by the decoration kernel K.
+  The B build is then: cell Galerkin with that decomposition and the singular basis at v; 𝓛 from hpre (then from f's
+  transfer operator); K for D; the δσ series.

@@ -432,6 +432,139 @@ int main(int argc, char** argv) {
     fprintf(stderr, "tree: %lld centers, %lld paths cut at depth %d\n", (long long)found, (long long)pruned, dmax);
     return 0;
   }
+  if (mode == "hval") {
+    // horn(x) at the first-transit state (the critical value's label): reads "x_re x_im", prints "h_re h_im |H'|"
+    Cd z0, dz0, ddz0;
+    int s0;
+    L.phi_a(L.v, z0, dz0, ddz0, s0);
+    double xr, xi;
+    while (scanf("%lf %lf", &xr, &xi) == 2) {
+      Cd h, dh, ddh;
+      int pet2;
+      if (L.horn(Cd(xr, xi), s0, h, dh, ddh, pet2)) printf("%.17g %.17g %.10e\n", h.r, h.i, abs(dh));
+      else printf("fail\n");
+    }
+    return 0;
+  }
+  if (mode == "hpre") {
+    // Horn-map preimages of w and its lattice translates (the reference for the cell transfer operator
+    // 𝓛φ(w) = Σ_{H(x)=w} |H'(x)|^-4 φ(x)): roots u_0 deep in each attracting petal k with series value
+    // Φ_k(u_0) = w + N/q - hit_offset, then tree's backward walk into the critical value's exit petal (the transit
+    // state of a first transit).  Each landing x is checked with horn(): prints
+    // "x_re x_im |H'(x)| d_re d_im" with d = horn(x) - w (a lattice translate), for |H'|^-4 > cmin.
+    // Reads "w_re w_im cmin dmax".
+    Cd z0, dz0, ddz0;
+    int s0;
+    L.phi_a(L.v, z0, dz0, ddz0, s0);
+    const int sx = L.exit_petal(s0);
+    const double rloc = std::pow(std::hypot(L.a[0].r, L.a[0].i) / 400, 1.0 / q);
+    const double rswitch = getenv("GL_RSWITCH") ? atof(getenv("GL_RSWITCH")) : 0.3;
+    const double logB = std::log(10 * q * std::hypot(L.a[0].r, L.a[0].i) * std::pow(rswitch, -q - 1));
+    double wr, wi, cmin;
+    int dmax;
+    while (scanf("%lf %lf %lf %d", &wr, &wi, &cmin, &dmax) == 4) {
+      const Cd w(wr, wi);
+      int64_t found = 0;
+      double logPhi0 = 0;   // log |Φ_k'(u_0)| of the current root
+      std::function<void(Cd, int, int, double)> dfs = [&](Cd y, int depth, int bdepth, double logP) {
+        bool landed = false;
+        if (std::hypot(y.r, y.i) < rswitch && L.petal(y, 1) >= 0) {
+          Cd u = y;
+          int dd = depth;
+          double lp = logP;
+          bool ok = true;
+          while (std::hypot(u.r, u.i) >= rloc) {
+            const Cd disc = csqrt(sqr(L.lam) + Cd(4, 0) * u);
+            const Cd a1 = half(-L.lam + disc), a2 = half(-L.lam - disc);
+            const Cd nu = abs(a1) < abs(a2) ? a1 : a2, far = abs(a1) < abs(a2) ? a2 : a1;
+            if (dd > depth) dfs(far, dd + 1, bdepth + 1, lp + std::log(abs(L.lam + twice(far))));
+            lp += std::log(abs(L.lam + twice(nu)));
+            u = nu;
+            if (++dd > depth + 200000) { ok = false; break; }
+          }
+          int k = ok ? L.petal(u, 1) : -1;
+          if (k >= 0) {
+            landed = true;
+            int t = 0;
+            for (; t < q && k != sx; t++) {
+              lp -= std::log(abs(L.lam + twice(u)));
+              u = L.lam * u + sqr(u);
+              k = L.petal(u, 1);
+            }
+            if (k != sx) return;
+            Cd sr, sd, sdd;
+            L.series(u, L.axis(1, k), sr, sd, sdd);
+            const int n = (((dd - t) % q) + q) % q;
+            const Cd x = sr + Cd(double((dd - t - n) / q), 0);
+            const double logH = logPhi0 + lp - std::log(abs(sd));   // |H'(x)| = |Φ_k'(u_0)| |(f^L)'(y)| / |Φ_s'(y)|
+            if (-4 * logH > std::log(cmin)) {
+              Cd h, dh, ddh;
+              int pet2;
+              if (L.horn(x, s0, h, dh, ddh, pet2)) {
+                const Cd dlt = h - w;
+                printf("%.17g %.17g %.10e %.10g %.10g\n", x.r, x.i, abs(dh), dlt.r, dlt.i);
+                found++;
+              }
+            }
+          }
+        }
+        if (bdepth >= dmax) return;
+        if (-4 * (logPhi0 + logP - logB) < std::log(cmin)) return;
+        const Cd disc = csqrt(sqr(L.lam) + Cd(4, 0) * y);
+        const Cd b1 = half(-L.lam + disc), b2 = half(-L.lam - disc);
+        const Cd local = abs(b1) < abs(b2) ? b1 : b2;
+        for (const Cd yy : {b1, b2}) {
+          if (landed && yy == local) continue;
+          dfs(yy, depth + 1, bdepth + 1, logP + std::log(abs(L.lam + twice(yy))));
+        }
+      };
+      for (int k = 0; k < q; k++) {
+        // root: Φ_k(u_0) = ξ with |ξ| ≈ 400 (deep in the petal), ξ ≡ w mod 1/q
+        const int Nsteps = int(std::ceil(q * (400 - w.r)));
+        const Cd xi = w + Cd(double(Nsteps) / q, 0);
+        const double base = L.axis(-1, k);   // attracting axis of petal k
+        const Cd ratio = Cd(L.a[0].r, L.a[0].i) / xi;
+        Cd u = Cd(std::pow(abs(ratio), 1.0 / q), 0);
+        {
+          // the q-th root of a_{-q}/ξ nearest the attracting axis of petal k
+          const double ph = std::atan2(ratio.i, ratio.r) / q;
+          double best = 1e9;
+          for (int tt = 0; tt < q; tt++) {
+            const double pp = ph + 2 * M_PI * tt / q, dl = std::fabs(std::remainder(pp - base, 2 * M_PI));
+            if (dl < best) { best = dl; u = Cd(std::pow(abs(ratio), 1.0 / q) * std::cos(pp), std::pow(abs(ratio), 1.0 / q) * std::sin(pp)); }
+          }
+        }
+        Cd s, sd, sdd;
+        for (int it = 0; it < 80; it++) {
+          L.series(u, L.axis(-1, k), s, sd, sdd);
+          const Cd st = (s - xi) / sd;
+          u -= st;
+          if (abs(st) < 1e-15 * abs(u)) break;
+        }
+        L.series(u, L.axis(-1, k), s, sd, sdd);
+        // pull back N steps along the petal's local branch (the preimage nearer 0) to u_1 with Φ(u_1) = w (+ offsets):
+        // log |Φ'(u_1)| = log |Φ'(u_0)| + Σ log |f'(u_i)| over the forward orbit u_1 → u_0
+        double lphi = std::log(abs(sd));
+        for (int st = 0; st < Nsteps; st++) {
+          const Cd disc = csqrt(sqr(L.lam) + Cd(4, 0) * u);
+          const Cd a1 = half(-L.lam + disc), a2 = half(-L.lam - disc);
+          u = abs(a1) < abs(a2) ? a1 : a2;
+          lphi += std::log(abs(L.lam + twice(u)));
+        }
+        if (getenv("HPRE_DEBUG")) {
+          Cd ss, dd2, ddd;
+          int pp;
+          const bool okk = L.phi_a(u, ss, dd2, ddd, pp);
+          fprintf(stderr, "  petal %d root u_1 %.6g%+.6gi: phi_a %d %.8g%+.8gi |Φ'| %.4g (tracked %.4g)\n", k, u.r, u.i, okk, ss.r, ss.i, abs(dd2), std::exp(lphi));
+        }
+        logPhi0 = lphi;
+        dfs(u, 0, 0, 0.0);
+      }
+      fprintf(stderr, "hpre %.6g%+.6gi: %lld preimages\n", w.r, w.i, (long long)found);
+      printf("end\n");
+    }
+    return 0;
+  }
   if (mode == "walk") {
     // Continue a family of r-transit components with excursion n whose members sit at σ_k + k (long excursions: the
     // representative (σ - k, n + q r k)): from two members, predict by polynomial extrapolation, Newton for the center,

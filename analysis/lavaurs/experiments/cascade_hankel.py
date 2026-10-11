@@ -63,7 +63,7 @@ src2 = []; n2 = {}
 for s in rows1:
     for lab, br, c, m, n in k1[s]:
         if lab in L1:
-            nm = '%s#%s#%d#%s' % (s, lab[0], lab[1], br); src2.append((nm, 3, c, n))   # ichildren's r = the island map's transit count = level + 1; n2[nm] = (n, m)
+            nm = '%s#%s#%d#%s' % (s, lab[0], lab[1], br); src2.append((nm, 3, c, n)); n2[nm] = (n, m)   # ichildren's r = the island map's transit count = level + 1
 print('%d level-2 islands' % len(src2), flush=True)
 o2, e2 = run('lev2.txt', src2)
 k2 = parse(o2, e2, lambda s: n2[s][0])
