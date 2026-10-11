@@ -983,7 +983,7 @@ int main(int argc, char** argv) {
               for (int i = 0; i < Q.nc - j; i++) x = L.lam * x + x * x;
               if (!(std::hypot((x - L.crit).r, (x - L.crit).i) < 1e-6)) { if (getenv("ICH_DEBUG")) fprintf(stderr, "  j %d %c: landing fails\n", j, sgn > 0 ? '+' : '-'); continue; }
               char line[512];
-              snprintf(line, sizeof(line), "%s|%c|%d %.17g %.17g %.6e\n", Q.name.c_str(), sgn > 0 ? '+' : '-', j, sg.real(),
+              snprintf(line, sizeof(line), "%s|%c|%d %.17g %.17g %.17g\n", Q.name.c_str(), sgn > 0 ? '+' : '-', j, sg.real(),
                        sg.imag(), 1 / std::norm(SCd(d.r, d.i) * SCd(hp.r, hp.i)));
               text += line;
             }

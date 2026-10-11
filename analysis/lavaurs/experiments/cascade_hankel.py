@@ -103,3 +103,28 @@ ranks(Hn[:n1, :len(cols1)], 'level-1 rows, one-step')
 ranks(Hn[:n1], 'level-1 rows, one- and two-step')
 ranks(Hn[n1:], 'level-2 rows, one- and two-step')
 ranks(Hn, 'all rows, all columns')
+# mass weighting (what the area sum sees): absolute descendant masses, no per-row normalization
+np.save(os.path.join(a.dir, 'H.npy'), H)
+print('mass-weighted (absolute masses / block total):')
+n1 = len(rows1); c1 = len(cols1)
+ranks(H[:n1, :c1] / H[:n1, :c1].sum(), 'level-1 rows, one-step suffixes')
+ranks(H[:n1, c1:] / H[:n1, c1:].sum(), 'level-1 rows, two-step suffixes')
+ranks(H[n1:, :c1] / H[n1:, :c1].sum(), 'level-2 rows, one-step suffixes')
+ranks(H[n1:, c1:] / H[n1:, c1:].sum(), 'level-2 rows, two-step suffixes')
+B = np.vstack([H[:n1] / H[:n1].sum(), H[n1:] / H[n1:].sum()])
+ranks(B, 'levels 1+2 rows (each block to unit mass), all suffixes')
+# per-row normalized by the row's total mass, then rows weighted by sqrt(mass share) (a middle ground)
+rt = H.sum(1, keepdims=True); okr = rt[:, 0] > 0
+ranks(H[okr] / rt[okr] * np.sqrt(rt[okr] / rt[okr].sum()), 'all rows, row-normalized x sqrt(mass)')
+# depth saturation of the row space with one-step suffixes: level-1, -2, -3 rows (each block to unit mass)
+rows3 = sorted([s for s in n3 if s in k3], key=lambda s: -n3[s][1])[:300]
+H3 = np.zeros((len(rows3), len(cols1))); c1i = {c: i for i, c in enumerate(cols1)}
+for i, X in enumerate(rows3):
+    for lab, br, c, m, n in k3[X]:
+        if lab in c1i: H3[i, c1i[lab]] += m
+B1, B2 = H[:n1, :c1] / H[:n1, :c1].sum(), H[n1:, :c1] / H[n1:, :c1].sum(); B3 = H3 / H3.sum()
+print('one-step row spaces by depth (mass-weighted; trust ≥ 1e-6, weights printed to 7 digits):')
+ranks(B3, 'level-3 rows (%d)' % len(rows3))
+ranks(np.vstack([B1, B2]), 'levels 1+2 rows')
+ranks(np.vstack([B1, B2, B3]), 'levels 1+2+3 rows')
+ranks(np.vstack([B2, B3]), 'levels 2+3 rows')

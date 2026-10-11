@@ -1914,3 +1914,15 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   analytic, so Galerkin with domain decomposition at D), and chains entering D are summed by the decoration kernel K.
   The B build is then: cell Galerkin with that decomposition and the singular basis at v; 𝓛 from hpre (then from f's
   transfer operator); K for D; the δσ series.
+- **C on true island lineages** (`cascade_hankel.py`, corrected r; rows: 150 level-1 islands, 200 level-2 islands;
+  columns: 136 one-step labels, 618 two-step (l1 ∈ 8 labels) ; near field dropped).  **Caveat for all rank tests so
+  far: ichildren printed weights with %.6e, so singular values below ~1e-7 are print noise** (the 1e-8/1e-10 ranks
+  here and in the earlier one-level tests are not meaningful; now printed with %.17g).  Mass-weighted ranks at
+  1e-2/1e-4/1e-6: level-1 rows one-step 2/6/12, two-step 2/5/7 (deeper suffixes add nothing: context fades);
+  level-2 rows one-step 5/10/17, two-step 10/23/32; levels 1+2, all suffixes 13/27/44 (~8 per decade).  Row spaces by
+  depth (one-step suffixes, 300 level-3 rows added): L1 12, L1+L2 25, L1+L2+L3 34 at 1e-6 (increments 13, 9: sub-
+  additive, shrinking), L3 alone 25.  Consistent with a linear cascade whose state saturates with depth at ~O(n)
+  dimension; not conclusive (moderate samples, 7-digit data).  (Row-normalized ranks, which weight tiny islands
+  like heavy ones, are much higher: 64 at 1e-4 for the level-1 one-step block; mass weighting is what the area sees.)
+- Picture of an island state (`results/island_state_F7.png`, `plot_island_state.py`): log S over the cell (5
+  decades, peaked at the fold), S |y - κ_c|^2 (smooth, ~1 decade), and G on the island in σ (holomorphic).
