@@ -862,6 +862,48 @@ int main(int argc, char** argv) {
     for (const auto& t : out) fputs(t.c_str(), stdout);
     return 0;
   }
+  if (mode == "frozenchk") {
+    // Frozen-renewal check for parent U (level r, centre σ_U) and child W (level r + 1, centre σ_W):
+    //   exact  C_W/C_U ∝ w_W/w_U, w = |Θ' Π H'|^-2
+    //   frozen |H'(x_f)|^-4 with H(x_f) + σ_U = y, y = p_{r+1}(σ_W) the child's landing point
+    // and the exact ratio's factors |H'(x)|^-4 (x = p_r(σ_W)), |Θ_r'(σ_W)/Θ_r'(σ_U)|^-2, |Λ_r(σ_W)/Λ_r(σ_U)|^-2,
+    // |1 + 1/(H'(x) Θ_r'(σ_W))|^-2.  Reads "name r sU_re sU_im sW_re sW_im"; prints
+    // "name |δ| w_U exact frozen f_x f_theta f_lambda f_one".
+    const auto S_ = [](const Cd z) { return SCd(z.r, z.i); };
+    Cd s0, ds, dds;
+    int pv;
+    if (!L.phi_a(L.v, s0, ds, dds, pv)) return 1;
+    char name[256];
+    int r;
+    double a, b, c, d;
+    while (scanf("%255s %d %lf %lf %lf %lf", name, &r, &a, &b, &c, &d) == 6) {
+      const SCd sU(a, b), sW(c, d);
+      Cd tU, dU, ddU, hU, tW1, dW1, ddW1, hW1, tW, dWr, ddW, hW;
+      int petU, petW1, petW;
+      if (!L.theta(Cd(a, b), r, tU, dU, ddU, hU, &petU) || !L.theta(Cd(c, d), r + 1, tW1, dW1, ddW1, hW1, &petW1) ||
+          !L.theta(Cd(c, d), r, tW, dWr, ddW, hW, &petW)) { printf("%s fail theta\n", name); continue; }
+      const double wU = 1 / std::norm(S_(dU) * S_(hU)), wW = 1 / std::norm(S_(dW1) * S_(hW1));
+      const SCd y = S_(tW1) + S_(s0), xe = S_(tW) + S_(s0);
+      Cd h, dh, ddh;
+      int pet2;
+      if (!L.horn(Cd(xe.real(), xe.imag()), petW, h, dh, ddh, pet2)) { printf("%s fail horn\n", name); continue; }
+      const SCd dhe = S_(dh);
+      SCd x = xe;
+      bool ok = false;
+      for (int it = 0; it < 50; it++) {
+        if (!L.horn(Cd(x.real(), x.imag()), petW, h, dh, ddh, pet2)) break;
+        const SCd st = (S_(h) + sU - y) / S_(dh);
+        x -= st;
+        if (std::abs(st) < 1e-14 * (1 + std::abs(x))) break;
+      }
+      ok = L.horn(Cd(x.real(), x.imag()), petW, h, dh, ddh, pet2) && std::abs(S_(h) + sU - y) < 1e-9 * (1 + std::abs(y));
+      if (!ok) { printf("%s fail newton %.3g\n", name, std::abs(S_(h) + sU - y)); continue; }
+      const double fz = 1 / sqr(std::norm(S_(dh))), fx = 1 / sqr(std::norm(dhe));
+      printf("%s %.6e %.6e %.10e %.10e %.10e %.10e %.10e %.10e\n", name, std::abs(sW - sU), wU, wW / wU, fz, fx,
+             1 / std::norm(S_(dWr) / S_(dU)), 1 / std::norm(S_(hW) / S_(hU)), 1 / std::norm(1.0 + 1.0 / (dhe * S_(dWr))));
+    }
+    return 0;
+  }
   if (mode == "tsolve") {
     // Newton on Θ_r(σ) = σ_c + j/q + target shift from a given start (any start, e.g. near a Misiurewicz point, where
     // children's source quadratic does not apply); kept when the landing point reaches the critical point in n_c - j
