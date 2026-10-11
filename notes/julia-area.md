@@ -1868,3 +1868,25 @@ from 1e-12 to 1e-1, so the classification is unambiguous.
   parents are not island parents (census children are not island-local), so Newton finds other zeros.  The clean
   version needs island ancestry (ichildren lineages) and the island coordinate y, where the parent's double pole
   becomes the explicit |y - κ_c|^-2 factor and older ancestors map outside the cell.
+- **Bug: deeper islands were run with the parent's island map.**  `ichildren`'s r is the island map's transit count,
+  level + 1 (level-1 sources were right, r = 2), but `cascade_rank2.py` passed r = 2 for level-2 islands, so its
+  "two-level" matrix repeated the parent's children: **the depth result above (one level 20 → two levels 23 at 1e-6)
+  is void**.  Fixed (r = level + 1) in `cascade_rank2.py` and `cascade_hankel.py`.
+- **The island state is O(n)-dimensional on its cell** (`glavaurs gisland`, `gisland_fit.py`).  In the island's own
+  coordinate y = κ_U(σ) = κ_c + s^2 the island maps 2:1 onto its cell, which is narrower than the lattice suggested:
+  |G| peaks on the sides Re(y - κ_c) = ±1/2 (another critical value there), so the cell is about |Re| ≤ 1/4,
+  |Im| ≲ 2.  Sampling G = (σ - σ_U)(σ - σ_c)/(Θ_{r+1}' Λ_{r+1}) over |Re| ≤ 1/4, |Im| ≤ 1 (both sheets, σ continued
+  along segments from σ_c) and fitting polynomials of degree N in σ (held-out max relative error):
+  level 1 (10 islands): N = 4/8/16/24/32/48 → e.g. F7 0.11, 2.7e-2, 2.6e-4, 3.4e-6, 4.4e-8, 1.2e-10, the others to
+  1e-6..1e-9 at N = 48 (conditioning floors); in s: ~one digit per 5 degrees, steadily.  Level 2 (14 islands, from
+  the top children of F0, F2, F5): 11 converge the same way (e.g. F0#F7#2#+ 3.9e-10, F2#B853#2#+ 1.8e-9 at N = 48);
+  the 3 that do not are shift-0 self/neighbour landings next to a tuning (near field: the singular inner part, layer
+  3).  At |Im| ≤ 2.1 the fits still converge but slower (most to ~1e-5).  So away from the near field an island's
+  state is a holomorphic function on a fixed domain with geometric polynomial approximation: ~1.3 coefficients per bit.
+  (Disks around σ_U are the wrong domain: they leave the island where the parent's transit leaves H's domain.)
+- What B now rests on: (i) the state on the cell (above); (ii) the frozen last step, |log| 0.08 → 0.014 by level
+  (frozenchk's x-shift factor); (iii) the σ-motion expansion, gaining ρ = |δσ|/D per order (branch_test), with the
+  bad share ≈ 2ε³ outside satellites; (iv) the near field and satellites as layer 3 / the CF recursion.  The missing
+  piece is infrastructure: the transfer operator of H on the cell has infinitely many inverse branches (pieces
+  accumulating at ∂dom H), which must come from f's own (parabolic) transfer operator through the Fatou coordinates
+  rather than by enumerating pieces.
