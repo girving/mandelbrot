@@ -501,28 +501,49 @@ __host__ __device__ inline bool gl_island_path(const GLCore& core, const GLIslan
     sg -= res / q1;
     if (cabs(res) < 1e-11 * (1 + cabs(q0))) break;
   }
+  // Predictor-corrector with a resolution test: a step is kept only when the corrector's first Newton step is at
+  // most 1/5 of the predictor's (the path is locally resolved, so the corrector cannot jump to another preimage
+  // branch) and Newton converges; h <= 0.01.  The previous test, |s1 - sg| < 0.25 |sg - σ_c| + 4 sqrt(h |dy/a2|), let
+  // paths jump between branches: 74 of the 1000 tasks of the first 20 q = 2 islands came out wrong against a
+  // conservative reference (some children found twice, some under the wrong label).  The same tracker as the Rust
+  // cascade_core::lavaurs::island_path, whose labels cascade::certify proves (Krawczyk) on all 120 q = 2 islands.
   double h = 1e-6;
-  const double sdy = cabs(dy / J.a2);
+  if (!core.theta(sg, J.r, q0, q1, q2, hp)) return false;
+  Cd d0 = q1;   // κ'(sg)
   while (lam < 1) {
     const double lt = lam + h < 1 ? lam + h : 1;
-    Cd s1 = sg;
-    if (!core.theta(s1, J.r, q0, q1, q2, hp)) return false;
-    s1 += Cd(lt - lam) * dy / q1;   // predictor: dσ/dλ = (y - κ_c)/κ'(σ)
+    const Cd pred = Cd(lt - lam) * dy / d0;   // dσ/dλ = (y - κ_c)/κ'(σ)
+    Cd s1 = sg + pred, dn = d0;
     bool conv = false;
-    for (int it = 0; it < 12; it++) {
+    double first = -1;
+    for (int it = 0; it < 8; it++) {
       if (!core.theta(s1, J.r, q0, q1, q2, hp)) break;
       const Cd res = q0 - (J.kc + Cd(lt) * dy), step = res / q1;
+      if (it == 0) {
+        first = cabs(step) / cabs(pred);
+        if (!(first < 0.2)) break;
+      }
       s1 -= step;
-      if (!(cabs(step) < 0.3 * cabs(s1 - J.sc))) break;
+      dn = q1;
       // near σ_c the roundoff floor is ~1e-16 |κ| / |κ'| with κ' ∝ σ - σ_c: tolerance relative to it
       if (cabs(res) < 1e-11 * (1 + cabs(q0)) || cabs(step) < 1e-13 * (1 + cabs(s1))) { conv = true; break; }
     }
-    if (conv && cabs(s1 - sg) < 0.25 * cabs(sg - J.sc) + 4 * ::sqrt(h * sdy)) {
-      sg = s1; lam = lt; h = 2 * h < 0.05 ? 2 * h : 0.05;
+    if (conv) {
+      sg = s1;
+      lam = lt;
+      d0 = core.theta(sg, J.r, q0, q1, q2, hp) ? q1 : dn;
+      if (first < 0.05) h = 2 * h < 0.01 ? 2 * h : 0.01;
     } else {
-      h *= 0.25;
-      if (h < 1e-12) return false;
+      h *= 0.5;
+      if (h < 1e-14) return false;
     }
+  }
+  // polish the end at λ = 1 to the roundoff floor (the corrector stops at its residual tolerance)
+  for (int it = 0; it < 4; it++) {
+    if (!core.theta(sg, J.r, q0, q1, q2, hp)) return false;
+    const Cd step = (q0 - y) / q1;
+    sg -= step;
+    if (cabs(step) < 1e-15 * (1 + cabs(sg))) break;
   }
   Cd t, d, dd;
   int pet;
