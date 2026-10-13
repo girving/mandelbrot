@@ -638,7 +638,7 @@ rounds.  It was correct but slower (depth 8 19.6 s against 15.1 s): each queue t
 dependent L2 round trips that stalls its warp, and at the occupancy the registers allow (~6 warps per
 scheduler) the stalls are not hidden, where the rounds do the same transitions in bulk.  Lock-free queues
 also needed five fixes (CAS contention, hoisted spin loads, wraparound and segment-sizing deadlocks, a stale
-nonempty bit) before the stress test passed.  The code is in git (0310d03 to dd1fbc1).
+nonempty bit) before the stress test passed.  The code is in git (78847d3 to f2f73a4).
 
 *Russian roulette for deep runs (2026-09-30).*  In the paired deep difference nearly all the cost is long
 orbits, while the variance comes from the first octaves past the split.  So at Newton decision steps
