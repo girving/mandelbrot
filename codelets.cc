@@ -301,6 +301,34 @@ void expansion_arithmetic(const string& path) {
     binary("+", [](const auto& x, const auto& y) { return collange_add(x, y); });
     binary("-", [](const auto& x, const auto& y) { return collange_sub(x, y); });
     binary("*", [](const auto& x, const auto& y) { return collange_mul(x, y); });
+
+    // Mixed with a double: the same algorithms with the double as an expansion padded by zeros, which the
+    // symbolic arithmetic simplifies away (so these are cheaper than promoting the double)
+    const auto mixed = [n](const string& op, const bool double_first, const auto& body) {
+      Blank b;
+      Scope fun("}", double_first ? "__host__ __device__ static inline Expansion<%d>\n"
+                                    "operator%s(const double y, const Expansion<%d> x) {"
+                                  : "__host__ __device__ static inline Expansion<%d>\n"
+                                    "operator%s(const Expansion<%d> x, const double y) {",
+                n, op, n);
+      line("#ifdef __clang__");
+      line("#pragma clang fp reassociate(off)");
+      line("#endif  // __clang__");
+      CSE cse(false);
+      Block B;
+      const auto x = B.inputs("x", n);
+      line("const auto [%s] = x.x;", join(x));
+      Exps y{B.input("y")};
+      while (int(y.size()) < n) y.push_back(Exp(0));
+      const auto s = double_first ? body(y, x) : body(x, y);
+      B.use(s);
+      line("return Expansion<%d>(%s, nonoverlap);", n, join(B.compute(s)));
+    };
+    for (const bool double_first : {false, true}) {
+      mixed("+", double_first, [](const auto& a, const auto& b) { return collange_add(a, b); });
+      mixed("-", double_first, [](const auto& a, const auto& b) { return collange_sub(a, b); });
+      mixed("*", double_first, [](const auto& a, const auto& b) { return collange_mul(a, b); });
+    }
   }
 }
 

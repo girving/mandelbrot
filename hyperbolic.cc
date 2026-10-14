@@ -1,0 +1,328 @@
+// Hyperbolic component centers and areas via multiplier-map continuation
+//
+// For each period p, we find the centers (roots of f_c^p(0)) by Newton from Hubbard-Schleicher-Sutherland
+// starting rings, then for each component continue the solution (z,c) of
+//   f_c^p(z) = z,  (f_c^p)'(z) = λ
+// from λ = 0 to |λ| = 1 in double, polish the boundary points in Expansion<2>, and integrate
+//   area = 1/2 ∮ Im(c̄ dc) = 1/2 ∫ Re(c̄ λ c'(λ)) dθ
+// with the trapezoid rule, which is spectrally accurate since c(λ) is analytic.  Optionally dumps each
+// component's center and area.
+
+#include "complex.h"
+#include "debug.h"
+#include "expansion_arith.h"
+#include "nearest.h"
+#include "print.h"
+#include "wall_time.h"
+#include <algorithm>
+#include <atomic>
+#include <functional>
+#include <thread>
+#include <vector>
+namespace mandelbrot {
+namespace {
+
+using std::function;
+using std::max;
+using std::min;
+using std::vector;
+typedef Expansion<2> E;
+
+// OEIS A000740: number of hyperbolic components of exact period p
+const int a000740[] = {0, 1, 1, 3, 6, 15, 27, 63, 120, 252, 495, 1023, 2010, 4095, 8127, 16365, 32640};
+
+template<class S> Complex<S> cdiv(const Complex<S> a, const Complex<S> b) {
+  const S d = sqr(b.r) + sqr(b.i);
+  const auto n = a * conj(b);
+  return Complex<S>(n.r / d, n.i / d);
+}
+Complex<double> to_double(const Complex<E> z) { return Complex<double>(double(z.r), double(z.i)); }
+Complex<E> to_e(const Complex<double> z) { return Complex<E>(E(z.r), E(z.i)); }
+Complex<double> to_double(const Complex<double> z) { return z; }
+double cabs(const Complex<double> z) { return abs(z); }
+
+// Newton step for g(c) = f_c^p(0)
+template<class S> Complex<S> center_step(const Complex<S> c, const int p) {
+  Complex<S> z = c, dz(1);
+  for (int k = 1; k < p; k++) {
+    // Far from the roots, the remaining iterations are z → z², dz → 2z dz up to O(|c|/|z|²), so
+    // z_p/dz_p = z_k/(2^(p-k) dz_k).  Returning early avoids overflow for large p.
+    if (cabs(to_double(z)) > 1e30) return cdiv(z, ldexp(dz, p - k));
+    dz = twice(z * dz) + Complex<S>(1);
+    z = sqr(z) + c;
+  }
+  return cdiv(z, dz);
+}
+
+struct Centers {
+  vector<Complex<E>> c;  // Exact period p only
+  int distinct;          // Distinct roots of f_c^p(0) over all periods dividing p
+  int starts;
+  double max_step;       // Size of the final Expansion<2> Newton step
+};
+
+// Run f(i) for i in [0,n) on all cores
+void parallel_for(const int64_t n, const function<void(int64_t)>& f) {
+  const int threads = max(1u, std::thread::hardware_concurrency());
+  std::atomic<int64_t> next(0);
+  vector<std::thread> pool;
+  for (int t = 0; t < threads; t++)
+    pool.emplace_back([&]() {
+      for (int64_t i; (i = next++) < n;) f(i);
+    });
+  for (auto& t : pool) t.join();
+}
+
+Centers centers(const int p) {
+  const int d = 1 << (p - 1);  // Degree of f_c^p(0)
+  const double pi = M_PI;
+
+  // Newton from rings just outside the root disk |c| <= 2, adding rings until all d roots are found.
+  // (Hubbard-Schleicher-Sutherland rings far outside cost ~d iterations per start to crawl inward.)
+  const int n = max(16, 4*d);
+  vector<Complex<double>> found;
+  int starts = 0, distinct = 0;
+  const double radii[] = {2.2, 2.6, 3.2, 4.0, 5.0, 2.4, 2.9, 3.6};
+  vector<Complex<double>> roots;
+  for (int ring = 0; ring < 8 && distinct < d; ring++) {
+    const double r = radii[ring], offset = ring * 0.6180339887498949;
+    vector<Complex<double>> c(n);
+    vector<char> ok(n);
+    parallel_for(n, [&](const int64_t j) {
+      const double t = 2 * pi * (j + offset) / n;
+      Complex<double> x(r * std::cos(t), r * std::sin(t));
+      for (int it = 0; it < 2*d + 2000; it++) {
+        const auto dc = center_step(x, p);
+        x -= dc;
+        if (!(cabs(dc) < 1e3)) break;
+        if (cabs(dc) < 1e-15 * max(1.0, cabs(x))) { ok[j] = 1; break; }
+      }
+      c[j] = x;
+    });
+    starts += n;
+    for (int64_t j = 0; j < n; j++)
+      if (ok[j]) found.push_back(c[j]);
+
+    // Deduplicate: sort by real part and compare against recent uniques within the tolerance
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.r < b.r; });
+    roots.clear();
+    const double tol = 1e-12;
+    for (const auto& x : found) {
+      bool dup = false;
+      for (int64_t k = int64_t(roots.size()) - 1; k >= 0 && roots[k].r > x.r - tol; k--)
+        if (cabs(x - roots[k]) < tol) { dup = true; break; }
+      if (!dup) roots.push_back(x);
+    }
+    found = roots;
+    distinct = int(roots.size());
+  }
+
+// Keep exact period p: reject if f_c^k(0) ≈ 0 for a proper divisor k
+  Centers C;
+  C.distinct = distinct;
+  C.starts = starts;
+  C.max_step = 0;
+  vector<Complex<double>> exact;
+  for (const auto& c : roots) {
+    Complex<double> z = c;
+    bool lower = false;
+    for (int k = 1; k < p; k++) {
+      if (p % k == 0 && cabs(z) < 1e-8) { lower = true; break; }
+      z = sqr(z) + c;
+    }
+    if (!lower) exact.push_back(c);
+  }
+  C.c.resize(exact.size());
+  vector<double> steps(exact.size());
+  parallel_for(exact.size(), [&](const int64_t i) {
+    auto ce = to_e(exact[i]);
+    for (int it = 0; it < 3; it++) {
+      const auto dc = center_step(ce, p);
+      ce -= dc;
+      if (it == 2) steps[i] = cabs(to_double(dc));
+    }
+    C.c[i] = ce;
+  });
+  for (const double x : steps) C.max_step = max(C.max_step, x);
+  return C;
+}
+
+// One Newton step for (z,c) at multiplier lam.  Returns the step size and residual; sets dc_dlam = c'(λ).
+template<class S> struct NewtonResult { double step, residual; Complex<S> dc_dlam; };
+
+template<class S> NewtonResult<S> boundary_step(Complex<S>& z, Complex<S>& c, const Complex<S> lam, const int p) {
+  typedef Complex<S> C;
+  C zk = z, dzz(1), dzc(0), P(1), dPz(0), dPc(0);
+  for (int k = 0; k < p; k++) {
+    const C P2 = twice(zk * P);
+    dPz = twice(dzz * P + zk * dPz);
+    dPc = twice(dzc * P + zk * dPc);
+    P = P2;
+    dzz = twice(zk * dzz);
+    dzc = twice(zk * dzc) + C(1);
+    zk = sqr(zk) + c;
+  }
+  const C F1 = zk - z, F2 = P - lam;
+  const C a = dzz - C(1), b = dzc, cc = dPz, d = dPc;
+  const C det = a * d - b * cc;
+  const C dz = cdiv(d * F1 - b * F2, det), dc = cdiv(a * F2 - cc * F1, det);
+  z -= dz;
+  c -= dc;
+  const double step = max(cabs(to_double(dz)), cabs(to_double(dc)));
+  const double res = max(cabs(to_double(F1)), cabs(to_double(F2)));
+  return {step, res, cdiv(a, det)};  // J (z',c') = (0,1)  =>  c' = a / det
+}
+
+struct Area {
+  bool ok;
+  double area_d, res_d;  // Double: area, max final residual
+  E area_e;              // Expansion<2> area
+  double res_e;          // Max final Expansion<2> residual
+  double dc2, perimeter; // ∫|c'(e^{iθ})|^2 dθ and ∫|c'(e^{iθ})| dθ, in double
+};
+
+// Area of the period p component with center c0, using N boundary points
+Area area(const Complex<E> c0, const int p, const int N, const vector<Complex<E>>& lams,
+          const E pi, const int steps = 60) {
+  Area A{true, 0, 0, E(0), 0, 0, 0};
+  E sum_e(0);
+  double sum_d = 0;
+  const Complex<double> c0d = to_double(c0);
+  for (int j = 0; j < N; j++) {
+    const auto lam_e = lams[j];
+    const auto lam_d = to_double(lam_e);
+    // Continue radially in double
+    Complex<double> z(0), c = c0d;
+    NewtonResult<double> r{0, 0, Complex<double>(0)};
+    for (int t = 1; t <= steps; t++) {
+      const auto lam = (double(t) / steps) * lam_d;
+      for (int it = 0; it < 8; it++) {
+        r = boundary_step(z, c, lam, p);
+        if (!(r.step < 1e3)) { A.ok = false; return A; }
+        if (r.step < 1e-15) break;
+      }
+    }
+    // One more step to get residual and c'(λ) at the final point
+    // Double only needs to land in Newton's basin; convergence is judged after the Expansion<2> polish.
+    r = boundary_step(z, c, lam_d, p);
+    if (!(r.residual < 1e-6)) { A.ok = false; return A; }
+    A.res_d = max(A.res_d, r.residual);
+    sum_d += (conj(c) * r.dc_dlam * lam_d).r;
+    A.dc2 += sqr_abs(r.dc_dlam);
+    A.perimeter += abs(r.dc_dlam);
+
+    // Polish in Expansion<2>
+    auto ze = to_e(z), ce = to_e(c);
+    NewtonResult<E> re{0, 0, Complex<E>(0)};
+    for (int it = 0; it < 3; it++)
+      re = boundary_step(ze, ce, lam_e, p);
+    re = boundary_step(ze, ce, lam_e, p);  // Residual and c'(λ) at the polished point
+    if (!(re.residual < 1e-20)) { A.ok = false; return A; }
+    A.res_e = max(A.res_e, re.residual);
+    sum_e += (conj(ce) * re.dc_dlam * lam_e).r;
+  }
+  A.area_d = M_PI * sum_d / N;
+  A.dc2 *= 2 * M_PI / N;
+  A.perimeter *= 2 * M_PI / N;
+  A.area_e = pi * sum_e / E(int64_t(N));
+  return A;
+}
+
+vector<Complex<E>> lambdas(const int N) {
+  // λ_j = exp(2πi (j + 1/2) / N), offset by a half step so we never hit the root λ = 1
+  vector<Complex<E>> lams(N);
+  for (int j = 0; j < N; j++)
+    lams[j] = nearest_twiddle<E>(2*j + 1, 2*N);
+  return lams;
+}
+
+void run(const int min_p, const int max_p, const int N, FILE* dump) {
+  const auto pi = nearest_pi<E>();
+  auto t0 = wall_time();
+  const auto lams = lambdas(N), lams2 = lambdas(2*N);
+  print("twiddles for N = %d, %d: %.3f s", N, 2*N, (wall_time() - t0).seconds());
+
+  E cum(0);
+  for (int p = min_p; p <= max_p; p++) {
+    t0 = wall_time();
+    const auto C = centers(p);
+    const double tc = (wall_time() - t0).seconds();
+    const int want = a000740[p];
+    print("p = %d: %d starts, %d distinct roots (want %d), %d exact-period centers (want %d), "
+          "max final center step %.1e, %.3f s",
+          p, C.starts, C.distinct, 1 << (p - 1), int(C.c.size()), want, C.max_step, tc);
+    slow_assert(C.distinct == (1 << (p - 1)) && int(C.c.size()) == want, "center count mismatch at p = %d", p);
+
+    t0 = wall_time();
+    double sum_d = 0, res_d = 0, res_e = 0, dc2 = 0, perimeter = 0;
+    E sum_e(0);
+    int failed = 0;
+    vector<Area> As(C.c.size());
+    parallel_for(C.c.size(), [&](const int64_t i) { As[i] = area(C.c[i], p, N, lams, pi); });
+    for (size_t i = 0; i < As.size(); i++) {
+      const auto& A = As[i];
+      if (!A.ok) {
+        failed++;
+        print("  FAILED to converge: center %s", to_double(C.c[i]));
+        continue;
+      }
+      sum_d += A.area_d;
+      sum_e += A.area_e;
+      if (dump) {
+        const auto c = to_double(C.c[i]);
+        fprintf(dump, "%d %.17g %.17g %.17g\n", p, c.r, c.i, double(A.area_e));
+      }
+      dc2 += A.dc2;
+      perimeter += A.perimeter;
+      res_d = max(res_d, A.res_d);
+      res_e = max(res_e, A.res_e);
+    }
+    const double ta = (wall_time() - t0).seconds();
+
+    // Trapezoid convergence check at 2N, only for the top period since it doubles the cost
+    t0 = wall_time();
+    string check = "skipped";
+    if (p == max_p) {
+      E sum2(0);
+      vector<Area> As2(C.c.size());
+      parallel_for(C.c.size(), [&](const int64_t i) { As2[i] = area(C.c[i], p, 2*N, lams2, pi); });
+      for (const auto& A : As2)
+        if (A.ok) sum2 += A.area_e;
+      check = tfm::format("%.2e", double(sum2 - sum_e));
+    }
+    const double t2 = (wall_time() - t0).seconds();
+
+    cum += sum_e;
+    print("  area exp2 %s", safe(sum_e));
+    print("  area dbl  %.17g,  exp2 - dbl %.2e,  2N - N (exp2) %s", sum_d, double(sum_e - E(sum_d)), check);
+    print("  cum from p = %d %.15g,  max resid dbl %.1e exp2 %.1e,  failed %d,  area %.3f s, 2N check %.3f s",
+          min_p, double(cum), res_d, res_e, failed, ta, t2);
+    print("  sum of ∫|c'|^2 dθ %.10e,  p * that %.10e,  perimeter %.10e", dc2, p * dc2, perimeter);
+    if (p == 1) print("  cardioid err vs 3π/8: %.2e", double(sum_e - E(3) * pi / E(int64_t(8))));
+    if (p == 2) print("  disk err vs π/16: %.2e", double(sum_e - pi / E(int64_t(16))));
+  }
+}
+
+}  // namespace
+}  // namespace mandelbrot
+
+int main(const int argc, const char** argv) {
+  using namespace mandelbrot;
+  try {
+    const int max_p = argc > 1 ? atoi(argv[1]) : 8;
+    const int N = argc > 2 ? atoi(argv[2]) : 1024;
+    const int min_p = argc > 3 ? atoi(argv[3]) : 1;
+    slow_assert(1 <= min_p && min_p <= max_p && max_p <= 16 && N >= 16,
+                "usage: %s [max_p <= 16] [N] [min_p] [dump.txt]", argv[0]);
+    // Optional per-component dump: lines "period center.re center.im area"
+    FILE* dump = argc > 4 ? fopen(argv[4], "w") : nullptr;
+    slow_assert(argc <= 4 || dump, "can't open %s", argv[4]);
+    const auto t0 = wall_time();
+    run(min_p, max_p, N, dump);
+    if (dump) fclose(dump);
+    print("total %.3f s", (wall_time() - t0).seconds());
+    return 0;
+  } catch (const std::exception& e) {
+    die(e.what());
+  }
+}

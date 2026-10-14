@@ -42,6 +42,7 @@ void print() { print(""); }
 
 void print(const string& s) {
   printf("%s\n", s.c_str());
+  fflush(stdout);  // Line by line even into pipes, so that a run killed by a timeout keeps its output
   tee_print(s);
 }
 

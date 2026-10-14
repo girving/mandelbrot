@@ -1,0 +1,150 @@
+# Renormalization cascade: satellite bulb areas (analysis/bulb_areas, analysis/satellite_tree, analysis/bulb_cascade.py)
+# local, 10 threads; lists from 'bulb_cascade.py lists DIR'; e.g. bulb_areas 1 0 0 64 < all128.txt > card.out
+
+=== ./build/release/hyperbolic 16 256 1 comp16.txt; ./build/release/satellite_tree comp16.txt
+period  components  total area       satellite tree   in copies        unresolved  (copy area by ancestor period)
+   1         1     1.1780972451e+00  1.1780972451e+00  0.0000000000e+00  0   
+   2         1     1.9634954085e-01  1.9634954085e-01  0.0000000000e+00  0   
+   3         3     5.6542418128e-02  5.6136003481e-02  4.0641464714e-04  0    3:4.06e-04
+   4         6     2.3275137696e-02  2.3110028210e-02  1.6510948678e-04  0    4:1.65e-04
+   5        15     1.3115067479e-02  1.2992692500e-02  1.2237497851e-04  0    5:1.22e-04
+   6        27     8.9347905312e-03  8.8076142357e-03  1.2717629554e-04  0    3:5.93e-05 6:6.78e-05
+   7        63     5.0579290707e-03  5.0047754641e-03  5.3153606685e-05  0    7:5.32e-05
+   8       120     4.4680135380e-03  4.4014763576e-03  6.6537180433e-05  0    4:2.47e-05 8:4.18e-05
+   9       252     2.9364313950e-03  2.8831272370e-03  5.3304157961e-05  0    3:1.89e-05 9:3.44e-05
+  10       495     2.6609263169e-03  2.6184118556e-03  4.2514461345e-05  0    5:1.92e-05 10:2.33e-05
+  11      1023     1.3827991289e-03  1.3638336171e-03  1.8965511733e-05  0    11:1.90e-05
+  12      2010     2.1014399159e-03  2.0521144592e-03  4.9323490794e-05  4    3:7.69e-06 4:7.80e-06 6:1.03e-05 12:2.36e-05
+  13      4095     8.5107478580e-04  8.3934557042e-04  1.1729215380e-05  0    13:1.17e-05
+  14      8127     1.1339223204e-03  1.1140505370e-03  1.9866030230e-05  14    7:8.72e-06 14:1.11e-05
+  15     16365     9.4487534275e-04  9.2006830762e-04  2.4806845660e-05  2    3:4.36e-06 5:5.87e-06 15:1.46e-05
+  16     32640     8.9281235305e-04  8.7327114019e-04  1.9526625713e-05  54    4:3.16e-06 8:6.58e-06 16:9.79e-06
+total   1.498744423947  satellite tree 1.497563598917 (99.9212%)  copies 0.001180802534 (0.0788%)
+
+=== bulb_cascade.py fade (bulb_areas 1 0 0 128 < fade.txt)
+suffix family, L: spread of F over first digits [1, 2, 3, 5, 10], mean, shape (F(a)-F(10))/(F(1)-F(10)) for a = 2,3,5
+  ones L= 0  spread 2.59e-01  mean 1.10085019  shape 0.7109 0.4674 0.1994
+  ones L= 1  spread 2.21e-01  mean 1.16676018  shape 0.6006 0.3727 0.1527
+  ones L= 2  spread 1.73e-01  mean 1.23126555  shape 0.5494 0.3304 0.1337
+  ones L= 3  spread 1.08e-01  mean 1.27212111  shape 0.5133 0.2990 0.1176
+  ones L= 4  spread 6.63e-02  mean 1.29949198  shape 0.4983 0.2883 0.1138
+  ones L= 5  spread 3.66e-02  mean 1.31463935  shape 0.4807 0.2731 0.1058
+  ones L= 6  spread 2.05e-02  mean 1.32356059  shape 0.4777 0.2719 0.1062
+  ones L= 7  spread 1.07e-02  mean 1.32817864  shape 0.4681 0.2633 0.1015
+  ones L= 8  spread 5.80e-03  mean 1.33075793  shape 0.4691 0.2651 0.1032
+  ones L= 9  spread 2.97e-03  mean 1.33205430  shape 0.4627 0.2592 0.0997
+  ones L=10  spread 1.58e-03  mean 1.33276185  shape 0.4652 0.2620 0.1018
+  ones L=11  spread 7.97e-04  mean 1.33311272  shape 0.4602 0.2573 0.0989
+  ones L=12  spread 4.20e-04  mean 1.33330214  shape 0.4633 0.2605 0.1011
+  twos L= 0  spread 2.59e-01  mean 1.10085019  shape 0.7109 0.4674 0.1994
+  twos L= 1  spread 1.95e-01  mean 1.22142374  shape 0.5303 0.3113 0.1223
+  twos L= 2  spread 8.54e-02  mean 1.29122508  shape 0.4746 0.2674 0.1025
+  twos L= 3  spread 3.01e-02  mean 1.31921976  shape 0.4483 0.2472 0.0933
+  twos L= 4  spread 9.75e-03  mean 1.32884825  shape 0.4385 0.2399 0.0903
+  twos L= 5  spread 2.99e-03  mean 1.33189673  shape 0.4327 0.2354 0.0882
+  twos L= 6  spread 9.07e-04  mean 1.33283192  shape 0.4309 0.2343 0.0879
+  twos L= 7  spread 2.69e-04  mean 1.33311259  shape 0.4287 0.2325 0.0870
+  rand L= 0  spread 2.65e-01  mean 1.14227730  shape 0.6121 0.3807 0.1572
+  rand L= 1  spread 8.70e-02  mean 1.27096632  shape 0.4363 0.2364 0.0872
+  rand L= 2  spread 3.18e-02  mean 1.29644117  shape 0.4144 0.2217 0.0819
+  rand L= 3  spread 1.00e-02  mean 1.30879847  shape 0.3946 0.2055 0.0734
+  rand L= 4  spread 1.53e-03  mean 1.31066341  shape 0.3959 0.2076 0.0753
+  rand L= 5  spread 7.81e-04  mean 1.29435185  shape 0.3909 0.2033 0.0728
+  rand L= 6  spread 1.76e-04  mean 1.31256342  shape 0.4016 0.2128 0.0785
+  ones: spread ∝ q_suffix^-1.271
+  twos: spread ∝ q_suffix^-1.312
+  rand: spread ∝ q_suffix^-1.352
+
+=== bulb_cascade.py levels (bulb_areas P center 64 < all40.txt, per parent)
+R = F / F_cardioid for the bulbs of other parents (q ≤ 40):
+  parent (period, center)          mid |R-1| median  max     R(1/n), n = 5,10,20,40       R((n-1)/n)
+  1-3-bulb-1-2-child               6.0e-04         1.7e-03  0.9505 0.9356 0.9472 0.9622   0.9523 0.9361 0.9473 0.9622
+  1-3-bulb                         1.6e-03         4.4e-03  0.9301 0.9135 0.9316 0.9509   0.9443 0.9158 0.9301 0.9483
+  1-4-bulb                         2.1e-03         5.9e-03  0.9195 0.9030 0.9244 0.9459   0.9427 0.9064 0.9217 0.9413
+  2-5-bulb                         2.5e-03         7.2e-03  0.9263 0.8983 0.9180 0.9395   0.9246 0.8980 0.9182 0.9399
+  2-disk-1-2-child                 6.4e-04         1.8e-03  0.9500 0.9359 0.9474 0.9622   0.9500 0.9359 0.9474 0.9622
+  2-disk                           7.2e-04         2.0e-03  0.9466 0.9348 0.9473 0.9623   0.9466 0.9348 0.9473 0.9623
+  airplane                         1.6e-04         5.0e-04  0.9967 0.9972 0.9986 0.9989   0.9967 0.9972 0.9986 0.9989
+
+=== bulb_cascade.py psi (bulb_areas 1 0 0 64 < all128.txt)
+median spread of F in 50 bins of x = p/q              (q ≥ 100): 0.1709
+median spread of F in 50 bins of y = (p^-1 mod q)/q   (q ≥ 100): 0.0113
+F̄(q): 8:1.11871 16:1.20523 32:1.22259 64:1.25466 96:1.23794 127:1.25200 128:1.22579
+tail Σ_{64<q≤128} A = 1.070845e-04 from q ≤ 64 data, constant F̄: rel err -8.4e-03
+tail Σ_{64<q≤128} A = 1.070845e-04 from q ≤ 64 data, drift 1.2755 -0.3171 q^-0.54: rel err 5.2e-03
+cardioid bulbs through q =  16: 0.291066792744
+cardioid bulbs through q =  32: 0.292752823789
+cardioid bulbs through q =  64: 0.293158502738
+cardioid bulbs through q = 128: 0.293265587264
+
+=== bulb_cascade.py modes (bulb_areas 1 0 0 128 < modes.txt; 872 bulbs, q ≤ 40000, 53 s)
+max |F(p/q) - F((q-p)/q)| (accuracy): 1.1e-09
+family [1]^L + [2], L = 0..16: singular values of D 9.4e-01 4.0e-02 1.0e-02 2.9e-04 6.2e-05 5.0e-06
+  row norms |D[L]|: 5.6e-01 5.3e-01 4.3e-01 2.8e-01 1.7e-01 9.6e-02 5.3e-02 2.8e-02 1.5e-02 7.9e-03 4.1e-03 2.1e-03 1.1e-03 5.6e-04 2.9e-04 1.5e-04 7.6e-05
+  K=1 from L=0: λ = 0.7971   max residual 3.9e-02
+  K=1 from L=2: λ = 0.6274   max residual 5.3e-03
+  K=2 from L=0: λ = 0.5526+0.1503i  0.5526-0.1503i   max residual 5.6e-03
+  K=2 from L=2: λ = 0.4844+0.0450i  0.4844-0.0450i   max residual 1.2e-03
+  K=3 from L=0: λ = 0.5199+0.1283i  0.5199-0.1283i  -0.4481   max residual 1.1e-03
+  K=3 from L=2: λ = -0.5114  0.4723+0.0460i  0.4723-0.0460i   max residual 8.5e-05
+  K=4 from L=0: λ = 0.5188  -0.4544  0.3576+0.1053i  0.3576-0.1053i   max residual 9.3e-05
+  K=4 from L=2: λ = -0.5208  0.5011  0.4037  0.0137   max residual 1.6e-05
+  block contraction Π y_i^2 = 0.38197; best fit (K=4 from L=2): γ = log|λ| / log(Π y_i^2) = 0.678 0.718 0.943 4.458
+family [2]^L + [2], L = 0..9: singular values of D 7.7e-01 4.3e-02 5.7e-04 5.3e-05 1.4e-05 2.6e-07
+  row norms |D[L]|: 5.6e-01 4.9e-01 2.2e-01 8.0e-02 2.6e-02 8.0e-03 2.4e-03 7.2e-04 2.2e-04 6.3e-05
+  K=1 from L=0: λ = 0.6613   max residual 3.7e-02
+  K=1 from L=2: λ = 0.3550   max residual 8.6e-04
+  K=2 from L=0: λ = 0.2845+0.1287i  0.2845-0.1287i   max residual 1.0e-03
+  K=2 from L=2: λ = 0.2947  0.1697   max residual 2.9e-05
+  K=3 from L=0: λ = 0.3544  0.1776+0.1590i  0.1776-0.1590i   max residual 1.2e-04
+  K=3 from L=2: λ = -0.3031  0.2944  0.1620   max residual 2.7e-07
+  K=4 from L=0: λ = -0.4932  0.2920  0.1313+0.0141i  0.1313-0.0141i   max residual 2.3e-05
+  K=4 from L=2: λ = 0.2950  -0.2921  0.1584  0.0443   max residual 7.0e-08
+  block contraction Π y_i^2 = 0.17157; best fit (K=4 from L=2): γ = log|λ| / log(Π y_i^2) = 0.693 0.698 1.045 1.768
+family [3]^L + [2], L = 0..6: singular values of D 7.0e-01 4.4e-02 1.0e-03 1.4e-05 4.7e-07 4.3e-08
+  row norms |D[L]|: 5.6e-01 4.1e-01 1.2e-01 2.6e-02 5.4e-03 1.1e-03 2.1e-04
+  K=1 from L=0: λ = 0.5677   max residual 3.3e-02
+  K=1 from L=2: λ = 0.2220   max residual 1.7e-04
+  K=2 from L=0: λ = 0.1652+0.0763i  0.1652-0.0763i   max residual 4.9e-04
+  K=2 from L=2: λ = 0.1948  0.0796   max residual 3.5e-06
+  K=3 from L=0: λ = 0.1565+0.0268i  0.1565-0.0268i  -0.0648   max residual 4.4e-05
+  K=3 from L=2: λ = 0.1943  -0.1892  0.0826   max residual 1.7e-07
+  K=4 from L=0: λ = 0.1953  -0.1151  0.0579+0.0072i  0.0579-0.0072i   max residual 3.4e-07
+  block contraction Π y_i^2 = 0.09167; best fit (K=3 from L=2): γ = log|λ| / log(Π y_i^2) = 0.686 0.697 1.044
+family [1, 2]^L + [2], L = 0..6: singular values of D 6.3e-01 2.7e-02 5.5e-04 5.9e-06 1.5e-07 2.2e-09
+  row norms |D[L]|: 5.6e-01 2.9e-01 6.6e-02 1.2e-02 1.9e-03 2.9e-04 4.4e-05
+  K=1 from L=0: λ = 0.4586   max residual 2.4e-02
+  K=1 from L=2: λ = 0.1755   max residual 7.4e-05
+  K=2 from L=0: λ = 0.1344+0.0719i  0.1344-0.0719i   max residual 3.4e-04
+  K=2 from L=2: λ = 0.1409+0.0361i  0.1409-0.0361i   max residual 3.6e-06
+  K=3 from L=0: λ = 0.1839  0.0716+0.0809i  0.0716-0.0809i   max residual 1.9e-05
+  K=3 from L=2: λ = 0.1546+0.0157i  0.1546-0.0157i  0.0657   max residual 4.4e-09
+  K=4 from L=0: λ = 0.1656+0.0237i  0.1656-0.0237i  0.0420+0.0318i  0.0420-0.0318i   max residual 1.7e-07
+  block contraction Π y_i^2 = 0.07180; best fit (K=3 from L=2): γ = log|λ| / log(Π y_i^2) = 0.707 0.707 1.033
+family [4]^L + [3], L = 0..5: singular values of D 6.5e-01 1.7e-02 3.1e-04 5.1e-06 5.6e-08 2.6e-09
+  row norms |D[L]|: 6.0e-01 2.3e-01 4.2e-02 6.2e-03 9.1e-04 1.3e-04
+  K=1 from L=0: λ = 0.3555   max residual 1.4e-02
+  K=1 from L=2: λ = 0.1479   max residual 2.3e-05
+  K=2 from L=0: λ = 0.1290  0.0787   max residual 1.7e-04
+  K=2 from L=2: λ = 0.1472  -0.1066   max residual 2.9e-06
+  K=3 from L=0: λ = -0.1981  0.1282  0.0762   max residual 1.2e-05
+  K=4 from L=0: λ = -0.1468  0.1398  0.0532  -0.0012   max residual 1.6e-07
+  block contraction Π y_i^2 = 0.05573; best fit (K=2 from L=2): γ = log|λ| / log(Π y_i^2) = 0.663 0.775
+
+=== bulb_cascade.py telescope (bulb_areas 1 0 0 64 < all128.txt, cusp coordinates)
+G check: Σ_{a≥2} a^-4 G(1/a) - (π/2)(ζ(3) - 1)/ζ(4) = -1.7e-16
+  Q    direct Σ_{q≤Q} area     telescoped Σ_{q≤Q} Δ G / q^4
+    8  0.285623092083565   0.291907448038768
+   16  0.291066792743567   0.293049050898291
+   32  0.292752823788661   0.293267414766761
+   64  0.293158502738474   0.293297111640383
+   96  0.293237149366417   0.293300245393830
+  128  0.293265587263625   0.293301005677038
+
+=== bulb_cascade.py large (bulb_areas 1 0 0 128 < large.txt)
+F(1/n)     4:0.9912407108 8:1.0643847757 16:1.0853056736 32:1.0840037661 64:1.0819568816 128:1.0811674155 256:1.0809233716 512:1.0808510666 1024:1.0808288543 2048:1.0808214215 4096:1.0808186469 8192:1.0808174981 16384:1.0808169837
+           differences at doubling n: 7.31e-02 2.09e-02 -1.30e-03 -2.05e-03 -7.89e-04 -2.44e-04 -7.23e-05 -2.22e-05 -7.43e-06 -2.77e-06 -1.15e-06 -5.14e-07; ratios 3.50 -16.07 0.64 2.59 3.23 3.38 3.26 2.99 2.68 2.42 2.23
+F([2, n])  4:1.1221600960 8:1.1366985890 16:1.1098973555 32:1.0861204473 64:1.0729565774 128:1.0663798644 256:1.0631402585 512:1.0615387583 1024:1.0607433504 2048:1.0603470775 4096:1.0601493095 8192:1.0600505217
+           differences at doubling n: 1.45e-02 -2.68e-02 -2.38e-02 -1.32e-02 -6.58e-03 -3.24e-03 -1.60e-03 -7.95e-04 -3.96e-04 -1.98e-04 -9.88e-05; ratios -0.54 1.13 1.81 2.00 2.03 2.02 2.01 2.01 2.00 2.00
+F([n, 2])  4:1.1447790406 8:1.2129575583 16:1.2357196757 32:1.2393793532 64:1.2395289421 128:1.2394308927 256:1.2393859120 512:1.2393711315 1024:1.2393665414 2048:1.2393650571 4096:1.2393645316 8192:1.2393643248
+           differences at doubling n: 6.82e-02 2.28e-02 3.66e-03 1.50e-04 -9.80e-05 -4.50e-05 -1.48e-05 -4.59e-06 -1.48e-06 -5.25e-07 -2.07e-07; ratios 3.00 6.22 24.46 -1.53 2.18 3.04 3.22 3.09 2.82 2.54
